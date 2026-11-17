@@ -1,0 +1,6 @@
+{
+  "name": "ApexHealth Enterprise Clinical OS - Hospital Management System",
+  "description": "Comprehensive Hospital Management System inspired by Epic, Cerner, Athenahealth, and Odoo Medical: universal triage-first intake, longitudinal EHR, 10 clinical departments, physician SOAP & DDx evaluation, LIS & PACS, ward bed tracking, e-prescriptions, itemized billing, and telehealth.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
