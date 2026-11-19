@@ -21,14 +21,13 @@ export function Avatar({ name, size = 'md', accent, className = '', style, ...pr
 export function Brand({ compact = false, light = false }: { compact?: boolean; light?: boolean }) {
   return (
     <div className="brand">
-      <span className={`brand-mark ${light ? 'brand-mark-light' : ''}`}>
-        <Building2 size={19} strokeWidth={1.9} />
-        <span />
+      <span className={`brand-mark ${light ? 'brand-mark-light' : ''}`} aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="22" height="22"><path d="M8 34h12l4-12 8 22 6-16 4 6h14" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </span>
       {!compact && (
         <span className="brand-copy">
           <strong>Northstar</strong>
-          <span>CareOS · University Hospital</span>
+          <span>CareOS · Unified care platform</span>
         </span>
       )}
     </div>

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Clock3, Download, Eye, FileCheck2, FlaskConical, Play, Plus, ScanLine, Siren } from 'lucide-react'
 import { OrderModal, ResultModal } from '../components/ClinicalModals'
-import { Button, DetailGrid, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { Button, DetailGrid, EmptyState, FilterSelect, Metric, Modal, OrderStepper, PageHeader, Panel, PersonCell, SearchField, Tabs } from '../components/ui'
+import { ORDER_STAGES, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { downloadCsv, formatDateTime, formatWait, relativeTime, today } from '../lib/format'
 import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
@@ -13,7 +14,7 @@ const PRIORITY_RANK = { emergent: 0, urgent: 1, routine: 2 }
 const STATUS_RANK = { 'in-progress': 0, ordered: 1, completed: 2 }
 
 export default function LabImagingView() {
-  const { state, profile, can, updateOrder, setSelectedPatientId } = useHospital()
+  const { state, profile, currentRole, can, advanceOrder, setSelectedPatientId } = useHospital()
   const patients = usePatients()
   const now = useNow()
   const [view, setView] = useState<View>(profile?.department === 'radiology' ? 'Imaging' : 'Laboratory')
@@ -22,7 +23,6 @@ export default function LabImagingView() {
   const [ordering, setOrdering] = useState(false)
   const [reporting, setReporting] = useState<ClinicalOrder | null>(null)
   const [viewing, setViewing] = useState<ClinicalOrder | null>(null)
-  const canReport = can('results')
   const canOrder = can('refer') || can('triage') || can('manage')
 
   const ofKind = state.orders.filter((order) => order.kind === view)
@@ -42,12 +42,15 @@ export default function LabImagingView() {
   ])
 
   const actionFor = (order: ClinicalOrder) => {
-    if (order.status === 'completed') return <Button size="sm" variant="secondary" icon={Eye} onClick={() => setViewing(order)}>Result</Button>
-    if (!canReport) return <span className="muted-text">Awaiting {view === 'Imaging' ? 'radiology' : 'laboratory'}</span>
-    return order.status === 'ordered'
-      ? <Button size="sm" variant="secondary" icon={Play} onClick={() => updateOrder(order.id, 'in-progress')}>Start</Button>
-      : <Button size="sm" icon={FileCheck2} onClick={() => setReporting(order)}>Report</Button>
+    const stage = orderStage(order)
+    const stages = ORDER_STAGES[order.kind]
+    const result = order.result ? <Button size="sm" variant="ghost" icon={Eye} onClick={() => setViewing(order)}>Result</Button> : null
+    if (!currentRole || !canAdvanceOrder(order, currentRole)) return result ?? <span className="muted-text">{stage === stages.length - 1 ? 'Complete' : `Awaiting ${view === 'Imaging' ? 'radiology' : 'laboratory'}`}</span>
+    return <>{needsResult(order)
+      ? <Button size="sm" icon={FileCheck2} onClick={() => setReporting(order)}>{view === 'Imaging' ? 'Report' : 'Enter result'}</Button>
+      : <Button size="sm" variant={stage === stages.length - 2 ? 'primary' : 'secondary'} icon={Play} onClick={() => updateAndKeep(order)}>Mark {stages[stage + 1].toLowerCase()}</Button>}{result}</>
   }
+  const updateAndKeep = (order: ClinicalOrder) => advanceOrder(order.id)
 
   return (
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -76,11 +79,11 @@ export default function LabImagingView() {
       <Panel>
         <div className="table-toolbar">
           <SearchField value={query} onChange={setQuery} placeholder={`Search ${view === 'Imaging' ? 'studies' : 'tests'}, patients or clinicians…`} />
-          <FilterSelect label="All statuses" value={status} onChange={setStatus} options={[{ value: 'active', label: 'Open orders' }, { value: 'ordered', label: 'Ordered' }, { value: 'in-progress', label: 'In progress' }, { value: 'completed', label: 'Resulted' }]} />
+          <FilterSelect label="All statuses" value={status} onChange={setStatus} options={[{ value: 'active', label: 'Open orders' }, { value: 'ordered', label: 'Ordered' }, { value: 'in-progress', label: 'In progress' }, { value: 'completed', label: 'Complete' }]} />
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>{view === 'Imaging' ? 'Study' : 'Test'}</th><th>Patient</th><th>Priority</th><th>Status</th><th>Requested</th><th aria-label="Actions" /></tr></thead>
+            <thead><tr><th>{view === 'Imaging' ? 'Study' : 'Test'}</th><th>Patient</th><th>Priority</th><th>Progress</th><th>Requested</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {filtered.map((order) => {
                 const patient = patients.get(order.patientId)
@@ -89,7 +92,7 @@ export default function LabImagingView() {
                     <td className="wrap"><b>{order.title}</b><small>{order.id}</small></td>
                     <td>{patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}</td>
                     <td><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></td>
-                    <td><StatusBadge status={order.status === 'completed' ? 'resulted' : order.status} /></td>
+                    <td><OrderStepper order={order} />{order.specimen && <small className="mono">{order.specimen.id} · {order.specimen.type}</small>}</td>
                     <td>{relativeTime(order.createdAt, now)}<small>{order.createdBy}</small></td>
                     <td className="row-actions">{actionFor(order)}</td>
                   </tr>
@@ -106,7 +109,7 @@ export default function LabImagingView() {
       {viewing && (
         <Modal open onClose={() => setViewing(null)} title={viewing.title} subtitle={`${viewing.id} · ${patients.get(viewing.patientId)?.name ?? ''}`} size="md">
           <DetailGrid items={[['Patient', patients.get(viewing.patientId)?.name], ['MRN', patients.get(viewing.patientId)?.mrn], ['Priority', viewing.priority], ['Requested', `${formatDateTime(viewing.createdAt)} · ${viewing.createdBy}`]]} />
-          <h3 className="detail-heading">Verified result</h3>
+          <h3 className="detail-heading">{orderStage(viewing) === ORDER_STAGES[viewing.kind].length - 1 ? 'Verified result' : 'Result (awaiting verification)'}</h3>
           <p className="result-text">{viewing.result ?? 'No result text recorded.'}</p>
           <div className="modal-footer"><span /><Button variant="secondary" onClick={() => setViewing(null)}>Close</Button></div>
         </Modal>

@@ -1,4 +1,4 @@
-export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coordinator' | 'administrator'
+export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
 
 export type DepartmentId =
   | 'emergency'
@@ -21,7 +21,7 @@ export type Priority = 'routine' | 'urgent' | 'emergent'
 export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
-export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage'
+export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
 
 export interface Vitals {
   hr: number
@@ -32,6 +32,39 @@ export interface Vitals {
   temp: number
   gcs: number
   pain: number
+}
+
+export type Consciousness = 'Alert' | 'New confusion' | 'Voice' | 'Pain' | 'Unresponsive'
+
+export interface ObservationSet extends Vitals {
+  at: string
+  by: string
+  onOxygen: boolean
+  consciousness: Consciousness
+}
+
+export interface Evaluation {
+  id: string
+  at: string
+  by: string
+  hpi: string
+  history: { medical: string; medication: string; family: string; social: string }
+  exam: Array<{ system: string; normal: boolean; findings: string }>
+  differentials: Array<{ condition: string; icd10?: string; working: boolean }>
+  plan: string
+}
+
+export interface DischargeSummary {
+  at: string
+  by: string
+  diagnosis: string
+  condition: 'Recovered' | 'Improved' | 'Stable' | 'Unchanged'
+  course: string
+  medicines: Array<{ name: string; decision: 'Continue' | 'Change' | 'Stop'; note: string }>
+  newMedicines: string
+  followUp: string
+  followUpDate: string
+  instructions: string
 }
 
 export interface TimelineEvent {
@@ -66,6 +99,14 @@ export interface Patient {
   encounterType?: 'inpatient' | 'outpatient'
   assignedTo: string
   timeline: TimelineEvent[]
+  observations?: ObservationSet[]
+  escalation?: { at: string; by: string; score: number }
+  insurance?: string
+  phone?: string
+  weightKg?: number
+  growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number }>
+  evaluations?: Evaluation[]
+  discharge?: DischargeSummary
 }
 
 export interface Department {
@@ -100,11 +141,16 @@ export interface Referral {
   recommendation?: string
 }
 
+export type OrderKind = 'Laboratory' | 'Imaging' | 'Medication' | 'Procedure' | 'Physiotherapy' | 'Nutrition' | 'Blood bank'
+
 export interface ClinicalOrder {
   id: string
   patientId: string
   title: string
-  kind: 'Laboratory' | 'Imaging' | 'Medication' | 'Procedure'
+  kind: OrderKind
+  /** Index into ORDER_STAGES[kind]; status is derived from it. */
+  stage?: number
+  specimen?: { id: string; type: string; collectedBy: string; collectedAt: string }
   department: DepartmentId
   priority: Priority
   status: OrderStatus
@@ -158,6 +204,9 @@ export interface FormularyItem {
   id: string
   name: string
   genericName: string
+  /** Lower-case generic key used for interaction and contraindication checks. */
+  generic: string
+  contraindications: string[]
   category: string
   dosageForm: string
   strength: string
@@ -170,7 +219,7 @@ export interface FormularyItem {
 }
 
 export type RxPriority = 'Routine' | 'Urgent' | 'STAT'
-export type RxStatus = 'Pending' | 'Verified' | 'Dispensed' | 'Cancelled'
+export type RxStatus = 'Pending' | 'Verified' | 'Dispensed' | 'Administered' | 'Cancelled'
 
 export interface PrescriptionItem {
   medicationId: string
@@ -192,6 +241,7 @@ export interface Prescription {
   diagnosis?: string
   verifiedBy?: string
   dispensedBy?: string
+  administrations?: Array<{ at: string; by: string }>
 }
 
 /* ---------- Billing ---------- */
@@ -220,6 +270,7 @@ export interface Invoice {
   claimId?: string
   status: InvoiceStatus
   paidAt?: string
+  payments?: Array<{ at: string; by: string; method: 'Cash' | 'Card' | 'Mobile money' | 'Bank transfer' | 'Insurer'; amount: number }>
 }
 
 /* ---------- Telehealth ---------- */
@@ -252,6 +303,81 @@ export interface StaffMember {
   email: string
   phone: string
   license: string
+  roleId?: RoleId
+  suspended?: boolean
+}
+
+/* ---------- Wards, beds, handover, pagers ---------- */
+
+export type BedState = 'Available' | 'Reserved' | 'Blocked' | 'Cleaning' | 'Out of service'
+
+export interface Ward {
+  id: string
+  name: string
+  department: DepartmentId
+  beds: number
+}
+
+export interface Bed {
+  id: string
+  wardId: string
+  number: number
+  state: BedState
+  patientId?: string
+}
+
+export interface Handover {
+  id: string
+  patientId: string
+  from: string
+  to: string
+  note: string
+  at: string
+  acknowledgedAt?: string
+}
+
+export interface Page {
+  id: string
+  from: string
+  toStaffId: string
+  message: string
+  urgent: boolean
+  at: string
+  acknowledgedAt?: string
+}
+
+/* ---------- Theatres ---------- */
+
+export interface TheatreCase {
+  id: string
+  patientId: string
+  procedure: string
+  surgeon: string
+  room: string
+  time: string
+  /** 0 Scheduled, 1 Pre-op check, 2 In theatre, 3 Recovery, 4 Handed over */
+  stage: number
+  checklist: boolean[]
+  anaesthesia?: {
+    asa: 1 | 2 | 3 | 4 | 5
+    technique: string
+    airway: string
+    by: string
+    log: Array<{ at: string; hr: number; sbp: number; spo2: number; note: string }>
+  }
+}
+
+/* ---------- Notes awaiting co-signature ---------- */
+
+export interface CosignNote {
+  id: string
+  patientId: string
+  author: string
+  at: string
+  text: string
+  status: 'Pending review' | 'Co-signed'
+  cosignedBy?: string
+  evaluationId?: string
 }
 
 /* ---------- Emergency codes ---------- */
@@ -280,4 +406,10 @@ export interface HospitalState {
   appointments: Appointment[]
   staff: StaffMember[]
   codes: EmergencyCode[]
+  wards: Ward[]
+  beds: Bed[]
+  handovers: Handover[]
+  pages: Page[]
+  theatreCases: TheatreCase[]
+  cosignNotes: CosignNote[]
 }

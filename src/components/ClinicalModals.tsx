@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BedDouble, Check, ClipboardPlus, FileCheck2, HeartPulse, Info, Network, Send, Stethoscope } from 'lucide-react'
 import { calculateEsi, commonRisks, esiLabels } from '../data'
+import { ORDER_STAGES } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, DepartmentId, Patient, Priority, Referral, Vitals } from '../types'
 import { Button, EsiBadge, Modal } from './ui'
@@ -227,7 +228,7 @@ export function TransferModal({ patient, open, onClose }: { patient: Patient; op
 }
 
 export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; open: boolean; onClose: () => void }) {
-  const { state, updateOrder } = useHospital()
+  const { state, advanceOrder } = useHospital()
   const patient = state.patients.find((item) => item.id === order.patientId)
   const [result, setResult] = useState(order.result ?? '')
   const [error, setError] = useState('')
@@ -235,9 +236,9 @@ export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; op
   return <Modal open={open} onClose={onClose} title="Release diagnostic result" subtitle={`${order.id} · ${order.title}`} size="md">
     <div className="context-banner"><FileCheck2 size={21} /><div><b>{patient?.name} · {patient?.mrn}</b><span>{order.priority} priority · Ordered by {order.createdBy}</span></div></div>
     <label className="form-field"><span>Verified findings / report <b>*</b></span><textarea autoFocus rows={7} value={result} onChange={(event) => { setResult(event.target.value); setError('') }} placeholder="Enter the verified result, key values and any comparison or clinical caveat…" /></label>
-    <div className="handoff-note"><Info size={17} /><span>Releasing this result makes it visible in the patient chart and ordering clinician's dashboard.</span></div>
+    <div className="handoff-note"><Info size={17} /><span>{order.kind === 'Laboratory' ? 'The result goes to “Awaiting verification” until a senior scientist or pathologist verifies it.' : 'Releasing this report makes it visible in the patient chart and the ordering clinician’s dashboard.'}</span></div>
     {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (result.trim().length < 8) { setError('Enter a verified result before releasing.'); return } updateOrder(order.id, 'completed', result); onClose() }}>Verify & release<FileCheck2 size={17} /></Button></div>
+    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (result.trim().length < 8) { setError('Enter a verified result before releasing.'); return } advanceOrder(order.id, result, order.kind === 'Laboratory' ? 3 : ORDER_STAGES[order.kind].length - 1); onClose() }}>Verify & release<FileCheck2 size={17} /></Button></div>
   </Modal>
 }
 

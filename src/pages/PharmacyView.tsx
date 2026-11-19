@@ -4,16 +4,19 @@ import { AlertTriangle, BadgeCheck, Ban, ClipboardList, Download, PackageCheck, 
 import { Badge, Button, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
 import { departmentById } from '../data'
 import { downloadCsv, formatCurrency, relativeTime, today } from '../lib/format'
+import { interactionBetween, prescribingWarnings } from '../lib/clinical'
 import { matches, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 import type { FormularyItem, Prescription, RxPriority } from '../types'
 
-type View = 'queue' | 'prescriptions' | 'formulary'
+type View = 'queue' | 'prescriptions' | 'formulary' | 'interactions'
 
 const stockTone = (item: FormularyItem) => item.stock <= item.reorderLevel ? 'danger' : item.stock <= item.reorderLevel * 1.5 ? 'warning' : 'success'
 
 export default function PharmacyView() {
-  const { state, setPrescriptionStatus, setSelectedPatientId } = useHospital()
+  const { state, can, restock, setPrescriptionStatus, setSelectedPatientId } = useHospital()
+  const canDispense = can('dispense') || can('manage')
+  const canPrescribe = can('prescribe') || can('manage')
   const patients = usePatients()
   const [view, setView] = useState<View>('queue')
   const [query, setQuery] = useState('')
@@ -40,9 +43,10 @@ export default function PharmacyView() {
     : downloadCsv(`prescriptions-${today()}.csv`, [['Rx', 'Patient', 'MRN', 'Medicines', 'Priority', 'Status', 'Prescriber', 'Department', 'Created'], ...state.prescriptions.map((rx) => [rx.id, patients.get(rx.patientId)?.name, patients.get(rx.patientId)?.mrn, rxLabel(rx), rx.priority, rx.status, rx.prescriber, departmentById(state.departments, rx.department).name, rx.createdAt])])
 
   const actionsFor = (rx: Prescription) => <>
-    {rx.status === 'Pending' && <Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setPrescriptionStatus(rx.id, 'Verified')}>Verify</Button>}
-    {rx.status === 'Verified' && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Dispensed')}>Dispense</Button>}
-    {(rx.status === 'Pending' || rx.status === 'Verified') && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setPrescriptionStatus(rx.id, 'Cancelled')} aria-label={`Cancel ${rx.id}`}>Cancel</Button>}
+    {canDispense && rx.status === 'Pending' && <Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setPrescriptionStatus(rx.id, 'Verified')}>Verify</Button>}
+    {canDispense && rx.status === 'Verified' && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Dispensed')}>Dispense</Button>}
+    {!canDispense && ['Pending', 'Verified'].includes(rx.status) && <span className="muted-text">With pharmacy</span>}
+    {canDispense && (rx.status === 'Pending' || rx.status === 'Verified') && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setPrescriptionStatus(rx.id, 'Cancelled')} aria-label={`Cancel ${rx.id}`}>Cancel</Button>}
   </>
 
   return (
@@ -53,7 +57,7 @@ export default function PharmacyView() {
         description="Verify and dispense prescriptions, and keep an eye on formulary stock."
         actions={<>
           <Button variant="secondary" icon={Download} onClick={exportCurrent}>Export {view === 'formulary' ? 'formulary' : 'prescriptions'}</Button>
-          <Button icon={Plus} onClick={() => setCreating(true)}>New prescription</Button>
+          {canPrescribe && <Button icon={Plus} onClick={() => setCreating(true)}>New prescription</Button>}
         </>}
       />
 
@@ -64,7 +68,7 @@ export default function PharmacyView() {
         <Metric label="Below reorder level" value={lowStock.length} detail={lowStock.length ? lowStock.map((item) => item.name).join(', ') : 'All lines stocked'} icon={AlertTriangle} tone="coral" />
       </div>
 
-      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }]} />
+      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }, { value: 'interactions', label: 'Interaction checker' }]} />
 
       {view === 'queue' && (
         <div className="card-grid">
@@ -128,7 +132,7 @@ export default function PharmacyView() {
           </div>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Medication</th><th>Category</th><th>Form / strength</th><th>Route</th><th className="num">Stock</th><th className="num">Reorder at</th><th className="num">Unit price</th></tr></thead>
+              <thead><tr><th>Medication</th><th>Category</th><th>Form / strength</th><th>Route</th><th className="num">Stock</th><th className="num">Reorder at</th><th className="num">Unit price</th>{canDispense && <th aria-label="Actions" />}</tr></thead>
               <tbody>
                 {formulary.map((item) => (
                   <tr key={item.id}>
@@ -139,6 +143,7 @@ export default function PharmacyView() {
                     <td className="num"><Badge variant={stockTone(item)}>{item.stock.toLocaleString()} {item.unit}</Badge></td>
                     <td className="num">{item.reorderLevel.toLocaleString()}</td>
                     <td className="num">{formatCurrency(item.pricePerUnit)}</td>
+                    {canDispense && <td className="row-actions"><Button size="sm" variant="ghost" onClick={() => restock(item.id, 50)}>+50 restock</Button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -147,6 +152,8 @@ export default function PharmacyView() {
           {formulary.length === 0 && <EmptyState icon={Pill} title="No medications match" text="Try another search term or clear the category filter." />}
         </Panel>
       )}
+
+      {view === 'interactions' && <InteractionChecker />}
 
       <NewPrescriptionModal open={creating} onClose={() => setCreating(false)} />
     </motion.div>
@@ -167,11 +174,14 @@ function NewPrescriptionModal({ open, onClose }: { open: boolean; onClose: () =>
   const [error, setError] = useState('')
   const patient = activePatients.find((item) => item.id === patientId)
   const med = state.formulary.find((item) => item.id === medicationId)
+  const warnings = patient && med ? prescribingWarnings(med, patient, state.prescriptions, state.formulary) : []
+  const [acknowledged, setAcknowledged] = useState(false)
 
-  const reset = () => { setPatientId(''); setMedicationId(state.formulary[0]?.id ?? ''); setDosage(''); setFrequency(''); setDuration(''); setQuantity(1); setPriority('Routine'); setDiagnosis(''); setError('') }
+  const reset = () => { setAcknowledged(false); setPatientId(''); setMedicationId(state.formulary[0]?.id ?? ''); setDosage(''); setFrequency(''); setDuration(''); setQuantity(1); setPriority('Routine'); setDiagnosis(''); setError('') }
   const close = () => { reset(); onClose() }
   const submit = () => {
     if (!patient || !med || !dosage.trim() || !frequency.trim() || !duration.trim() || quantity < 1) { setError('Choose a patient and medicine, and complete dose, frequency, duration and quantity.'); return }
+    if (warnings.some((warning) => warning.level === 'High') && !acknowledged) { setError('Review the high-risk warnings and confirm the prescription is clinically justified.'); return }
     createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority, diagnosis: diagnosis.trim() || undefined, items: [{ medicationId: med.id, dosage: dosage.trim(), frequency: frequency.trim(), duration: duration.trim(), quantity }] })
     close()
   }
@@ -191,6 +201,10 @@ function NewPrescriptionModal({ open, onClose }: { open: boolean; onClose: () =>
             {state.formulary.map((item) => <option key={item.id} value={item.id}>{item.name} {item.strength} · {item.dosageForm} ({item.stock} in stock)</option>)}
           </select>
         </label>
+        {warnings.length > 0 && <div className="span-2 rx-warnings" role="alert">
+          {warnings.map((warning, index) => <p key={index} className={warning.level === 'High' ? 'danger' : 'warning'}><AlertTriangle size={14} />{warning.text}</p>)}
+          {warnings.some((warning) => warning.level === 'High') && <label className="remember-row"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I have reviewed these warnings; the prescription is clinically justified.</label>}
+        </div>}
         <label className="form-field"><span>Dose <b>*</b></span><input value={dosage} onChange={(event) => setDosage(event.target.value)} placeholder="e.g. 500 mg" /></label>
         <label className="form-field"><span>Frequency <b>*</b></span><input value={frequency} onChange={(event) => setFrequency(event.target.value)} placeholder="e.g. Every 8 h" /></label>
         <label className="form-field"><span>Duration <b>*</b></span><input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="e.g. 7 days" /></label>
@@ -208,3 +222,29 @@ function NewPrescriptionModal({ open, onClose }: { open: boolean; onClose: () =>
   )
 }
 
+
+function InteractionChecker() {
+  const { state } = useHospital()
+  const [a, setA] = useState(state.formulary.find((item) => item.generic === 'warfarin')?.id ?? state.formulary[0].id)
+  const [b, setB] = useState(state.formulary.find((item) => item.generic === 'aspirin')?.id ?? state.formulary[1].id)
+  const medA = state.formulary.find((item) => item.id === a)!
+  const medB = state.formulary.find((item) => item.id === b)!
+  const hit = medA.generic === medB.generic ? null : interactionBetween(medA.generic, medB.generic)
+  return (
+    <Panel>
+      <div className="table-toolbar">
+        <label className="form-field" style={{ flex: 1 }}><span>Medicine A</span><select value={a} onChange={(event) => setA(event.target.value)}>{state.formulary.map((item) => <option key={item.id} value={item.id}>{item.name} {item.strength}</option>)}</select></label>
+        <label className="form-field" style={{ flex: 1 }}><span>Medicine B</span><select value={b} onChange={(event) => setB(event.target.value)}>{state.formulary.map((item) => <option key={item.id} value={item.id}>{item.name} {item.strength}</option>)}</select></label>
+      </div>
+      <div style={{ padding: 16 }}>
+        {medA.generic === medB.generic
+          ? <p className="rx-warnings"><span className="warning"><AlertTriangle size={14} />Same medicine selected twice — this would be duplicate therapy.</span></p>
+          : hit
+            ? <div className="rx-warnings"><p className={hit[2] === 'High' ? 'danger' : 'warning'}><AlertTriangle size={14} /><b>{hit[2]} interaction.</b> {hit[3]}</p></div>
+            : <p className="rx-warnings"><span className="success"><ShieldCheck size={14} />No interaction recorded between {medA.name} and {medB.name} in this reference.</span></p>}
+        <p className="record-hint">Contraindications — {medA.name}: {medA.contraindications.join('; ') || 'none listed'}. {medB.name}: {medB.contraindications.join('; ') || 'none listed'}.</p>
+        <p className="record-hint">Decision support only. Check an up-to-date drug reference before acting.</p>
+      </div>
+    </Panel>
+  )
+}

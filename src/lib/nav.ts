@@ -1,0 +1,59 @@
+import { Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
+import type { RoleId } from '../types'
+
+export interface NavItem {
+  to: string
+  label: string
+  /** Breadcrumb and document title. */
+  page: string
+  icon: LucideIcon
+  roles: RoleId[] | 'all'
+  /** Single-key shortcut (Selam keymap). */
+  key?: string
+}
+
+const CLINICIANS: RoleId[] = ['physician', 'consultant', 'intern', 'nurse']
+const CLASSIC: RoleId[] = ['physician', 'nurse', 'consultant', 'diagnostics', 'coordinator', 'administrator']
+
+export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
+  { label: 'Clinical', items: [
+    { to: '/dashboard', label: 'Overview', page: 'Overview', icon: LayoutDashboard, roles: CLASSIC, key: 'g' },
+    { to: '/front-desk', label: 'Front desk', page: 'Front desk', icon: UserPlus, roles: ['receptionist', 'physician', 'nurse', 'administrator'], key: 'n' },
+    { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant', 'administrator', 'receptionist'], key: 't' },
+    { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'administrator', 'diagnostics', 'theatre', 'allied'], key: 'p' },
+    { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },
+    { to: '/telehealth', label: 'Appointments', page: 'Appointments & telehealth', icon: Video, roles: ['physician', 'consultant', 'intern', 'receptionist', 'administrator'], key: 'a' },
+  ] },
+  { label: 'Wards', items: [
+    { to: '/beds', label: 'Bed board', page: 'Bed board', icon: BedDouble, roles: [...CLINICIANS, 'coordinator', 'administrator'], key: 'b' },
+    { to: '/handover', label: 'Shift handover', page: 'Shift handover', icon: HandHeart, roles: ['nurse', 'physician', 'intern', 'administrator'], key: 'h' },
+    { to: '/med-round', label: 'Medication round', page: 'Medication round', icon: ClipboardCheck, roles: ['nurse', 'physician', 'administrator'], key: 'm' },
+  ] },
+  { label: 'Diagnostics & services', items: [
+    { to: '/lab-imaging', label: 'Lab & imaging', page: 'Lab & imaging', icon: FlaskConical, roles: [...CLINICIANS, 'diagnostics', 'administrator'], key: 'l' },
+    { to: '/pharmacy', label: 'Pharmacy', page: 'Pharmacy', icon: Pill, roles: [...CLINICIANS, 'pharmacist', 'administrator'], key: 'r' },
+    { to: '/theatres', label: 'Operating theatres', page: 'Operating theatres', icon: Scissors, roles: ['theatre', 'physician', 'consultant', 'nurse', 'coordinator', 'administrator'], key: 'o' },
+    { to: '/services', label: 'Therapy & blood bank', page: 'Service worklist', icon: Stethoscope, roles: ['allied', 'nurse', 'physician', 'intern', 'administrator'], key: 's' },
+  ] },
+  { label: 'Operations', items: [
+    { to: '/ops', label: 'Operations center', page: 'Operations center', icon: MonitorDot, roles: ['physician', 'nurse', 'consultant', 'coordinator', 'administrator', 'receptionist'], key: 'd' },
+    { to: '/flow', label: 'Care flow', page: 'Care flow', icon: GitBranch, roles: 'all', key: 'f' },
+    { to: '/departments', label: 'Departments & beds', page: 'Departments & live capacity', icon: Building2, roles: CLASSIC },
+    { to: '/network', label: 'Care network', page: 'Interdepartmental care network', icon: Network, roles: CLASSIC },
+    { to: '/staff', label: 'Roster & pagers', page: 'Roster & pagers', icon: CalendarClock, roles: 'all', key: 'k' },
+    { to: '/billing', label: 'Billing & claims', page: 'Billing & claims', icon: Receipt, roles: ['billing', 'administrator'] },
+    { to: '/audit', label: 'Codes & audit', page: 'Emergency codes & audit', icon: ShieldAlert, roles: 'all' },
+    { to: '/admin', label: 'Staff accounts', page: 'Staff accounts', icon: ShieldCheck, roles: ['administrator'] },
+  ] },
+]
+
+export const ALL_NAV = NAV_SECTIONS.flatMap((section) => section.items)
+
+export const canSee = (item: NavItem, role: RoleId) => item.roles === 'all' || item.roles.includes(role)
+
+export function navFor(role: RoleId) {
+  return NAV_SECTIONS.map((section) => ({ ...section, items: section.items.filter((item) => canSee(item, role)) })).filter((section) => section.items.length)
+}
+
+export const pageName = (path: string) => ALL_NAV.find((item) => item.to === path)?.page
+

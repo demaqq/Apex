@@ -5,6 +5,12 @@ import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
+import { ROLE_HOME, useHospital } from './store/HospitalStore'
+
+function HomeRedirect() {
+  const { currentRole } = useHospital()
+  return <Navigate to={currentRole ? ROLE_HOME[currentRole] : '/login'} replace />
+}
 
 const TriageBoard = lazy(() => import('./pages/TriageBoard'))
 const Patients = lazy(() => import('./pages/Patients'))
@@ -16,6 +22,11 @@ const BillingView = lazy(() => import('./pages/BillingView'))
 const TelehealthView = lazy(() => import('./pages/TelehealthView'))
 const StaffView = lazy(() => import('./pages/StaffView'))
 const AuditView = lazy(() => import('./pages/AuditView'))
+const CareFlow = lazy(() => import('./pages/CareFlow'))
+const OpsCenter = lazy(() => import('./pages/OpsCenter'))
+const BedBoard = lazy(() => import('./pages/BedBoard'))
+const Handover = lazy(() => import('./pages/Handover'))
+const MedRound = lazy(() => import('./pages/MedRound'))
 
 export default function App() {
   return (
@@ -24,7 +35,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route index element={<HomeRedirect />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/triage" element={<TriageBoard />} />
             <Route path="/patients" element={<Patients />} />
@@ -36,6 +47,11 @@ export default function App() {
             <Route path="/telehealth" element={<TelehealthView />} />
             <Route path="/staff" element={<StaffView />} />
             <Route path="/audit" element={<AuditView />} />
+            <Route path="/flow" element={<CareFlow />} />
+            <Route path="/ops" element={<OpsCenter />} />
+            <Route path="/beds" element={<BedBoard />} />
+            <Route path="/handover" element={<Handover />} />
+            <Route path="/med-round" element={<MedRound />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

@@ -1,5 +1,12 @@
 import type {
   Appointment,
+  Bed,
+  CosignNote,
+  Handover,
+  ObservationSet,
+  Page,
+  TheatreCase,
+  Ward,
   ClinicalOrder,
   Department,
   DepartmentId,
@@ -110,6 +117,97 @@ export const roleProfiles: Record<RoleId, RoleProfile> = {
     focus: ['Hospital occupancy', 'Flow performance', 'Department pressure'],
     accent: '#243e46',
   },
+
+  intern: {
+    id: 'intern',
+    name: 'Dr. Leo Park',
+    title: 'Foundation Doctor (FY1)',
+    shortTitle: 'Intern',
+    employeeId: 'FY-2207',
+    department: 'internal-medicine',
+    initials: 'LP',
+    shift: '08:00 – 20:00',
+    workspace: 'Ward round',
+    headline: 'Your ward, reviewed and signed off.',
+    description: 'Inpatient list, observations and notes that your supervising consultant co-signs.',
+    focus: ['Ward round', 'Notes for co-signature', 'Results to review'],
+    accent: '#3d6f8f',
+  },
+  pharmacist: {
+    id: 'pharmacist',
+    name: 'Nina Wallace, PharmD',
+    title: 'Clinical Pharmacist',
+    shortTitle: 'Pharmacist',
+    employeeId: 'PH-0311',
+    department: 'pharmacy',
+    initials: 'NW',
+    shift: '07:00 – 15:00',
+    workspace: 'Pharmacy',
+    headline: 'Safe medicines, verified first time.',
+    description: 'Verification, dispensing, stock and interaction checks.',
+    focus: ['Verification queue', 'Stock levels', 'Interactions'],
+    accent: '#5f7f3f',
+  },
+  receptionist: {
+    id: 'receptionist',
+    name: 'Grace Mwangi',
+    title: 'Front Desk Coordinator',
+    shortTitle: 'Front desk',
+    employeeId: 'FD-0118',
+    department: 'emergency',
+    initials: 'GM',
+    shift: '07:00 – 19:00',
+    workspace: 'Front desk',
+    headline: 'Every arrival, registered and routed.',
+    description: 'Registration, appointments and the triage queue.',
+    focus: ['Registration', 'Triage queue', 'Appointments'],
+    accent: '#8a6a2f',
+  },
+  theatre: {
+    id: 'theatre',
+    name: 'Dr. Ines Duarte',
+    title: 'Consultant Anaesthetist',
+    shortTitle: 'Theatres',
+    employeeId: 'AN-0442',
+    department: 'surgery',
+    initials: 'ID',
+    shift: '07:30 – 17:30',
+    workspace: 'Operating theatres',
+    headline: 'Safe surgery, step by step.',
+    description: 'Today’s theatre list, safety checklist and anaesthesia records.',
+    focus: ['Theatre list', 'Safety checklist', 'Anaesthesia'],
+    accent: '#7a4f8f',
+  },
+  allied: {
+    id: 'allied',
+    name: 'Sam Oduya, PT',
+    title: 'Physiotherapist',
+    shortTitle: 'Allied health',
+    employeeId: 'AH-0207',
+    department: 'ward',
+    initials: 'SO',
+    shift: '08:00 – 16:00',
+    workspace: 'Service worklist',
+    headline: 'Rehabilitation, nutrition and transfusion.',
+    description: 'Physiotherapy, nutrition and blood bank requests from every ward.',
+    focus: ['Physiotherapy', 'Nutrition', 'Blood bank'],
+    accent: '#2f7f73',
+  },
+  billing: {
+    id: 'billing',
+    name: 'Priya Desai',
+    title: 'Billing Officer',
+    shortTitle: 'Billing',
+    employeeId: 'BL-0093',
+    department: 'emergency',
+    initials: 'PD',
+    shift: '08:30 – 17:00',
+    workspace: 'Billing & claims',
+    headline: 'Accurate bills, paid on time.',
+    description: 'Invoices generated from orders, payments and insurance claims.',
+    focus: ['Invoices', 'Claims', 'Payments'],
+    accent: '#6b5b2f',
+  },
 }
 
 export const departmentSeed: Department[] = [
@@ -175,22 +273,31 @@ const orderSeed = (): ClinicalOrder[] => [
   { id: 'OR-8109', patientId: 'p1012', title: 'Discharge medicines and counselling', kind: 'Medication', department: 'pharmacy', priority: 'routine', status: 'in-progress', createdAt: ago(22), createdBy: 'Dr. Peter Hall' },
   { id: 'OR-8110', patientId: 'p1004', title: 'Arterial blood gas', kind: 'Laboratory', department: 'laboratory', priority: 'urgent', status: 'ordered', createdAt: ago(13), createdBy: 'Dr. Maya Chen' },
   { id: 'OR-8111', patientId: 'p1013', title: 'Pre-eclampsia profile: FBC, LFT, renal profile and urate', kind: 'Laboratory', department: 'laboratory', priority: 'urgent', status: 'ordered', createdAt: ago(35), createdBy: 'Dr. Hannah Reid' },
+  { id: 'OR-8113', patientId: 'p1005', title: 'Mobilisation after hip replacement', kind: 'Physiotherapy', department: 'ward', priority: 'routine', status: 'in-progress', stage: 2, createdAt: ago(300), createdBy: 'Mr. Robert Hale' },
+  { id: 'OR-8114', patientId: 'p1014', title: 'Diabetic diet review', kind: 'Nutrition', department: 'internal-medicine', priority: 'routine', status: 'ordered', stage: 0, createdAt: ago(90), createdBy: 'Dr. Leo Park' },
+  { id: 'OR-8115', patientId: 'p1007', title: 'Crossmatch 2 units red cells', kind: 'Blood bank', department: 'laboratory', priority: 'urgent', status: 'in-progress', stage: 2, createdAt: ago(70), createdBy: 'Dr. Ana Costa' },
   { id: 'OR-8112', patientId: 'p1014', title: 'FBC, CRP, renal profile and glucose', kind: 'Laboratory', department: 'laboratory', priority: 'routine', status: 'in-progress', createdAt: ago(36), createdBy: 'Dr. Rachel Stein' },
 ]
 
 const formularySeed = (): FormularyItem[] => [
-  { id: 'med-1', name: 'Paracetamol', genericName: 'Acetaminophen', category: 'Analgesic', dosageForm: 'Tablet', strength: '500 mg', stock: 5000, unit: 'tablet', reorderLevel: 1000, pricePerUnit: 0.05, route: 'PO' },
-  { id: 'med-2', name: 'Ibuprofen', genericName: 'Ibuprofen', category: 'Analgesic', dosageForm: 'Tablet', strength: '400 mg', stock: 1100, unit: 'tablet', reorderLevel: 500, pricePerUnit: 0.08, route: 'PO' },
-  { id: 'med-3', name: 'Morphine', genericName: 'Morphine sulfate', category: 'Analgesic', dosageForm: 'Injection', strength: '10 mg/mL', stock: 46, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 2.5, route: 'IV', controlled: true },
-  { id: 'med-4', name: 'Ceftriaxone', genericName: 'Ceftriaxone sodium', category: 'Antibiotic', dosageForm: 'Injection', strength: '1 g', stock: 500, unit: 'vial', reorderLevel: 100, pricePerUnit: 4.2, route: 'IV' },
-  { id: 'med-5', name: 'Metoprolol', genericName: 'Metoprolol tartrate', category: 'Cardiovascular', dosageForm: 'Tablet', strength: '25 mg', stock: 1000, unit: 'tablet', reorderLevel: 200, pricePerUnit: 0.15, route: 'PO' },
-  { id: 'med-6', name: 'Insulin glargine', genericName: 'Insulin glargine', category: 'Antidiabetic', dosageForm: 'Pen', strength: '100 units/mL', stock: 52, unit: 'pen', reorderLevel: 30, pricePerUnit: 45, route: 'SC' },
-  { id: 'med-7', name: 'Salbutamol', genericName: 'Salbutamol sulfate', category: 'Respiratory', dosageForm: 'Inhaler', strength: '100 mcg/dose', stock: 800, unit: 'inhaler', reorderLevel: 150, pricePerUnit: 12, route: 'Inhaled' },
-  { id: 'med-8', name: 'Midazolam', genericName: 'Midazolam', category: 'Sedative', dosageForm: 'Injection', strength: '5 mg/mL', stock: 100, unit: 'ampoule', reorderLevel: 25, pricePerUnit: 3.2, route: 'IV', controlled: true },
-  { id: 'med-9', name: 'Adrenaline', genericName: 'Epinephrine', category: 'Emergency', dosageForm: 'Injection', strength: '1 mg/mL (1:1000)', stock: 200, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 1.8, route: 'IM / IV' },
-  { id: 'med-10', name: 'Vancomycin', genericName: 'Vancomycin hydrochloride', category: 'Antibiotic', dosageForm: 'Injection', strength: '1 g', stock: 300, unit: 'vial', reorderLevel: 75, pricePerUnit: 8.5, route: 'IV' },
-  { id: 'med-11', name: 'Labetalol', genericName: 'Labetalol hydrochloride', category: 'Cardiovascular', dosageForm: 'Tablet', strength: '200 mg', stock: 400, unit: 'tablet', reorderLevel: 100, pricePerUnit: 0.32, route: 'PO' },
-  { id: 'med-12', name: 'Amoxicillin', genericName: 'Amoxicillin', category: 'Antibiotic', dosageForm: 'Oral suspension', strength: '250 mg/5 mL', stock: 64, unit: 'bottle', reorderLevel: 40, pricePerUnit: 3.1, route: 'PO' },
+  { id: 'med-1', name: 'Paracetamol', genericName: 'Acetaminophen', generic: 'paracetamol', contraindications: ['Severe liver impairment'], category: 'Analgesic', dosageForm: 'Tablet', strength: '500 mg', stock: 5000, unit: 'tablet', reorderLevel: 1000, pricePerUnit: 0.05, route: 'PO' },
+  { id: 'med-2', name: 'Ibuprofen', genericName: 'Ibuprofen', generic: 'ibuprofen', contraindications: ['Active gastrointestinal bleeding', 'Severe renal impairment', 'Third trimester of pregnancy'], category: 'Analgesic', dosageForm: 'Tablet', strength: '400 mg', stock: 1100, unit: 'tablet', reorderLevel: 500, pricePerUnit: 0.08, route: 'PO' },
+  { id: 'med-3', name: 'Morphine', genericName: 'Morphine sulfate', generic: 'morphine', contraindications: ['Respiratory depression', 'Acute severe asthma'], category: 'Analgesic', dosageForm: 'Injection', strength: '10 mg/mL', stock: 46, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 2.5, route: 'IV', controlled: true },
+  { id: 'med-4', name: 'Ceftriaxone', genericName: 'Ceftriaxone sodium', generic: 'ceftriaxone', contraindications: ['Neonates receiving calcium-containing infusions'], category: 'Antibiotic', dosageForm: 'Injection', strength: '1 g', stock: 500, unit: 'vial', reorderLevel: 100, pricePerUnit: 4.2, route: 'IV' },
+  { id: 'med-5', name: 'Metoprolol', genericName: 'Metoprolol tartrate', generic: 'metoprolol', contraindications: ['Severe bradycardia', 'Cardiogenic shock'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '25 mg', stock: 1000, unit: 'tablet', reorderLevel: 200, pricePerUnit: 0.15, route: 'PO' },
+  { id: 'med-6', name: 'Insulin glargine', genericName: 'Insulin glargine', generic: 'insulin', contraindications: ['Hypoglycaemia'], category: 'Antidiabetic', dosageForm: 'Pen', strength: '100 units/mL', stock: 52, unit: 'pen', reorderLevel: 30, pricePerUnit: 45, route: 'SC' },
+  { id: 'med-7', name: 'Salbutamol', genericName: 'Salbutamol sulfate', generic: 'salbutamol', contraindications: [], category: 'Respiratory', dosageForm: 'Inhaler', strength: '100 mcg/dose', stock: 800, unit: 'inhaler', reorderLevel: 150, pricePerUnit: 12, route: 'Inhaled' },
+  { id: 'med-8', name: 'Midazolam', genericName: 'Midazolam', generic: 'midazolam', contraindications: ['Severe respiratory insufficiency'], category: 'Sedative', dosageForm: 'Injection', strength: '5 mg/mL', stock: 100, unit: 'ampoule', reorderLevel: 25, pricePerUnit: 3.2, route: 'IV', controlled: true },
+  { id: 'med-9', name: 'Adrenaline', genericName: 'Epinephrine', generic: 'adrenaline', contraindications: [], category: 'Emergency', dosageForm: 'Injection', strength: '1 mg/mL (1:1000)', stock: 200, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 1.8, route: 'IM / IV' },
+  { id: 'med-10', name: 'Vancomycin', genericName: 'Vancomycin hydrochloride', generic: 'vancomycin', contraindications: [], category: 'Antibiotic', dosageForm: 'Injection', strength: '1 g', stock: 300, unit: 'vial', reorderLevel: 75, pricePerUnit: 8.5, route: 'IV' },
+  { id: 'med-11', name: 'Labetalol', genericName: 'Labetalol hydrochloride', generic: 'labetalol', contraindications: ['Asthma', 'Second- or third-degree heart block'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '200 mg', stock: 400, unit: 'tablet', reorderLevel: 100, pricePerUnit: 0.32, route: 'PO' },
+  { id: 'med-13', name: 'Warfarin', genericName: 'Warfarin sodium', generic: 'warfarin', contraindications: ['Pregnancy', 'Active bleeding'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '5 mg', stock: 400, unit: 'tablet', reorderLevel: 100, pricePerUnit: 0.12, route: 'PO' },
+  { id: 'med-14', name: 'Aspirin', genericName: 'Acetylsalicylic acid', generic: 'aspirin', contraindications: ['Active bleeding', 'Children under 16 with viral illness'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '81 mg', stock: 1500, unit: 'tablet', reorderLevel: 500, pricePerUnit: 0.03, route: 'PO' },
+  { id: 'med-15', name: 'Clopidogrel', genericName: 'Clopidogrel', generic: 'clopidogrel', contraindications: ['Active pathological bleeding'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '75 mg', stock: 90, unit: 'tablet', reorderLevel: 100, pricePerUnit: 0.4, route: 'PO' },
+  { id: 'med-16', name: 'Furosemide', genericName: 'Furosemide', generic: 'furosemide', contraindications: ['Anuria'], category: 'Cardiovascular', dosageForm: 'Injection', strength: '40 mg ampoule', stock: 150, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 0.9, route: 'IV' },
+  { id: 'med-17', name: 'Omeprazole', genericName: 'Omeprazole', generic: 'omeprazole', contraindications: [], category: 'Gastrointestinal', dosageForm: 'Capsule', strength: '20 mg', stock: 700, unit: 'capsule', reorderLevel: 250, pricePerUnit: 0.1, route: 'PO' },
+  { id: 'med-18', name: 'Diazepam', genericName: 'Diazepam', generic: 'diazepam', contraindications: ['Severe respiratory insufficiency', 'Sleep apnoea'], category: 'Sedative', dosageForm: 'Injection', strength: '10 mg/2 mL', stock: 45, unit: 'ampoule', reorderLevel: 20, pricePerUnit: 1.4, route: 'IV', controlled: true },
+  { id: 'med-12', name: 'Amoxicillin', genericName: 'Amoxicillin', generic: 'amoxicillin', contraindications: ['Penicillin allergy'], category: 'Antibiotic', dosageForm: 'Oral suspension', strength: '250 mg/5 mL', stock: 64, unit: 'bottle', reorderLevel: 40, pricePerUnit: 3.1, route: 'PO' },
 ]
 
 const prescriptionSeed = (): Prescription[] => [
@@ -235,17 +342,26 @@ const appointmentSeed = (): Appointment[] => [
 ]
 
 const staffSeed = (): StaffMember[] => [
-  { id: 'ST-01', name: 'Dr. Maya Chen', role: 'Physician', department: 'emergency', specialty: 'Emergency medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EMG-001', email: 'maya.chen@northstar.example', phone: 'x2101', license: 'MD-448210' },
-  { id: 'ST-02', name: 'Sarah Okafor, RN', role: 'Charge nurse', department: 'emergency', specialty: 'Triage nursing', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'TRI-001', email: 'sarah.okafor@northstar.example', phone: 'x2102', license: 'RN-220931' },
-  { id: 'ST-03', name: 'Dr. Amir Rahman', role: 'Consultant', department: 'cardiology', specialty: 'Interventional cardiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'CAR-001', email: 'amir.rahman@northstar.example', phone: 'x2241', license: 'MD-391044' },
-  { id: 'ST-04', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876' },
-  { id: 'ST-05', name: 'Jon Bell', role: 'Patient flow coordinator', department: 'ward', specialty: 'Bed management', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'BED-001', email: 'jon.bell@northstar.example', phone: 'x2521', license: '—' },
-  { id: 'ST-06', name: 'Nina Wallace, PharmD', role: 'Pharmacist', department: 'pharmacy', specialty: 'Clinical pharmacy', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHA-001', email: 'nina.wallace@northstar.example', phone: 'x2581', license: 'PH-118302' },
+  { id: 'ST-01', roleId: 'physician', name: 'Dr. Maya Chen', role: 'Physician', department: 'emergency', specialty: 'Emergency medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EMG-001', email: 'maya.chen@northstar.example', phone: 'x2101', license: 'MD-448210' },
+  { id: 'ST-02', roleId: 'nurse', name: 'Sarah Okafor, RN', role: 'Charge nurse', department: 'emergency', specialty: 'Triage nursing', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'TRI-001', email: 'sarah.okafor@northstar.example', phone: 'x2102', license: 'RN-220931' },
+  { id: 'ST-03', roleId: 'consultant', name: 'Dr. Amir Rahman', role: 'Consultant', department: 'cardiology', specialty: 'Interventional cardiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'CAR-001', email: 'amir.rahman@northstar.example', phone: 'x2241', license: 'MD-391044' },
+  { id: 'ST-04', roleId: 'diagnostics', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876' },
+  { id: 'ST-05', roleId: 'coordinator', name: 'Jon Bell', role: 'Patient flow coordinator', department: 'ward', specialty: 'Bed management', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'BED-001', email: 'jon.bell@northstar.example', phone: 'x2521', license: '—' },
+  { id: 'ST-06', roleId: 'pharmacist', name: 'Nina Wallace, PharmD', role: 'Pharmacist', department: 'pharmacy', specialty: 'Clinical pharmacy', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHA-001', email: 'nina.wallace@northstar.example', phone: 'x2581', license: 'PH-118302' },
   { id: 'ST-07', name: 'Dr. Ana Costa', role: 'Consultant', department: 'icu', specialty: 'Critical care', shift: 'Evening · 15:00–23:00', onDuty: false, pager: 'ICU-001', email: 'ana.costa@northstar.example', phone: 'x2401', license: 'MD-377210' },
   { id: 'ST-08', name: 'Ms. Keiko Sato', role: 'Surgeon', department: 'surgery', specialty: 'Orthopaedic surgery', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'SUR-001', email: 'keiko.sato@northstar.example', phone: 'x2461', license: 'MD-365519' },
   { id: 'ST-09', name: 'Dr. Tomas Reid', role: 'Consultant', department: 'neurology', specialty: 'Stroke medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'NEU-001', email: 'tomas.reid@northstar.example', phone: 'x2281', license: 'MD-410983' },
   { id: 'ST-10', name: 'Dr. Hannah Reid', role: 'Physician', department: 'obgyn', specialty: 'Obstetrics', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'OBS-001', email: 'hannah.reid@northstar.example', phone: 'x2641', license: 'MD-428801' },
   { id: 'ST-11', name: 'Dr. Felix Adeyemi', role: 'Pathologist', department: 'laboratory', specialty: 'Clinical biochemistry', shift: 'Night · 23:00–07:00', onDuty: false, pager: 'LAB-002', email: 'felix.adeyemi@northstar.example', phone: 'x2352', license: 'MD-399127' },
+]
+
+const extraStaff = (): StaffMember[] => [
+  { id: 'ST-12', roleId: 'intern', name: 'Dr. Leo Park', role: 'Foundation doctor', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-014', email: 'leo.park@northstar.example', phone: 'x2684', license: 'MD-501877' },
+  { id: 'ST-13', roleId: 'receptionist', name: 'Grace Mwangi', role: 'Front desk coordinator', department: 'emergency', specialty: 'Registration', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'REG-001', email: 'grace.mwangi@northstar.example', phone: 'x2001', license: '—' },
+  { id: 'ST-14', roleId: 'theatre', name: 'Dr. Ines Duarte', role: 'Anaesthetist', department: 'surgery', specialty: 'Anaesthesia', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'ANA-001', email: 'ines.duarte@northstar.example', phone: 'x2471', license: 'MD-377901' },
+  { id: 'ST-15', roleId: 'allied', name: 'Sam Oduya, PT', role: 'Physiotherapist', department: 'ward', specialty: 'Rehabilitation', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHY-001', email: 'sam.oduya@northstar.example', phone: 'x2533', license: 'PT-220144' },
+  { id: 'ST-16', roleId: 'billing', name: 'Priya Desai', role: 'Billing officer', department: 'emergency', specialty: 'Patient accounts', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'FIN-001', email: 'priya.desai@northstar.example', phone: 'x2090', license: '—' },
+  { id: 'ST-17', roleId: 'administrator', name: 'Elena Rossi', role: 'Hospital administrator', department: 'emergency', specialty: 'Operations', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'ADM-001', email: 'elena.rossi@northstar.example', phone: 'x2000', license: '—' },
 ]
 
 const codeSeed = (): EmergencyCode[] => [
@@ -257,9 +373,58 @@ const codeSeed = (): EmergencyCode[] => [
   { id: 'code-amber', label: 'Code Amber', description: 'Missing or abducted child', responders: 'Security, paediatrics, maternity', tone: 'amber', active: false },
 ]
 
+const wardSeed = (): Ward[] => [
+  { id: 'ED', name: 'Emergency treatment', department: 'emergency', beds: 12 },
+  { id: 'CCU', name: 'Cardiac care unit', department: 'cardiology', beds: 8 },
+  { id: 'STR', name: 'Stroke unit', department: 'neurology', beds: 6 },
+  { id: 'ICU', name: 'ICU and HDU', department: 'icu', beds: 8 },
+  { id: 'S3B', name: 'Surgical 3B', department: 'surgery', beds: 14 },
+  { id: 'W5S', name: 'Ward 5S', department: 'ward', beds: 16 },
+  { id: 'M5N', name: 'Medical 5N', department: 'internal-medicine', beds: 14 },
+  { id: 'MAT', name: 'Maternity 3S', department: 'obgyn', beds: 10 },
+  { id: 'PAE', name: "Children's ward", department: 'pediatrics', beds: 8 },
+]
+
+const bedSeed = (wards: Ward[]): Bed[] => {
+  const occupied: Record<string, string> = { 'ED-02': 'p1001', 'ED-08': 'p1002', 'ED-04': 'p1004', 'CCU-06': 'p1008', 'STR-01': 'p1003', 'ICU-03': 'p1007', 'S3B-12': 'p1005', 'W5S-12': 'p1010', 'MAT-05': 'p1013', 'M5N-08': 'p1014' }
+  const states: Record<string, Bed['state']> = { 'ED-01': 'Cleaning', 'ICU-01': 'Reserved', 'ICU-02': 'Blocked', 'W5S-03': 'Cleaning', 'S3B-04': 'Out of service', 'M5N-02': 'Cleaning', 'CCU-02': 'Reserved' }
+  return wards.flatMap((ward) => Array.from({ length: ward.beds }, (_, index) => {
+    const id = `${ward.id}-${String(index + 1).padStart(2, '0')}`
+    return { id, wardId: ward.id, number: index + 1, state: states[id] ?? 'Available', patientId: occupied[id] }
+  }))
+}
+
+const obs = (minutes: number, by: string, changes: Partial<Vitals>, onOxygen = false, consciousness: ObservationSet['consciousness'] = 'Alert'): ObservationSet => ({ ...baseVitals, ...changes, at: ago(minutes), by, onOxygen, consciousness })
+
+const observationSeed: Record<string, ObservationSet[]> = {
+  p1001: [obs(20, 'Sarah Okafor, RN', { hr: 108, rr: 22, spo2: 95, bpSys: 158, bpDia: 94, temp: 36.8, pain: 7 }), obs(46, 'Sarah Okafor, RN', { hr: 112, rr: 24, spo2: 94, bpSys: 162, bpDia: 96, temp: 36.9, pain: 8 })],
+  p1004: [obs(10, 'Sarah Okafor, RN', { hr: 124, rr: 28, spo2: 92, bpSys: 132, bpDia: 82, temp: 37.1, pain: 4 }, true), obs(39, 'Sarah Okafor, RN', { hr: 118, rr: 26, spo2: 91, bpSys: 128, bpDia: 80, temp: 37.0, pain: 4 })],
+  p1007: [obs(30, 'ICU outreach', { hr: 118, rr: 22, spo2: 96, bpSys: 102, bpDia: 62, temp: 38.6, pain: 3 }, true), obs(150, 'ICU outreach', { hr: 124, rr: 24, spo2: 95, bpSys: 96, bpDia: 58, temp: 38.9, pain: 3 }, true)],
+  p1010: [obs(240, 'Ward 5S nurse', { hr: 92, rr: 20, spo2: 93, bpSys: 138, bpDia: 80, temp: 36.9, pain: 2 }), obs(720, 'Ward 5S nurse', { hr: 98, rr: 22, spo2: 91, bpSys: 142, bpDia: 84, temp: 37.2, pain: 2 }, true)],
+  p1014: [obs(60, 'Medical 5N nurse', { hr: 104, rr: 23, spo2: 93, bpSys: 118, bpDia: 70, temp: 38.2, pain: 3 }, true), obs(300, 'Medical 5N nurse', { hr: 110, rr: 25, spo2: 91, bpSys: 112, bpDia: 68, temp: 38.7, pain: 3 }, true)],
+}
+
+const theatreSeed = (): TheatreCase[] => [
+  { id: 'TC-01', patientId: 'p1003', procedure: 'Mechanical thrombectomy', surgeon: 'Dr. Tomas Reid · Interventional neuroradiology', room: 'Theatre 1', time: '09:30', stage: 2, checklist: [true, true, true, true, true, true], anaesthesia: { asa: 3, technique: 'General anaesthesia', airway: 'Mallampati 2, normal neck movement', by: 'Dr. Ines Duarte', log: [{ at: ago(25), hr: 88, sbp: 142, spo2: 99, note: 'Induction: propofol, rocuronium. ETT 7.5 secured.' }] } },
+  { id: 'TC-02', patientId: 'p1002', procedure: 'Open reduction and internal fixation, distal radius', surgeon: 'Ms. Keiko Sato · Orthopaedics', room: 'Theatre 2', time: '11:30', stage: 1, checklist: [true, true, false, false, true, false] },
+  { id: 'TC-03', patientId: 'p1005', procedure: 'Wound review under sedation', surgeon: 'Mr. Robert Hale · General surgery', room: 'Theatre 3', time: '14:00', stage: 0, checklist: [false, false, false, false, false, false] },
+]
+
 export function createInitialState(): HospitalState {
+  const wards = wardSeed()
+  const patients = patientSeed().map((patient) => {
+    const observations = observationSeed[patient.id]
+    const withObs = observations ? { ...patient, observations, vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : patient
+    if (patient.id === 'p1006') return { ...withObs, weightKg: 24.6, growth: [{ at: ago(1051200), ageYears: 6, weightKg: 20.1, heightCm: 115 }, { at: ago(525600), ageYears: 7, weightKg: 22.0, heightCm: 121 }, { at: ago(27), ageYears: 8, weightKg: 24.6, heightCm: 127 }] }
+    if (patient.id === 'p1002') return { ...withObs, insurance: 'Aetna' }
+    return withObs
+  })
   return {
-    patients: patientSeed(),
+    patients: patients.map((patient) => {
+      // Keep only the eight vital-sign fields on the patient's current vitals.
+      const { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain } = patient.vitals
+      return { ...patient, vitals: { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain } }
+    }),
     departments: departmentSeed.map((department) => ({ ...department, services: [...department.services] })),
     referrals: referralSeed(),
     orders: orderSeed(),
@@ -276,8 +441,20 @@ export function createInitialState(): HospitalState {
     prescriptions: prescriptionSeed(),
     invoices: invoiceSeed(),
     appointments: appointmentSeed(),
-    staff: staffSeed(),
+    staff: [...staffSeed(), ...extraStaff()],
     codes: codeSeed(),
+    wards,
+    beds: bedSeed(wards),
+    handovers: [
+      { id: 'HO-01', patientId: 'p1004', from: 'Sarah Okafor, RN', to: 'Night charge nurse', note: 'Severe asthma, on back-to-back nebulisers and 2 L oxygen. ICU review requested. Repeat gas due 20:00.', at: ago(35) },
+    ] as Handover[],
+    pages: [
+      { id: 'PG-01', from: 'Sarah Okafor, RN', toStaffId: 'ST-01', message: 'Daniel Kim (ED Bed 04): SpO₂ 92% on oxygen after third nebuliser. Please review.', urgent: true, at: ago(6) },
+    ] as Page[],
+    theatreCases: theatreSeed(),
+    cosignNotes: [
+      { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },
+    ] as CosignNote[],
   }
 }
 

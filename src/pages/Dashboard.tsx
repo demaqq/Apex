@@ -1,14 +1,14 @@
 import { motion } from 'framer-motion'
 import { Activity, AlertTriangle, ArrowRight, BedDouble, BellRing, Check, ChevronRight, ClipboardCheck, Clock3, Download, FileCheck2, FlaskConical, HeartPulse, Hospital, ListFilter, Network, Plus, ScanLine,Siren, Stethoscope, TimerReset, TrendingUp, UserRoundCheck, UsersRound } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { CompleteReferralModal, ResultModal, TriageModal } from '../components/ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EmptyState, EsiBadge, Metric, PageHeader, Panel, StatusBadge } from '../components/ui'
 import type { MetricProps } from '../components/ui/Panel'
 import { departmentById, esiLabels } from '../data'
 import { downloadCsv, formatWait, relativeTime, today } from '../lib/format'
 import { useNow } from '../lib/hooks'
-import { useHospital } from '../store/HospitalStore'
+import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, Patient, Referral, RoleId } from '../types'
 
 const enter = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.38 } } }
@@ -147,7 +147,7 @@ export default function Dashboard() {
   const departmentOrders = state.orders.filter((order) => order.department === profile?.department)
   const departmentReferrals = state.referrals.filter((referral) => referral.to === profile?.department)
 
-  const roleMetrics: Record<RoleId, MetricProps[]> = {
+  const roleMetrics: Partial<Record<RoleId, MetricProps[]>> = {
     physician: [
       { label: 'High-acuity patients', value: unitHighAcuity.length, detail: `${unitPatients.length} active in ${unitDepartment.shortName}`, icon: Siren, tone: 'coral' },
       { label: 'Open diagnostics', value: unitOrders.filter((order) => order.status !== 'completed').length, detail: `${unitOrders.filter((order) => order.status === 'in-progress').length} studies in progress`, icon: FlaskConical, tone: 'blue' },
@@ -202,9 +202,12 @@ export default function Dashboard() {
     {role === 'diagnostics' && <Button variant="secondary" icon={ListFilter} onClick={() => document.querySelector('.diagnostic-worklist')?.scrollIntoView({ behavior: 'smooth' })}>Focus worklist</Button>}
   </>
 
+  const metrics = roleMetrics[role]
+  if (!metrics) return <Navigate to={ROLE_HOME[role]} replace />
+
   return <motion.div className="dashboard-page" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.055 } } }}>
     <motion.div variants={enter}><PageHeader eyebrow={`${profile?.shift} SHIFT · ${departmentById(state.departments, profile?.department ?? 'emergency').name.toUpperCase()}`} title={profile?.headline ?? ''} description={profile?.description ?? ''} actions={actions} /></motion.div>
-    <motion.div className="metrics-grid" variants={enter}>{roleMetrics[role].map((metric) => <Metric key={metric.label} {...metric} />)}</motion.div>
+    <motion.div className="metrics-grid" variants={enter}>{metrics.map((metric) => <Metric key={metric.label} {...metric} />)}</motion.div>
 
     {role === 'consultant' ? <motion.div className="dashboard-grid consultant-grid" variants={enter}><ReferralInbox /><div className="dashboard-side"><DepartmentPressure limit={4} /><ActivityFeed limit={5} /></div></motion.div>
       : role === 'diagnostics' ? <motion.div className="dashboard-grid diagnostics-grid" variants={enter}><DiagnosticWorklist /><div className="dashboard-side"><Panel title={homeDepartment === 'laboratory' ? 'Laboratory turnaround' : 'Reporting turnaround'} action={<Clock3 size={17} className="muted-icon" />}><div className="turnaround-hero"><span>Average this shift</span><strong>{homeDepartment === 'laboratory' ? '52' : '38'}<small>min</small></strong><p><TrendingUp size={14} />{homeDepartment === 'laboratory' ? '8' : '12'}% faster than last shift</p></div><div className="turnaround-rows">{(homeDepartment === 'laboratory' ? [['Troponin', '34 min', '58%'], ['FBC', '41 min', '69%'], ['Blood gas', '18 min', '38%']] : [['CT', '24 min', '62%'], ['MRI', '52 min', '86%'], ['Plain film', '31 min', '72%']]).map(([label, time, width]) => <div key={label}><span>{label}</span><b>{time}</b><i><motion.em initial={{ width: 0 }} animate={{ width }} /></i></div>)}</div></Panel><ActivityFeed limit={4} /></div></motion.div>
