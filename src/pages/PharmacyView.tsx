@@ -1,275 +1,210 @@
-import { motion } from 'framer-motion'
-import { Fragment } from 'react'
-import { Activity, AlertTriangle, Check, ChevronRight, Download, Filter, Loader, PackageSearch, Pill, Plus, Search, ShieldCheck, Truck, UsersRound, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
+import { AlertTriangle, BadgeCheck, Ban, ClipboardList, Download, PackageCheck, Pill, Plus, ShieldCheck } from 'lucide-react'
+import { Badge, Button, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { departmentById } from '../data'
+import { downloadCsv, formatCurrency, relativeTime, today } from '../lib/format'
+import { matches, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import { useFormulary, usePrescriptions } from '../data'
-import { Avatar, Button, Badge, EmptyState, Modal, PageHeader, Panel, StatusBadge } from '../components/ui'
-import { downloadCsv, formatTime } from '../lib/format'
-import type { FormularyItem, Prescription } from '../types'
+import type { FormularyItem, Prescription, RxPriority } from '../types'
+
+type View = 'queue' | 'prescriptions' | 'formulary'
+
+const stockTone = (item: FormularyItem) => item.stock <= item.reorderLevel ? 'danger' : item.stock <= item.reorderLevel * 1.5 ? 'warning' : 'success'
 
 export default function PharmacyView() {
-  const { state, notify } = useHospital()
-  const formulary = useFormulary()
-  const prescriptions = usePrescriptions()
+  const { state, setPrescriptionStatus, setSelectedPatientId } = useHospital()
+  const patients = usePatients()
+  const [view, setView] = useState<View>('queue')
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('all')
-  const [view, setView] = useState<'formulary' | 'prescriptions' | 'dispensing'>('formulary')
-  const [showNewPrescription, setShowNewPrescription] = useState(false)
-  const [selectedItem, setSelectedItem] = useState<FormularyItem | null>(null)
+  const [filter, setFilter] = useState('all')
+  const [creating, setCreating] = useState(false)
 
-  const categories = useMemo(() => [...new Set(formulary.map((item) => item.category))], [formulary])
-  const filteredFormulary = formulary.filter((item) => {
-    if (category !== 'all' && item.category !== category) return false
-    if (query && !`${item.name} ${item.genericName} ${item.category}`.toLowerCase().includes(query.toLowerCase())) return false
-    return true
+  const medication = useMemo(() => new Map(state.formulary.map((item) => [item.id, item])), [state.formulary])
+  const queue = state.prescriptions.filter((rx) => rx.status === 'Pending' || rx.status === 'Verified')
+    .sort((a, b) => ({ STAT: 0, Urgent: 1, Routine: 2 }[a.priority] - { STAT: 0, Urgent: 1, Routine: 2 }[b.priority]) || a.createdAt.localeCompare(b.createdAt))
+  const lowStock = state.formulary.filter((item) => item.stock <= item.reorderLevel)
+  const categories = [...new Set(state.formulary.map((item) => item.category))].sort()
+
+  const rxLabel = (rx: Prescription) => rx.items.map((item) => `${medication.get(item.medicationId)?.name ?? 'Unknown'} ${item.dosage}`).join(' · ')
+  const prescriptions = state.prescriptions.filter((rx) => {
+    const patient = patients.get(rx.patientId)
+    return (filter === 'all' || rx.status === filter) && matches(query, rx.id, patient?.name, patient?.mrn, rx.prescriber, rx.diagnosis, rxLabel(rx))
   })
+  const formulary = state.formulary.filter((item) => (filter === 'all' || item.category === filter) && matches(query, item.name, item.genericName, item.category))
 
-  const pendingPrescriptions = prescriptions.filter((rx) => rx.status === 'Pending')
-  const dispensingPrescriptions = prescriptions.filter((rx) => rx.status === 'Dispensed')
+  const changeView = (next: View) => { setView(next); setQuery(''); setFilter('all') }
 
-  const exportFormulary = () => downloadCsv('northstar-formulary.csv', [
-    ['ID', 'Medication', 'Generic', 'Category', 'Form', 'Strength', 'Stock', 'Reorder', 'Price', 'Route', 'Controlled'],
-    ...formulary.map((item) => [item.id, item.name, item.genericName, item.category, item.dosageForm, item.strength, item.stock, item.reorderLevel, item.pricePerUnit, item.route ?? 'PO', item.controlledSubstance ? 'Yes' : 'No'])
-  ])
+  const exportCurrent = () => view === 'formulary'
+    ? downloadCsv(`formulary-${today()}.csv`, [['ID', 'Medication', 'Generic', 'Category', 'Form', 'Strength', 'Stock', 'Unit', 'Reorder level', 'Unit price', 'Route', 'Controlled'], ...state.formulary.map((item) => [item.id, item.name, item.genericName, item.category, item.dosageForm, item.strength, item.stock, item.unit, item.reorderLevel, item.pricePerUnit, item.route, item.controlled ? 'Yes' : 'No'])])
+    : downloadCsv(`prescriptions-${today()}.csv`, [['Rx', 'Patient', 'MRN', 'Medicines', 'Priority', 'Status', 'Prescriber', 'Department', 'Created'], ...state.prescriptions.map((rx) => [rx.id, patients.get(rx.patientId)?.name, patients.get(rx.patientId)?.mrn, rxLabel(rx), rx.priority, rx.status, rx.prescriber, departmentById(state.departments, rx.department).name, rx.createdAt])])
 
-  const exportPrescriptions = () => downloadCsv('northstar-prescriptions.csv', [
-    ['Rx #', 'Patient', 'MRN', 'Medication', 'Dosage', 'Frequency', 'Duration', 'Priority', 'Status', 'Doctor', 'Department'],
-    ...prescriptions.map((rx) => [rx.rxNumber, rx.patientName, rx.mrn, rx.items.map((i) => i.medicationName).join('; '), rx.items.map((i) => i.dosage).join('; '), rx.items.map((i) => i.frequency).join('; '), rx.items.map((i) => i.duration).join('; '), rx.priority ?? 'Routine', rx.status, rx.doctorName ?? rx.prescribedBy ?? '', rx.department ?? ''])
-  ])
+  const actionsFor = (rx: Prescription) => <>
+    {rx.status === 'Pending' && <Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setPrescriptionStatus(rx.id, 'Verified')}>Verify</Button>}
+    {rx.status === 'Verified' && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Dispensed')}>Dispense</Button>}
+    {(rx.status === 'Pending' || rx.status === 'Verified') && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setPrescriptionStatus(rx.id, 'Cancelled')} aria-label={`Cancel ${rx.id}`}>Cancel</Button>}
+  </>
 
   return (
-    <motion.div className="pharmacy-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader
-        eyebrow="PHARMACY OPERATIONS · CLINICAL VERIFICATION"
-        title="Pharmacy Management"
-        description="Formulary, prescriptions, dispensing and clinical verification across the hospital."
-        actions={
-          <Fragment>
-            <Button variant="secondary" icon={Download} onClick={view === 'formulary' ? exportFormulary : exportPrescriptions}>
-              Export {view === 'formulary' ? 'formulary' : 'prescriptions'}
-            </Button>
-            <Button icon={Plus} onClick={() => { setView('prescriptions'); setShowNewPrescription(true) }}>
-              New prescription
-            </Button>
-          </Fragment>
-        }
+        eyebrow="Pharmacy · Clinical verification"
+        title="Pharmacy"
+        description="Verify and dispense prescriptions, and keep an eye on formulary stock."
+        actions={<>
+          <Button variant="secondary" icon={Download} onClick={exportCurrent}>Export {view === 'formulary' ? 'formulary' : 'prescriptions'}</Button>
+          <Button icon={Plus} onClick={() => setCreating(true)}>New prescription</Button>
+        </>}
       />
-      <div className="pharmacy-tabs" role="tablist">
-        {(['formulary', 'prescriptions', 'dispensing'] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            className={view === v ? 'active' : ''}
-            onClick={() => setView(v)}
-          >
-            {v.charAt(0).toUpperCase() + v.slice(1)}
-          </button>
-        ))}
+
+      <div className="metrics-grid">
+        <Metric label="Awaiting verification" value={queue.filter((rx) => rx.status === 'Pending').length} detail={`${queue.filter((rx) => rx.priority === 'STAT').length} STAT in queue`} icon={ClipboardList} tone="amber" />
+        <Metric label="Ready to dispense" value={queue.filter((rx) => rx.status === 'Verified').length} detail="Verified by a pharmacist" icon={BadgeCheck} tone="blue" />
+        <Metric label="Dispensed" value={state.prescriptions.filter((rx) => rx.status === 'Dispensed').length} detail="Released to wards and patients" icon={PackageCheck} tone="teal" />
+        <Metric label="Below reorder level" value={lowStock.length} detail={lowStock.length ? lowStock.map((item) => item.name).join(', ') : 'All lines stocked'} icon={AlertTriangle} tone="coral" />
       </div>
 
-      {view === 'formulary' && (
-        <Panel className="formulary-panel">
-          <div className="formulary-toolbar">
-            <label className="formulary-search">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search medication…"
-              />
-              {query && (
-                <button onClick={() => setQuery('')}>
-                  <X size={14} />
-                </button>
-              )}
-            </label>
-            <label>
-              <Filter size={15} />
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                <option value="all">All categories</option>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </label>
+      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }]} />
+
+      {view === 'queue' && (
+        <div className="card-grid">
+          {queue.map((rx) => {
+            const patient = patients.get(rx.patientId)
+            return (
+              <article key={rx.id} className={`work-card priority-${rx.priority.toLowerCase()}`}>
+                <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span><StatusBadge status={rx.status} /></header>
+                {patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}
+                {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag"><AlertTriangle size={13} />Allergies: {patient.allergies.join(', ')}</p>}
+                <ul className="rx-lines">
+                  {rx.items.map((item, index) => {
+                    const med = medication.get(item.medicationId)
+                    return <li key={index}><b>{med?.name} {item.dosage}</b><span>{item.frequency} · {item.duration} · qty {item.quantity}</span>{med && med.stock < item.quantity && <em>Insufficient stock</em>}</li>
+                  })}
+                </ul>
+                <footer><small>{rx.prescriber} · {relativeTime(rx.createdAt)}</small><div>{actionsFor(rx)}</div></footer>
+              </article>
+            )
+          })}
+          {queue.length === 0 && <Panel><EmptyState icon={PackageCheck} title="Queue clear" text="Every prescription has been verified and dispensed." /></Panel>}
+        </div>
+      )}
+
+      {view === 'prescriptions' && (
+        <Panel>
+          <div className="table-toolbar">
+            <SearchField value={query} onChange={setQuery} placeholder="Search patient, Rx number or medicine…" />
+            <FilterSelect label="All statuses" value={filter} onChange={setFilter} options={['Pending', 'Verified', 'Dispensed', 'Cancelled']} />
           </div>
-          <div className="formulary-table-wrap">
-            <table className="formulary-table">
-              <thead>
-                <tr>
-                  <th>Medication</th>
-                  <th>Generic</th>
-                  <th>Category</th>
-                  <th>Form / Strength</th>
-                  <th>Stock</th>
-                  <th>Reorder</th>
-                  <th>Price</th>
-                  <th>Route</th>
-                  <th>Controlled</th>
-                </tr>
-              </thead>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Rx</th><th>Patient</th><th>Medicines</th><th>Priority</th><th>Status</th><th>Prescriber</th><th aria-label="Actions" /></tr></thead>
               <tbody>
-                {filteredFormulary.map((item) => (
+                {prescriptions.map((rx) => {
+                  const patient = patients.get(rx.patientId)
+                  return (
+                    <tr key={rx.id}>
+                      <td><b>{rx.id}</b><small>{relativeTime(rx.createdAt)}</small></td>
+                      <td>{patient && <PersonCell name={patient.name} detail={patient.mrn} onClick={() => setSelectedPatientId(patient.id)} />}</td>
+                      <td className="wrap">{rxLabel(rx)}</td>
+                      <td><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span></td>
+                      <td><StatusBadge status={rx.status} /></td>
+                      <td>{rx.prescriber}<small>{departmentById(state.departments, rx.department).shortName}</small></td>
+                      <td className="row-actions">{actionsFor(rx)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {prescriptions.length === 0 && <EmptyState icon={Pill} title="No prescriptions match" text="Try another search term or clear the status filter." />}
+        </Panel>
+      )}
+
+      {view === 'formulary' && (
+        <Panel>
+          <div className="table-toolbar">
+            <SearchField value={query} onChange={setQuery} placeholder="Search medication…" />
+            <FilterSelect label="All categories" value={filter} onChange={setFilter} options={categories} />
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Medication</th><th>Category</th><th>Form / strength</th><th>Route</th><th className="num">Stock</th><th className="num">Reorder at</th><th className="num">Unit price</th></tr></thead>
+              <tbody>
+                {formulary.map((item) => (
                   <tr key={item.id}>
-                    <td><b>{item.name}</b></td>
-                    <td>{item.genericName}</td>
+                    <td><b>{item.name}{item.controlled && <ShieldCheck size={13} className="controlled-icon" aria-label="Controlled drug" />}</b><small>{item.genericName}</small></td>
                     <td><Badge variant="neutral">{item.category}</Badge></td>
-                    <td>{item.dosageForm} / {item.strength}</td>
-                    <td>
-                      <Badge
-                        variant={
-                          item.stock <= item.reorderLevel
-                            ? 'danger'
-                            : item.stock <= item.reorderLevel * 2
-                              ? 'warning'
-                              : 'success'
-                        }
-                      >
-                        {item.stock} {item.unit}
-                      </Badge>
-                    </td>
-                    <td>{item.reorderLevel} {item.unit}</td>
-                    <td>${item.pricePerUnit.toFixed(2)} / {item.unit}</td>
-                    <td>{item.route ?? 'PO'}</td>
-                    <td>{item.controlledSubstance ? <ShieldCheck size={14} /> : <span className="muted">No</span>}</td>
+                    <td>{item.dosageForm} · {item.strength}</td>
+                    <td>{item.route}</td>
+                    <td className="num"><Badge variant={stockTone(item)}>{item.stock.toLocaleString()} {item.unit}</Badge></td>
+                    <td className="num">{item.reorderLevel.toLocaleString()}</td>
+                    <td className="num">{formatCurrency(item.pricePerUnit)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {filteredFormulary.length === 0 && (
-            <EmptyState icon={Pill} title="No medications match" text="Try another search term or clear the category filter." />
-          )}
+          {formulary.length === 0 && <EmptyState icon={Pill} title="No medications match" text="Try another search term or clear the category filter." />}
         </Panel>
       )}
 
-      {view === 'prescriptions' && (
-        <Panel className="prescriptions-panel">
-          <div className="prescriptions-toolbar">
-            <label className="prescriptions-search">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search prescriptions…"
-              />
-              {query && (
-                <button onClick={() => setQuery('')}>
-                  <X size={14} />
-                </button>
-              )}
-            </label>
-          </div>
-          <div className="prescription-list">
-            {prescriptions.map((rx) => (
-              <article key={rx.id} className={`prescription-card ${rx.priority === 'STAT' ? 'stat' : ''}`}>
-                <div className="prescription-header">
-                  <div>
-                    <b>{rx.rxNumber}</b>
-                    <StatusBadge status={rx.status.toLowerCase()} />
-                  </div>
-                  <div className="rx-priority">{rx.priority ?? 'Routine'}</div>
-                </div>
-                <div className="prescription-body">
-                  <div className="rx-patient">
-                    <Avatar name={rx.patientName} size="sm" />
-                    <span>
-                      <b>{rx.patientName}</b>
-                      <small>{rx.mrn}</small>
-                    </span>
-                  </div>
-                  <p className="rx-doctor">{rx.doctorName ?? rx.prescribedBy ?? ''} · {rx.department ?? ''}</p>
-                  <div className="rx-items">
-                    {rx.items.map((item, i) => (
-                      <span key={i} className="rx-item">
-                        {item.medicationName} {item.dosage} {item.frequency} {item.duration}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="rx-actions">
-                    {rx.status === 'Pending' && (
-                      <Button size="sm" onClick={() => notify(`${rx.rxNumber} marked as dispensed`, 'success')}>
-                        Dispense
-                        <Check size={14} />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            ))}
-            {prescriptions.length === 0 && (
-              <EmptyState icon={PackageSearch} title="No prescriptions" text="Prescriptions will appear here when clinicians place orders." />
-            )}
-          </div>
-        </Panel>
-      )}
-
-      {view === 'dispensing' && (
-        <Panel className="dispensing-panel" title="Dispensing workflow" action={<span className="panel-count">{pendingPrescriptions.length} PENDING</span>}>
-          <div className="panel-subhead">Prescriptions awaiting dispensing or verification.<span>Live</span></div>
-          <div className="dispensing-grid">
-            {pendingPrescriptions.map((rx) => (
-              <article key={rx.id} className="dispensing-card">
-                <div className="dispensing-header">
-                  <b>{rx.rxNumber}</b>
-                  <span className="rx-priority">{rx.priority ?? 'Routine'}</span>
-                </div>
-                <div>
-                  <Avatar name={rx.patientName} size="sm" />
-                  <span>
-                    <b>{rx.patientName}</b>
-                    <small>{rx.mrn}</small>
-                  </span>
-                </div>
-                <div className="dispensing-items">
-                  {rx.items.map((item, i) => (
-                    <span key={i} className="rx-item">
-                      {item.medicationName} {item.dosage} {item.frequency}
-                    </span>
-                  ))}
-                </div>
-                <div className="dispensing-actions">
-                  <Button size="sm" variant="secondary" onClick={() => notify(`${rx.rxNumber} verified`, 'info')}>
-                    Verify
-                  </Button>
-                  <Button size="sm" onClick={() => notify(`${rx.rxNumber} dispensed`, 'success')}>
-                    Dispense
-                    <Check size={14} />
-                  </Button>
-                </div>
-              </article>
-            ))}
-            {pendingPrescriptions.length === 0 && (
-              <EmptyState icon={Truck} title="No pending prescriptions" text="All prescriptions have been processed." />
-            )}
-          </div>
-        </Panel>
-      )}
-
-      {showNewPrescription && (
-        <Modal open={showNewPrescription} onClose={() => setShowNewPrescription(false)} title="New Prescription" subtitle="Create and route a new medication order" size="lg">
-          <div className="new-rx-form">
-            <div className="form-row">
-              <label>Patient <input placeholder="Search patient…" /></label>
-              <label>Medication <input placeholder="Search formulary…" /></label>
-            </div>
-            <div className="form-row">
-              <label>Dosage <input placeholder="e.g., 500mg" /></label>
-              <label>Frequency <input placeholder="e.g., Q8H" /></label>
-            </div>
-            <div className="form-row">
-              <label>Duration <input placeholder="e.g., 7 days" /></label>
-              <label>Priority <select><option>Routine</option><option>Urgent</option><option>STAT</option></select></label>
-            </div>
-            <div className="form-actions">
-              <Button variant="ghost" onClick={() => setShowNewPrescription(false)}>Cancel</Button>
-              <Button onClick={() => { notify('Prescription created', 'success'); setShowNewPrescription(false) }}>Create prescription</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <NewPrescriptionModal open={creating} onClose={() => setCreating(false)} />
     </motion.div>
   )
 }
+
+function NewPrescriptionModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { state, profile, createPrescription } = useHospital()
+  const activePatients = state.patients.filter((patient) => patient.status !== 'discharged')
+  const [patientId, setPatientId] = useState('')
+  const [medicationId, setMedicationId] = useState(state.formulary[0]?.id ?? '')
+  const [dosage, setDosage] = useState('')
+  const [frequency, setFrequency] = useState('')
+  const [duration, setDuration] = useState('')
+  const [quantity, setQuantity] = useState(1)
+  const [priority, setPriority] = useState<RxPriority>('Routine')
+  const [diagnosis, setDiagnosis] = useState('')
+  const [error, setError] = useState('')
+  const patient = activePatients.find((item) => item.id === patientId)
+  const med = state.formulary.find((item) => item.id === medicationId)
+
+  const reset = () => { setPatientId(''); setMedicationId(state.formulary[0]?.id ?? ''); setDosage(''); setFrequency(''); setDuration(''); setQuantity(1); setPriority('Routine'); setDiagnosis(''); setError('') }
+  const close = () => { reset(); onClose() }
+  const submit = () => {
+    if (!patient || !med || !dosage.trim() || !frequency.trim() || !duration.trim() || quantity < 1) { setError('Choose a patient and medicine, and complete dose, frequency, duration and quantity.'); return }
+    createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority, diagnosis: diagnosis.trim() || undefined, items: [{ medicationId: med.id, dosage: dosage.trim(), frequency: frequency.trim(), duration: duration.trim(), quantity }] })
+    close()
+  }
+
+  return (
+    <Modal open={open} onClose={close} title="New prescription" subtitle="Sends the order to the pharmacy verification queue" size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field span-2"><span>Patient <b>*</b></span>
+          <select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}>
+            <option value="">Select a patient…</option>
+            {activePatients.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.mrn}</option>)}
+          </select>
+        </label>
+        {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag span-2"><AlertTriangle size={13} />Recorded allergies: {patient.allergies.join(', ')}</p>}
+        <label className="form-field span-2"><span>Medicine <b>*</b></span>
+          <select value={medicationId} onChange={(event) => setMedicationId(event.target.value)}>
+            {state.formulary.map((item) => <option key={item.id} value={item.id}>{item.name} {item.strength} · {item.dosageForm} ({item.stock} in stock)</option>)}
+          </select>
+        </label>
+        <label className="form-field"><span>Dose <b>*</b></span><input value={dosage} onChange={(event) => setDosage(event.target.value)} placeholder="e.g. 500 mg" /></label>
+        <label className="form-field"><span>Frequency <b>*</b></span><input value={frequency} onChange={(event) => setFrequency(event.target.value)} placeholder="e.g. Every 8 h" /></label>
+        <label className="form-field"><span>Duration <b>*</b></span><input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="e.g. 7 days" /></label>
+        <label className="form-field"><span>Quantity ({med?.unit ?? 'units'}) <b>*</b></span><input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(0, Math.floor(Number(event.target.value))))} /></label>
+        <label className="form-field span-2"><span>Indication</span><input value={diagnosis} onChange={(event) => setDiagnosis(event.target.value)} placeholder="e.g. Community-acquired pneumonia" /></label>
+        <div className="form-field span-2"><span>Priority</span>
+          <div className="priority-control">
+            {(['Routine', 'Urgent', 'STAT'] as RxPriority[]).map((value) => <button type="button" key={value} aria-pressed={priority === value} className={priority === value ? `active ${{ Routine: 'routine', Urgent: 'urgent', STAT: 'emergent' }[value]}` : ''} onClick={() => setPriority(value)}>{value}</button>)}
+          </div>
+        </div>
+      </div>
+      {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+      <div className="modal-footer"><Button variant="ghost" onClick={close}>Cancel</Button><Button icon={Pill} onClick={submit}>Send to pharmacy</Button></div>
+    </Modal>
+  )
+}
+

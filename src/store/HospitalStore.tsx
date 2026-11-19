@@ -1,12 +1,31 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createInitialState, departmentSeed, roleProfiles } from '../data'
-import type { ClinicalOrder, DepartmentId, HospitalState, OrderStatus, Patient, Permission, Priority, ReferralStatus, RoleId, TriageInput, Vitals } from '../types'
+import type {
+  AppointmentStatus,
+  ClinicalOrder,
+  DepartmentId,
+  HospitalState,
+  InvoiceStatus,
+  OrderStatus,
+  Patient,
+  Permission,
+  Prescription,
+  Priority,
+  ReferralStatus,
+  RoleId,
+  RoleProfile,
+  RxStatus,
+  TriageInput,
+  Vitals,
+  Appointment,
+} from '../types'
 
-const DATA_KEY = 'northstar-careos-data-v1'
+const DATA_KEY = 'northstar-careos-data-v2'
 const SESSION_KEY = 'northstar-careos-session'
 const DEPARTMENT_KEY = 'northstar-careos-department'
+const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
 
-interface Toast {
+export interface Toast {
   id: number
   message: string
   tone: 'success' | 'info' | 'warning'
@@ -15,7 +34,7 @@ interface Toast {
 interface HospitalContextValue {
   state: HospitalState
   currentRole: RoleId | null
-  profile: (typeof roleProfiles)[RoleId] | null
+  profile: RoleProfile | null
   selectedPatientId: string | null
   toasts: Toast[]
   login: (role: RoleId, remember: boolean, department?: DepartmentId) => void
@@ -31,6 +50,14 @@ interface HospitalContextValue {
   transferPatient: (patientId: string, to: DepartmentId, location: string) => void
   addNote: (patientId: string, note: string) => void
   dischargePatient: (patientId: string) => void
+  createPrescription: (input: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'prescriber'>) => void
+  setPrescriptionStatus: (id: string, status: RxStatus) => void
+  setInvoiceStatus: (id: string, status: InvoiceStatus) => void
+  scheduleAppointment: (input: Omit<Appointment, 'id' | 'status'>) => void
+  setAppointmentStatus: (id: string, status: AppointmentStatus) => void
+  setStaffDuty: (id: string, onDuty: boolean) => void
+  activateCode: (id: string, location: string) => void
+  standDownCode: (id: string) => void
   resetDemo: () => void
   notify: (message: string, tone?: Toast['tone']) => void
   dismissToast: (id: number) => void
@@ -38,39 +65,68 @@ interface HospitalContextValue {
 
 const HospitalContext = createContext<HospitalContextValue | null>(null)
 
-function loadState(): HospitalState {
-  try {
-    const saved = localStorage.getItem(DATA_KEY)
-    if (saved) {
-      const parsed = JSON.parse(saved) as HospitalState
-      if (parsed.patients?.length && parsed.departments?.length && parsed.referrals && parsed.orders) {
-        const seed = createInitialState()
-        return {
-          ...parsed,
-          patients: [...parsed.patients, ...seed.patients.filter((patient) => !parsed.patients.some((saved) => saved.id === patient.id))],
-          departments: [...parsed.departments, ...seed.departments.filter((department) => !parsed.departments.some((saved) => saved.id === department.id))],
-          referrals: [...parsed.referrals, ...seed.referrals.filter((referral) => !parsed.referrals.some((saved) => saved.id === referral.id))],
-          orders: [...parsed.orders, ...seed.orders.filter((order) => !parsed.orders.some((saved) => saved.id === order.id))],
-        }
-      }
-    }
-  } catch {
-  }
-  return createInitialState()
+/** Keeps saved records and adds any seed records (by id) that the saved copy predates. */
+function mergeById<T extends { id: string }>(saved: unknown, seed: T[]): T[] {
+  if (!Array.isArray(saved)) return seed
+  const ids = new Set(saved.map((item: T) => item.id))
+  return [...(saved as T[]), ...seed.filter((item) => !ids.has(item.id))]
 }
 
-function loadSession(): RoleId | null {
-  const value = localStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(SESSION_KEY)
+function loadState(): HospitalState {
+  const seed = createInitialState()
+  try {
+    const saved = localStorage.getItem(DATA_KEY)
+    if (!saved) return seed
+    const parsed = JSON.parse(saved) as Partial<HospitalState>
+    return {
+      patients: mergeById(parsed.patients, seed.patients),
+      departments: mergeById(parsed.departments, seed.departments),
+      referrals: mergeById(parsed.referrals, seed.referrals),
+      orders: mergeById(parsed.orders, seed.orders),
+      activities: Array.isArray(parsed.activities) ? parsed.activities : seed.activities,
+      formulary: mergeById(parsed.formulary, seed.formulary),
+      prescriptions: mergeById(parsed.prescriptions, seed.prescriptions),
+      invoices: mergeById(parsed.invoices, seed.invoices),
+      appointments: mergeById(parsed.appointments, seed.appointments),
+      staff: mergeById(parsed.staff, seed.staff),
+      codes: mergeById(parsed.codes, seed.codes),
+    }
+  } catch {
+    return seed
+  }
+}
+
+function readSession(key: string) {
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function clearSession() {
+  try {
+    for (const storage of [localStorage, sessionStorage]) {
+      storage.removeItem(SESSION_KEY)
+      storage.removeItem(DEPARTMENT_KEY)
+    }
+  } catch { /* storage unavailable */ }
+}
+
+function loadSessionRole(): RoleId | null {
+  const value = readSession(SESSION_KEY)
   return value && value in roleProfiles ? value as RoleId : null
 }
 
 function loadSessionDepartment(): DepartmentId | null {
-  const storage = localStorage.getItem(SESSION_KEY) ? localStorage : sessionStorage
-  const value = storage.getItem(DEPARTMENT_KEY)
+  const value = readSession(DEPARTMENT_KEY)
   return departmentSeed.some((department) => department.id === value) ? value as DepartmentId : null
 }
 
-const id = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+const makeId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+const nextNumber = (ids: string[], prefix: string, start: number) =>
+  `${prefix}-${Math.max(start, ...ids.map((id) => Number(id.replace(`${prefix}-`, '')) || 0)) + 1}`
+const unitName = (id: DepartmentId) => departmentSeed.find((department) => department.id === id)?.shortName ?? id
 
 const permissions: Record<RoleId, Permission[]> = {
   physician: ['triage', 'refer', 'transfer', 'notes', 'discharge'],
@@ -83,65 +139,82 @@ const permissions: Record<RoleId, Permission[]> = {
 
 export function HospitalProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<HospitalState>(loadState)
-  const [currentRole, setCurrentRole] = useState<RoleId | null>(loadSession)
+  const [currentRole, setCurrentRole] = useState<RoleId | null>(loadSessionRole)
   const [currentDepartment, setCurrentDepartment] = useState<DepartmentId | null>(loadSessionDepartment)
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const toastTimers = useRef(new Map<number, number>())
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   useEffect(() => {
-    localStorage.setItem(DATA_KEY, JSON.stringify(state))
+    try { localStorage.setItem(DATA_KEY, JSON.stringify(state)) } catch { /* storage full or unavailable */ }
   }, [state])
 
+  useEffect(() => {
+    const timers = toastTimers.current
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [])
+
   const dismissToast = useCallback((toastId: number) => {
+    window.clearTimeout(toastTimers.current.get(toastId))
+    toastTimers.current.delete(toastId)
     setToasts((items) => items.filter((item) => item.id !== toastId))
   }, [])
 
   const notify = useCallback((message: string, tone: Toast['tone'] = 'success') => {
-    const toastId = Date.now() + Math.floor(Math.random() * 1000)
+    const toastId = Date.now() + Math.random()
     setToasts((items) => [...items.slice(-2), { id: toastId, message, tone }])
-    window.setTimeout(() => dismissToast(toastId), 4200)
+    toastTimers.current.set(toastId, window.setTimeout(() => dismissToast(toastId), 4200))
   }, [dismissToast])
 
   const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId) => {
-    localStorage.removeItem(SESSION_KEY)
-    localStorage.removeItem(DEPARTMENT_KEY)
-    sessionStorage.removeItem(SESSION_KEY)
-    sessionStorage.removeItem(DEPARTMENT_KEY)
-    const storage = remember ? localStorage : sessionStorage
+    clearSession()
     const selectedDepartment = department ?? roleProfiles[role].department
-    storage.setItem(SESSION_KEY, role)
-    storage.setItem(DEPARTMENT_KEY, selectedDepartment)
+    try {
+      const storage = remember ? localStorage : sessionStorage
+      storage.setItem(SESSION_KEY, role)
+      storage.setItem(DEPARTMENT_KEY, selectedDepartment)
+    } catch { /* session lasts for this tab only */ }
     setCurrentRole(role)
     setCurrentDepartment(selectedDepartment)
     setSelectedPatientId(null)
   }, [])
 
   const logout = useCallback(() => {
-    localStorage.removeItem(SESSION_KEY)
-    localStorage.removeItem(DEPARTMENT_KEY)
-    sessionStorage.removeItem(SESSION_KEY)
-    sessionStorage.removeItem(DEPARTMENT_KEY)
+    clearSession()
     setCurrentRole(null)
     setCurrentDepartment(null)
     setSelectedPatientId(null)
   }, [])
 
-  const can = useCallback((permission: Permission) => {
-    return currentRole ? permissions[currentRole].includes(permission) : false
-  }, [currentRole])
+  const can = useCallback((permission: Permission) => (currentRole ? permissions[currentRole].includes(permission) : false), [currentRole])
 
-  const addActivity = useCallback((draft: HospitalState, actor: string, action: string, department: DepartmentId, patientId?: string) => {
-    draft.activities = [{ id: id('ac'), at: new Date().toISOString(), actor, action, department, patientId }, ...draft.activities].slice(0, 60)
+  const actorName = useCallback((fallback: string) => (currentRole ? roleProfiles[currentRole].name : fallback), [currentRole])
+
+  /**
+   * Applies a change to the hospital state and records it in the activity log.
+   * `change` returns the next state plus the log entry, or null to abort.
+   */
+  const commit = useCallback((change: (previous: HospitalState) => { next: HospitalState; actor: string; action: string; department: DepartmentId; patientId?: string } | null) => {
+    setState((previous) => {
+      const result = change(previous)
+      if (!result) return previous
+      const { next, actor, action, department, patientId } = result
+      return { ...next, activities: [{ id: makeId('ac'), at: new Date().toISOString(), actor, action, department, patientId }, ...next.activities].slice(0, 200) }
+    })
   }, [])
 
+  const withTimeline = (patients: Patient[], patientId: string, event: Omit<Patient['timeline'][number], 'id' | 'at'>, changes: Partial<Patient> = {}) =>
+    patients.map((item) => item.id === patientId ? { ...item, ...changes, timeline: [{ id: makeId('ev'), at: new Date().toISOString(), ...event }, ...item.timeline] } : item)
+
   const addTriage = useCallback((input: TriageInput) => {
-    const patientId = id('p')
+    const patientId = makeId('p')
     const now = new Date().toISOString()
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Triage team'
-    const mrn = `NS-${String(Math.floor(100000 + Math.random() * 899999))}`
+    const actor = actorName('Triage team')
     const patient: Patient = {
       id: patientId,
-      mrn,
+      mrn: `NS-${String(Math.floor(100000 + Math.random() * 899999))}`,
       name: input.name.trim(),
       age: input.age,
       sex: input.sex,
@@ -161,195 +234,273 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       status: 'waiting',
       assignedTo: 'Unassigned',
       timeline: [
-        { id: id('ev'), at: now, type: 'arrival', title: 'Patient registered', detail: 'New emergency attendance created at triage.', author: actor, department: 'emergency' },
-        { id: id('ev'), at: now, type: 'triage', title: `Triaged ESI ${input.esi}`, detail: input.overrideReason ? `Clinical override: ${input.overrideReason}` : `${input.resources} resource${input.resources === 1 ? '' : 's'} anticipated. ${input.riskFactors.length ? `Risk flags: ${input.riskFactors.join(', ')}.` : 'No high-risk flags recorded.'}`, author: actor, department: 'emergency' },
+        { id: makeId('ev'), at: now, type: 'triage', title: `Triaged ESI ${input.esi}`, detail: input.overrideReason ? `Clinical override: ${input.overrideReason}` : `${input.resources} resource${input.resources === 1 ? '' : 's'} anticipated. ${input.riskFactors.length ? `Risk flags: ${input.riskFactors.join(', ')}.` : 'No high-risk flags recorded.'}`, author: actor, department: 'emergency' },
+        { id: makeId('ev'), at: now, type: 'arrival', title: 'Patient registered', detail: 'New emergency attendance created at triage.', author: actor, department: 'emergency' },
       ],
     }
-    setState((previous) => {
-      const next = { ...previous, patients: [patient, ...previous.patients], activities: [...previous.activities] }
-      addActivity(next, actor, `completed ESI ${input.esi} triage for ${patient.name}`, 'emergency', patientId)
-      return next
-    })
+    commit((previous) => ({ next: { ...previous, patients: [patient, ...previous.patients] }, actor, action: `completed ESI ${input.esi} triage for ${patient.name}`, department: 'emergency', patientId }))
     notify(`${patient.name} added to the ESI ${input.esi} queue`)
     return patientId
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
 
   const retriage = useCallback((patientId: string, vitals: Vitals, esi: Patient['esi'], reason: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Clinical team'
-    setState((previous) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return previous
-      const next = {
-        ...previous,
-        patients: previous.patients.map((item) => item.id === patientId ? {
-          ...item,
-          vitals,
-          esi,
-          esiOverride: reason || undefined,
-          timeline: [{ id: id('ev'), at: new Date().toISOString(), type: 'triage' as const, title: `Reassessed as ESI ${esi}`, detail: reason || 'Repeat observations recorded; acuity recalculated from current findings.', author: actor, department: item.department }, ...item.timeline],
-        } : item),
-        activities: [...previous.activities],
+      if (!patient) return null
+      return {
+        next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'triage', title: `Reassessed as ESI ${esi}`, detail: reason || 'Repeat observations recorded; acuity recalculated from current findings.', author: actor, department: patient.department }, { vitals, esi, esiOverride: reason || undefined }) },
+        actor, action: `reassessed ${patient.name} as ESI ${esi}`, department: patient.department, patientId,
       }
-      addActivity(next, actor, `reassessed ${patient.name} as ESI ${esi}`, patient.department, patientId)
-      return next
     })
     notify('Observations and acuity updated')
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
 
   const addReferral = useCallback((patientId: string, to: DepartmentId, reason: string, priority: Priority) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Clinical team'
-    setState((previous) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return previous
+      if (!patient) return null
       const now = new Date().toISOString()
-      const referralId = `RF-${String(2400 + previous.referrals.length + 1)}`
-      const next = {
-        ...previous,
-        referrals: [{ id: referralId, patientId, from: patient.department, to, reason, priority, status: 'pending' as const, createdAt: now, updatedAt: now, createdBy: actor }, ...previous.referrals],
-        patients: previous.patients.map((item) => item.id === patientId ? { ...item, timeline: [{ id: id('ev'), at: now, type: 'referral' as const, title: `${to.charAt(0).toUpperCase() + to.slice(1)} referral sent`, detail: reason, author: actor, department: to }, ...item.timeline] } : item),
-        activities: [...previous.activities],
+      const id = nextNumber(previous.referrals.map((item) => item.id), 'RF', 2400)
+      return {
+        next: {
+          ...previous,
+          referrals: [{ id, patientId, from: patient.department, to, reason, priority, status: 'pending', createdAt: now, updatedAt: now, createdBy: actor }, ...previous.referrals],
+          patients: withTimeline(previous.patients, patientId, { type: 'referral', title: `${unitName(to)} referral sent`, detail: reason, author: actor, department: to }),
+        },
+        actor, action: `sent a ${priority} referral for ${patient.name}`, department: to, patientId,
       }
-      addActivity(next, actor, `sent a ${priority} referral for ${patient.name}`, to, patientId)
-      return next
     })
-    notify(`Referral sent to ${to === 'icu' ? 'ICU' : to.charAt(0).toUpperCase() + to.slice(1)}`)
-  }, [addActivity, currentRole, notify])
+    notify(`Referral sent to ${unitName(to)}`)
+  }, [actorName, commit, notify])
 
   const addOrder = useCallback((patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Clinical team'
-    setState((previous) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return previous
-      const now = new Date().toISOString()
-      const orderId = `OR-${String(8100 + previous.orders.length + 1)}`
-      const next = {
-        ...previous,
-        orders: [{ id: orderId, patientId, title: title.trim(), kind, department, priority, status: 'ordered' as const, createdAt: now, createdBy: actor }, ...previous.orders],
-        patients: previous.patients.map((item) => item.id === patientId ? { ...item, timeline: [{ id: id('ev'), at: now, type: 'order' as const, title: `${title} ordered`, detail: `${kind} order sent to ${department}. Priority: ${priority}.`, author: actor, department }, ...item.timeline] } : item),
-        activities: [...previous.activities],
+      if (!patient) return null
+      const id = nextNumber(previous.orders.map((item) => item.id), 'OR', 8100)
+      return {
+        next: {
+          ...previous,
+          orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor }, ...previous.orders],
+          patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order sent to ${unitName(department)}. Priority: ${priority}.`, author: actor, department }),
+        },
+        actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
       }
-      addActivity(next, actor, `ordered ${title} for ${patient.name}`, department, patientId)
-      return next
     })
-    notify(`${kind} order sent to ${department === 'icu' ? 'ICU' : department}`)
-  }, [addActivity, currentRole, notify])
+    notify(`${kind} order sent to ${unitName(department)}`)
+  }, [actorName, commit, notify])
 
   const updateReferral = useCallback((referralId: string, status: ReferralStatus, recommendation?: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Specialist team'
-    setState((previous) => {
+    const actor = actorName('Specialist team')
+    commit((previous) => {
       const referral = previous.referrals.find((item) => item.id === referralId)
-      if (!referral) return previous
-      const patient = previous.patients.find((item) => item.id === referral.patientId)
-      if (!patient) return previous
+      const patient = referral && previous.patients.find((item) => item.id === referral.patientId)
+      if (!referral || !patient) return null
       const now = new Date().toISOString()
-      const title = status === 'accepted' ? 'Referral accepted' : status === 'completed' ? 'Consultation completed' : status === 'declined' ? 'Referral declined' : 'Referral reopened'
+      const title = { accepted: 'Referral accepted', completed: 'Consultation completed', declined: 'Referral declined', pending: 'Referral reopened' }[status]
       const detail = recommendation || (status === 'accepted' ? `${actor} accepted the referral and will review the clinical record.` : status === 'declined' ? 'Referral returned to the sending team for review.' : 'Specialist review completed.')
-      const next = {
-        ...previous,
-        referrals: previous.referrals.map((item) => item.id === referralId ? { ...item, status, updatedAt: now, owner: status === 'accepted' ? actor : item.owner, recommendation: recommendation ?? item.recommendation } : item),
-        patients: previous.patients.map((item) => item.id === referral.patientId ? { ...item, timeline: [{ id: id('ev'), at: now, type: 'referral' as const, title, detail, author: actor, department: referral.to }, ...item.timeline] } : item),
-        activities: [...previous.activities],
+      return {
+        next: {
+          ...previous,
+          referrals: previous.referrals.map((item) => item.id === referralId ? { ...item, status, updatedAt: now, owner: status === 'accepted' ? actor : item.owner, recommendation: recommendation ?? item.recommendation } : item),
+          patients: withTimeline(previous.patients, patient.id, { type: 'referral', title, detail, author: actor, department: referral.to }),
+        },
+        actor, action: `${status} the referral for ${patient.name}`, department: referral.to, patientId: patient.id,
       }
-      addActivity(next, actor, `${status} the referral for ${patient.name}`, referral.to, patient.id)
-      return next
     })
     notify(`Referral marked ${status}`)
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
 
   const updateOrder = useCallback((orderId: string, status: OrderStatus, result?: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Diagnostics team'
-    setState((previous) => {
+    const actor = actorName('Diagnostics team')
+    commit((previous) => {
       const order = previous.orders.find((item) => item.id === orderId)
-      if (!order) return previous
-      const patient = previous.patients.find((item) => item.id === order.patientId)
-      if (!patient) return previous
-      const now = new Date().toISOString()
-      const next = {
-        ...previous,
-        orders: previous.orders.map((item) => item.id === orderId ? { ...item, status, result: result ?? item.result } : item),
-        patients: previous.patients.map((item) => item.id === order.patientId ? { ...item, timeline: [{ id: id('ev'), at: now, type: status === 'completed' ? 'result' as const : 'order' as const, title: status === 'completed' ? `${order.title} resulted` : `${order.title} started`, detail: result || `Study is now in progress with ${actor}.`, author: actor, department: order.department }, ...item.timeline] } : item),
-        activities: [...previous.activities],
+      const patient = order && previous.patients.find((item) => item.id === order.patientId)
+      if (!order || !patient) return null
+      const done = status === 'completed'
+      return {
+        next: {
+          ...previous,
+          orders: previous.orders.map((item) => item.id === orderId ? { ...item, status, result: result ?? item.result } : item),
+          patients: withTimeline(previous.patients, patient.id, { type: done ? 'result' : 'order', title: done ? `${order.title} resulted` : `${order.title} started`, detail: result || `Study is now in progress with ${actor}.`, author: actor, department: order.department }),
+        },
+        actor, action: `${done ? 'reported' : 'started'} ${order.title} for ${patient.name}`, department: order.department, patientId: patient.id,
       }
-      addActivity(next, actor, `${status === 'completed' ? 'reported' : 'started'} ${order.title} for ${patient.name}`, order.department, patient.id)
-      return next
     })
     notify(status === 'completed' ? 'Result released to the clinical record' : 'Order moved to in progress')
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
 
   const transferPatient = useCallback((patientId: string, to: DepartmentId, location: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Flow team'
-    setState((previous) => {
+    const actor = actorName('Flow team')
+    const target = stateRef.current.departments.find((item) => item.id === to)
+    if (!target || target.occupied >= target.capacity) {
+      notify(`${unitName(to)} has no free capacity`, 'warning')
+      return
+    }
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return previous
       const destination = previous.departments.find((item) => item.id === to)
-      if (!destination || destination.occupied >= destination.capacity) return previous
-      const now = new Date().toISOString()
-      const next = {
-        ...previous,
-        patients: previous.patients.map((item) => item.id === patientId ? {
-          ...item,
-          department: to,
-          location,
-          status: ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine'].includes(to) ? 'admitted' as const : 'in-treatment' as const,
-          encounterType: ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine'].includes(to) ? 'inpatient' as const : 'outpatient' as const,
-          timeline: [{ id: id('ev'), at: now, type: 'transfer' as const, title: `Transferred to ${destination.shortName}`, detail: `${item.location} → ${location}. Handoff coordinated by ${actor}.`, author: actor, department: to }, ...item.timeline],
-        } : item),
-        departments: previous.departments.map((department) => {
-          if (department.id === patient.department && department.id !== to) return { ...department, occupied: Math.max(0, department.occupied - 1) }
-          if (department.id === to && department.id !== patient.department) return { ...department, occupied: department.occupied + 1 }
-          return department
-        }),
-        activities: [...previous.activities],
+      if (!patient || !destination || destination.occupied >= destination.capacity) return null
+      const inpatient = INPATIENT_UNITS.includes(to)
+      return {
+        next: {
+          ...previous,
+          patients: withTimeline(previous.patients, patientId, { type: 'transfer', title: `Transferred to ${destination.shortName}`, detail: `${patient.location} → ${location}. Handoff coordinated by ${actor}.`, author: actor, department: to }, { department: to, location, status: inpatient ? 'admitted' : 'in-treatment', encounterType: inpatient ? 'inpatient' : 'outpatient' }),
+          departments: previous.departments.map((department) => {
+            if (department.id === patient.department && department.id !== to) return { ...department, occupied: Math.max(0, department.occupied - 1) }
+            if (department.id === to && department.id !== patient.department) return { ...department, occupied: department.occupied + 1 }
+            return department
+          }),
+        },
+        actor, action: `transferred ${patient.name} to ${destination.shortName} · ${location}`, department: to, patientId,
       }
-      addActivity(next, actor, `transferred ${patient.name} to ${destination.shortName} · ${location}`, to, patientId)
-      return next
     })
-    notify(`Transfer to ${to === 'icu' ? 'ICU' : to} confirmed`)
-  }, [addActivity, currentRole, notify])
+    notify(`Transfer to ${unitName(to)} confirmed`)
+  }, [actorName, commit, notify])
 
   const addNote = useCallback((patientId: string, note: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Clinical team'
-    setState((previous) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return previous
-      const now = new Date().toISOString()
-      const next = {
-        ...previous,
-        patients: previous.patients.map((item) => item.id === patientId ? { ...item, timeline: [{ id: id('ev'), at: now, type: 'note' as const, title: 'Clinical note added', detail: note.trim(), author: actor, department: item.department }, ...item.timeline] } : item),
-        activities: [...previous.activities],
-      }
-      addActivity(next, actor, `added a clinical note for ${patient.name}`, patient.department, patientId)
-      return next
+      if (!patient) return null
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Clinical note added', detail: note.trim(), author: actor, department: patient.department }) }, actor, action: `added a clinical note for ${patient.name}`, department: patient.department, patientId }
     })
     notify('Note saved to the shared episode')
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
 
   const dischargePatient = useCallback((patientId: string) => {
-    const actor = currentRole ? roleProfiles[currentRole].name : 'Clinical team'
-    setState((previous) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient || patient.status === 'discharged') return previous
-      const now = new Date().toISOString()
-      const next = {
-        ...previous,
-        patients: previous.patients.map((item) => item.id === patientId ? { ...item, status: 'discharged' as const, encounterType: item.encounterType ?? (['admitted', 'observation'].includes(item.status) ? 'inpatient' : 'outpatient'), location: 'Discharged home', timeline: [{ id: id('ev'), at: now, type: 'discharge' as const, title: 'Episode completed', detail: 'Patient discharged. Clinical episode remains available in the record archive.', author: actor, department: item.department }, ...item.timeline] } : item),
-        departments: previous.departments.map((department) => department.id === patient.department && ['admitted', 'observation'].includes(patient.status) ? { ...department, occupied: Math.max(0, department.occupied - 1) } : department),
-        activities: [...previous.activities],
+      if (!patient || patient.status === 'discharged') return null
+      const wasInpatient = ['admitted', 'observation'].includes(patient.status)
+      return {
+        next: {
+          ...previous,
+          patients: withTimeline(previous.patients, patientId, { type: 'discharge', title: 'Episode completed', detail: 'Patient discharged. Clinical episode remains available in the record archive.', author: actor, department: patient.department }, { status: 'discharged', encounterType: patient.encounterType ?? (wasInpatient ? 'inpatient' : 'outpatient'), location: 'Discharged home' }),
+          departments: previous.departments.map((department) => department.id === patient.department && wasInpatient ? { ...department, occupied: Math.max(0, department.occupied - 1) } : department),
+        },
+        actor, action: `completed the episode for ${patient.name}`, department: patient.department, patientId,
       }
-      addActivity(next, actor, `completed the episode for ${patient.name}`, patient.department, patientId)
-      return next
     })
     notify('Patient discharged and episode archived')
     setSelectedPatientId(null)
-  }, [addActivity, currentRole, notify])
+  }, [actorName, commit, notify])
+
+  const createPrescription = useCallback((input: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'prescriber'>) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === input.patientId)
+      if (!patient) return null
+      const id = nextNumber(previous.prescriptions.map((item) => item.id), 'RX', 3100)
+      return { next: { ...previous, prescriptions: [{ ...input, id, prescriber: actor, createdAt: new Date().toISOString(), status: 'Pending' }, ...previous.prescriptions] }, actor, action: `prescribed ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
+    })
+    notify('Prescription sent to pharmacy')
+  }, [actorName, commit, notify])
+
+  const setPrescriptionStatus = useCallback((id: string, status: RxStatus) => {
+    const actor = actorName('Pharmacy team')
+    if (status === 'Dispensed') {
+      const { prescriptions, formulary } = stateRef.current
+      const rx = prescriptions.find((item) => item.id === id)
+      const short = rx?.items.find((item) => (formulary.find((med) => med.id === item.medicationId)?.stock ?? 0) < item.quantity)
+      if (short) {
+        notify(`Not enough stock to dispense ${id}`, 'warning')
+        return
+      }
+    }
+    commit((previous) => {
+      const rx = previous.prescriptions.find((item) => item.id === id)
+      const patient = rx && previous.patients.find((item) => item.id === rx.patientId)
+      if (!rx || !patient) return null
+      let formulary = previous.formulary
+      if (status === 'Dispensed') {
+        formulary = formulary.map((med) => {
+          const used = rx.items.filter((item) => item.medicationId === med.id).reduce((sum, item) => sum + item.quantity, 0)
+          return used ? { ...med, stock: med.stock - used } : med
+        })
+      }
+      const changes: Partial<Prescription> = { status, ...(status === 'Verified' ? { verifiedBy: actor } : status === 'Dispensed' ? { dispensedBy: actor } : {}) }
+      return { next: { ...previous, formulary, prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, ...changes } : item) }, actor, action: `${status.toLowerCase()} ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
+    })
+    notify(`${id} ${status.toLowerCase()}`)
+  }, [actorName, commit, notify])
+
+  const setInvoiceStatus = useCallback((id: string, status: InvoiceStatus) => {
+    const actor = actorName('Billing office')
+    commit((previous) => {
+      const invoice = previous.invoices.find((item) => item.id === id)
+      const patient = invoice && previous.patients.find((item) => item.id === invoice.patientId)
+      if (!invoice || !patient) return null
+      const changes = status === 'Paid' ? { status, paidAt: new Date().toISOString() } : status === 'Claim submitted' ? { status, claimId: invoice.claimId ?? `CLM-${Math.floor(100000 + Math.random() * 899999)}` } : { status }
+      return { next: { ...previous, invoices: previous.invoices.map((item) => item.id === id ? { ...item, ...changes } : item) }, actor, action: status === 'Paid' ? `recorded payment for ${id}` : `submitted the insurance claim for ${id}`, department: patient.department, patientId: patient.id }
+    })
+    notify(status === 'Paid' ? `Payment recorded for ${id}` : `Claim submitted for ${id}`)
+  }, [actorName, commit, notify])
+
+  const scheduleAppointment = useCallback((input: Omit<Appointment, 'id' | 'status'>) => {
+    const actor = actorName('Scheduling team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === input.patientId)
+      if (!patient) return null
+      const id = nextNumber(previous.appointments.map((item) => item.id), 'APT', 500)
+      return { next: { ...previous, appointments: [...previous.appointments, { ...input, id, status: 'Scheduled' }] }, actor, action: `scheduled a ${input.mode.toLowerCase()} visit for ${patient.name}`, department: input.department, patientId: patient.id }
+    })
+    notify('Visit scheduled')
+  }, [actorName, commit, notify])
+
+  const setAppointmentStatus = useCallback((id: string, status: AppointmentStatus) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const appointment = previous.appointments.find((item) => item.id === id)
+      const patient = appointment && previous.patients.find((item) => item.id === appointment.patientId)
+      if (!appointment || !patient) return null
+      const verb = { 'In progress': 'started', Completed: 'completed', Cancelled: 'cancelled', Scheduled: 'rescheduled' }[status]
+      return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, status } : item) }, actor, action: `${verb} the ${appointment.mode.toLowerCase()} visit for ${patient.name}`, department: appointment.department, patientId: patient.id }
+    })
+    notify(`Visit ${({ 'In progress': 'started', Completed: 'completed', Cancelled: 'cancelled', Scheduled: 'rescheduled' })[status]}`, status === 'Cancelled' ? 'info' : 'success')
+  }, [actorName, commit, notify])
+
+  const setStaffDuty = useCallback((id: string, onDuty: boolean) => {
+    const actor = actorName('Rostering')
+    commit((previous) => {
+      const member = previous.staff.find((item) => item.id === id)
+      if (!member) return null
+      return { next: { ...previous, staff: previous.staff.map((item) => item.id === id ? { ...item, onDuty } : item) }, actor, action: `marked ${member.name} ${onDuty ? 'on duty' : 'off duty'}`, department: member.department }
+    })
+    notify(onDuty ? 'Marked on duty' : 'Marked off duty', 'info')
+  }, [actorName, commit, notify])
+
+  const activateCode = useCallback((id: string, location: string) => {
+    const actor = actorName('Switchboard')
+    commit((previous) => {
+      const code = previous.codes.find((item) => item.id === id)
+      if (!code || code.active) return null
+      return { next: { ...previous, codes: previous.codes.map((item) => item.id === id ? { ...item, active: true, location, activatedAt: new Date().toISOString(), activatedBy: actor } : item) }, actor, action: `activated ${code.label} · ${location}`, department: 'emergency' }
+    })
+    notify('Emergency code activated — responders paged', 'warning')
+  }, [actorName, commit, notify])
+
+  const standDownCode = useCallback((id: string) => {
+    const actor = actorName('Switchboard')
+    commit((previous) => {
+      const code = previous.codes.find((item) => item.id === id)
+      if (!code || !code.active) return null
+      return { next: { ...previous, codes: previous.codes.map((item) => item.id === id ? { ...item, active: false, location: undefined, activatedAt: undefined, activatedBy: undefined } : item) }, actor, action: `stood down ${code.label}${code.location ? ` · ${code.location}` : ''}`, department: 'emergency' }
+    })
+    notify('Emergency code stood down', 'info')
+  }, [actorName, commit, notify])
 
   const resetDemo = useCallback(() => {
     setState(createInitialState())
     setSelectedPatientId(null)
-    notify('Live demo data restored', 'info')
+    notify('Demo data restored', 'info')
   }, [notify])
 
-  const profile = useMemo(() => {
+  const profile = useMemo<RoleProfile | null>(() => {
     if (!currentRole) return null
     const base = roleProfiles[currentRole]
     const departmentId = currentDepartment ?? base.department
@@ -364,28 +515,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, currentDepartment])
 
   const value = useMemo<HospitalContextValue>(() => ({
-    state,
-    currentRole,
-    profile,
-    selectedPatientId,
-    toasts,
-    login,
-    logout,
-    can,
-    setSelectedPatientId,
-    addTriage,
-    retriage,
-    addReferral,
-    updateReferral,
-    addOrder,
-    updateOrder,
-    transferPatient,
-    addNote,
-    dischargePatient,
-    resetDemo,
-    notify,
-    dismissToast,
-  }), [state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, resetDemo, notify, dismissToast])
+    state, currentRole, profile, selectedPatientId, toasts,
+    login, logout, can, setSelectedPatientId,
+    addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
+    createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
+    resetDemo, notify, dismissToast,
+  }), [state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

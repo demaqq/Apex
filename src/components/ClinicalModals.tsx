@@ -168,26 +168,38 @@ const orderTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; depart
   { title: 'FBC, U&E and CRP', kind: 'Laboratory', department: 'laboratory' },
   { title: 'High-sensitivity troponin I', kind: 'Laboratory', department: 'laboratory' },
   { title: 'Arterial blood gas', kind: 'Laboratory', department: 'laboratory' },
+  { title: 'Blood cultures x2', kind: 'Laboratory', department: 'laboratory' },
+  { title: 'MRI brain with and without contrast', kind: 'Imaging', department: 'radiology' },
   { title: 'Medication reconciliation', kind: 'Medication', department: 'pharmacy' },
 ]
 
-export function OrderModal({ patient, open, onClose }: { patient: Patient; open: boolean; onClose: () => void }) {
-  const { addOrder } = useHospital()
+export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient; open: boolean; onClose: () => void; kind?: ClinicalOrder['kind'] }) {
+  const { state, addOrder } = useHospital()
+  const templates = kind ? orderTemplates.filter((item) => item.kind === kind) : orderTemplates
+  const [patientId, setPatientId] = useState(patient?.id ?? '')
   const [template, setTemplate] = useState(0)
-  const [title, setTitle] = useState(orderTemplates[0].title)
+  const [title, setTitle] = useState(templates[0].title)
   const [priority, setPriority] = useState<Priority>('urgent')
   const [error, setError] = useState('')
-  useEffect(() => { if (open) { setTemplate(0); setTitle(orderTemplates[0].title); setPriority('urgent'); setError('') } }, [open])
-  const item = orderTemplates[template]
-  return <Modal open={open} onClose={onClose} title="Order diagnostics or pharmacy review" subtitle={`${patient.name} · Order will appear in the receiving worklist`} size="md">
+  useEffect(() => { if (open) { setPatientId(patient?.id ?? ''); setTemplate(0); setTitle(templates[0].title); setPriority('urgent'); setError('') } }, [open, patient?.id, kind])
+  const item = templates[template] ?? templates[0]
+  const target = patient ?? state.patients.find((candidate) => candidate.id === patientId)
+  const submit = () => {
+    if (!target) { setError('Choose the patient this order is for.'); return }
+    if (!title.trim()) { setError('Enter an order description.'); return }
+    addOrder(target.id, title, item.kind, item.department, priority)
+    onClose()
+  }
+  return <Modal open={open} onClose={onClose} title={kind === 'Imaging' ? 'Request imaging' : kind === 'Laboratory' ? 'Request laboratory tests' : 'Order diagnostics or pharmacy review'} subtitle={target ? `${target.name} · Order will appear in the receiving worklist` : 'Order will appear in the receiving worklist'} size="md">
     <div className="form-grid">
-      <label className="form-field"><span>Order template</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(orderTemplates[index].title) }}>{orderTemplates.map((order, index) => <option key={order.title} value={index}>{order.title} · {order.department}</option>)}</select></label>
+      {!patient && <label className="form-field"><span>Patient <b>*</b></span><select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}><option value="">Select a patient…</option>{state.patients.filter((candidate) => candidate.status !== 'discharged').map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.mrn} · {candidate.location}</option>)}</select></label>}
+      <label className="form-field"><span>Order template</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(templates[index].title) }}>{templates.map((order, index) => <option key={order.title} value={index}>{order.title}</option>)}</select></label>
       <label className="form-field"><span>Order description <b>*</b></span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <div className="order-meta"><span><b>Destination</b>{item.department === 'radiology' ? 'Radiology & Imaging' : item.department === 'laboratory' ? 'Clinical Laboratory' : 'Pharmacy'}</span><span><b>Type</b>{item.kind}</span></div>
-      <div className="form-field"><span>Priority</span><div className="priority-control">{(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} className={priority === value ? `active ${value}` : ''} onClick={() => setPriority(value)}>{value}</button>)}</div></div>
+      <div className="form-field"><span>Priority</span><div className="priority-control">{(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button type="button" key={value} aria-pressed={priority === value} className={priority === value ? `active ${value}` : ''} onClick={() => setPriority(value)}>{value}</button>)}</div></div>
     </div>
-    {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (!title.trim()) { setError('Enter an order description.'); return } addOrder(patient.id, title, item.kind, item.department, priority); onClose() }}>Place order<Send size={16} /></Button></div>
+    {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit}>Place order<Send size={16} /></Button></div>
   </Modal>
 }
 

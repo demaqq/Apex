@@ -1,19 +1,21 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { lazy } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { HospitalProvider } from './store/HospitalStore'
 import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
-import TriageBoard from './pages/TriageBoard'
-import Patients from './pages/Patients'
-import Departments from './pages/Departments'
-import Network from './pages/Network'
-import PharmacyView from './pages/PharmacyView'
-import LabImagingView from './pages/LabImagingView'
-import BillingView from './pages/BillingView'
-import TelehealthView from './pages/TelehealthView'
-import StaffView from './pages/StaffView'
-import AuditView from './pages/AuditView'
 import Login from './pages/Login'
-import './index.css'
+import NotFound from './pages/NotFound'
+
+const TriageBoard = lazy(() => import('./pages/TriageBoard'))
+const Patients = lazy(() => import('./pages/Patients'))
+const Departments = lazy(() => import('./pages/Departments'))
+const Network = lazy(() => import('./pages/Network'))
+const PharmacyView = lazy(() => import('./pages/PharmacyView'))
+const LabImagingView = lazy(() => import('./pages/LabImagingView'))
+const BillingView = lazy(() => import('./pages/BillingView'))
+const TelehealthView = lazy(() => import('./pages/TelehealthView'))
+const StaffView = lazy(() => import('./pages/StaffView'))
+const AuditView = lazy(() => import('./pages/AuditView'))
 
 export default function App() {
   return (
@@ -22,7 +24,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/triage" element={<TriageBoard />} />
             <Route path="/patients" element={<Patients />} />
@@ -34,6 +36,7 @@ export default function App() {
             <Route path="/telehealth" element={<TelehealthView />} />
             <Route path="/staff" element={<StaffView />} />
             <Route path="/audit" element={<AuditView />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </BrowserRouter>

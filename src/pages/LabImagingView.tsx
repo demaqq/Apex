@@ -1,309 +1,114 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Fragment } from 'react'
-import { Activity, Check, ChevronRight, Download, Eye, Filter, Loader, Microscope, Plus, Search, ShieldCheck, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Clock3, Download, Eye, FileCheck2, FlaskConical, Play, Plus, ScanLine, Siren } from 'lucide-react'
+import { OrderModal, ResultModal } from '../components/ClinicalModals'
+import { Button, DetailGrid, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { downloadCsv, formatDateTime, formatWait, relativeTime, today } from '../lib/format'
+import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import { useLabOrders, useImagingOrders } from '../data'
-import { Avatar, Badge, Button, EmptyState, Modal, PageHeader, Panel, StatusBadge } from '../components/ui'
-import { downloadCsv, formatTime } from '../lib/format'
-import type { LabOrder, ImagingOrder } from '../types'
+import type { ClinicalOrder } from '../types'
+
+type View = 'Laboratory' | 'Imaging'
+const PRIORITY_RANK = { emergent: 0, urgent: 1, routine: 2 }
+const STATUS_RANK = { 'in-progress': 0, ordered: 1, completed: 2 }
 
 export default function LabImagingView() {
-  const { state, notify } = useHospital()
-  const labOrders = useLabOrders()
-  const imagingOrders = useImagingOrders()
-  const [labQuery, setLabQuery] = useState('')
-  const [imagingQuery, setImagingQuery] = useState('')
-  const [labFilter, setLabFilter] = useState('all')
-  const [imagingFilter, setImagingFilter] = useState('all')
-  const [view, setView] = useState<'lab' | 'imaging'>('lab')
-  const [selectedLab, setSelectedLab] = useState<LabOrder | null>(null)
-  const [selectedImaging, setSelectedImaging] = useState<ImagingOrder | null>(null)
+  const { state, profile, can, updateOrder, setSelectedPatientId } = useHospital()
+  const patients = usePatients()
+  const now = useNow()
+  const [view, setView] = useState<View>(profile?.department === 'radiology' ? 'Imaging' : 'Laboratory')
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState('active')
+  const [ordering, setOrdering] = useState(false)
+  const [reporting, setReporting] = useState<ClinicalOrder | null>(null)
+  const [viewing, setViewing] = useState<ClinicalOrder | null>(null)
+  const canReport = can('results')
+  const canOrder = can('refer') || can('triage') || can('manage')
 
-  const labStatuses = useMemo(() => [...new Set(labOrders.map((o) => o.status))], [labOrders])
-  const imagingStatuses = useMemo(() => [...new Set(imagingOrders.map((o) => o.status))], [imagingOrders])
-  const filteredLab = labOrders.filter((o) =>
-    (labFilter === 'all' || o.status === labFilter) &&
-    (!labQuery || `${o.testName} ${o.patientName} ${o.mrn}`.toLowerCase().includes(labQuery.toLowerCase()))
-  )
-  const filteredImaging = imagingOrders.filter((o) =>
-    (imagingFilter === 'all' || o.status === imagingFilter) &&
-    (!imagingQuery || `${o.bodyPart} ${o.modality} ${o.patientName} ${o.mrn}`.toLowerCase().includes(imagingQuery.toLowerCase()))
-  )
+  const ofKind = state.orders.filter((order) => order.kind === view)
+  const active = ofKind.filter((order) => order.status !== 'completed')
+  const filtered = ofKind
+    .filter((order) => {
+      const patient = patients.get(order.patientId)
+      const statusOk = status === 'all' || (status === 'active' ? order.status !== 'completed' : order.status === status)
+      return statusOk && matches(query, order.id, order.title, patient?.name, patient?.mrn, order.createdBy)
+    })
+    .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt.localeCompare(b.createdAt))
+  const oldest = active.reduce<ClinicalOrder | null>((first, order) => !first || order.createdAt < first.createdAt ? order : first, null)
 
-  const exportLab = () => downloadCsv('northstar-lab-orders.csv', [
-    ['Order #', 'Patient', 'MRN', 'Test', 'Category', 'Department', 'Priority', 'Status', 'Specimen', 'Ordered By', 'Date'],
-    ...labOrders.map((o) => [o.orderNumber, o.patientName, o.mrn, o.testName, o.category, o.department ?? '', o.priority, o.status, o.specimenType, o.doctorName ?? o.orderedBy ?? '', o.orderDate])
+  const exportOrders = () => downloadCsv(`${view.toLowerCase()}-orders-${today()}.csv`, [
+    ['Order', 'Patient', 'MRN', 'Test', 'Priority', 'Status', 'Ordered by', 'Ordered at', 'Result'],
+    ...ofKind.map((order) => [order.id, patients.get(order.patientId)?.name, patients.get(order.patientId)?.mrn, order.title, order.priority, order.status, order.createdBy, order.createdAt, order.result]),
   ])
-  const exportImaging = () => downloadCsv('northstar-imaging-orders.csv', [
-    ['Order #', 'Patient', 'MRN', 'Modality', 'Body Part', 'Department', 'Priority', 'Status', 'Indication', 'Requested By', 'Date'],
-    ...imagingOrders.map((o) => [o.orderNumber, o.patientName, o.mrn, o.modality, o.bodyPart, o.department ?? '', o.priority, o.status, o.indication, o.requestedBy, o.requestedAt])
-  ])
+
+  const actionFor = (order: ClinicalOrder) => {
+    if (order.status === 'completed') return <Button size="sm" variant="secondary" icon={Eye} onClick={() => setViewing(order)}>Result</Button>
+    if (!canReport) return <span className="muted-text">Awaiting {view === 'Imaging' ? 'radiology' : 'laboratory'}</span>
+    return order.status === 'ordered'
+      ? <Button size="sm" variant="secondary" icon={Play} onClick={() => updateOrder(order.id, 'in-progress')}>Start</Button>
+      : <Button size="sm" icon={FileCheck2} onClick={() => setReporting(order)}>Report</Button>
+  }
 
   return (
-    <motion.div className="lab-imaging-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader
-        eyebrow="DIAGNOSTIC SERVICES · LAB & IMAGING"
-        title="Laboratory & Imaging"
-        description="Order management, specimen tracking, result verification and imaging workflows."
-        actions={
-          <Fragment>
-            <Button variant="secondary" icon={Download} onClick={view === 'lab' ? exportLab : exportImaging}>
-              Export {view === 'lab' ? 'lab orders' : 'imaging orders'}
-            </Button>
-            <Button icon={Plus} onClick={() => { setView(view === 'lab' ? 'imaging' : 'lab') }}>
-              New {view === 'lab' ? 'imaging order' : 'lab order'}
-            </Button>
-          </Fragment>
-        }
+        eyebrow="Diagnostics · Laboratory & radiology"
+        title="Lab & imaging"
+        description="Every diagnostic order across the hospital, from request to verified result."
+        actions={<>
+          <Button variant="secondary" icon={Download} onClick={exportOrders}>Export {view.toLowerCase()} orders</Button>
+          {canOrder && <Button icon={Plus} onClick={() => setOrdering(true)}>{view === 'Imaging' ? 'Request imaging' : 'Request tests'}</Button>}
+        </>}
       />
-      <div className="lab-imaging-tabs" role="tablist">
-        {(['lab', 'imaging'] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            className={view === v ? 'active' : ''}
-            onClick={() => setView(v)}
-          >
-            {v.charAt(0).toUpperCase() + v.slice(1)}
-          </button>
-        ))}
+
+      <div className="metrics-grid">
+        <Metric label="Waiting to start" value={active.filter((order) => order.status === 'ordered').length} detail="Ordered, not yet collected or scanned" icon={view === 'Imaging' ? ScanLine : FlaskConical} tone="amber" />
+        <Metric label="In progress" value={active.filter((order) => order.status === 'in-progress').length} detail="Being processed now" icon={Play} tone="blue" />
+        <Metric label="Emergent" value={active.filter((order) => order.priority === 'emergent').length} detail="Open emergent requests" icon={Siren} tone="coral" />
+        <Metric label="Longest wait" value={oldest ? formatWait(oldest.createdAt, now) : '—'} detail={`${ofKind.filter((order) => order.status === 'completed').length} resulted so far`} icon={Clock3} tone="teal" />
       </div>
 
-      {view === 'lab' && (
-        <Panel className="lab-panel">
-          <div className="lab-toolbar">
-            <label className="lab-search">
-              <Search size={16} />
-              <input
-                value={labQuery}
-                onChange={(event) => setLabQuery(event.target.value)}
-                placeholder="Search lab orders…"
-              />
-              {labQuery && (
-                <button onClick={() => setLabQuery('')}>
-                  <X size={14} />
-                </button>
-              )}
-            </label>
-            <label>
-              <Filter size={15} />
-              <select value={labFilter} onChange={(event) => setLabFilter(event.target.value)}>
-                <option value="all">All statuses</option>
-                {labStatuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="lab-table-wrap">
-            <table className="lab-table">
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Patient</th>
-                  <th>Test</th>
-                  <th>Category</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Specimen</th>
-                  <th>Ordered</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLab.map((order) => (
+      <Tabs<View> label="Diagnostic service" value={view} onChange={(next) => { setView(next); setQuery('') }} options={[
+        { value: 'Laboratory', label: 'Laboratory', count: state.orders.filter((order) => order.kind === 'Laboratory' && order.status !== 'completed').length },
+        { value: 'Imaging', label: 'Imaging', count: state.orders.filter((order) => order.kind === 'Imaging' && order.status !== 'completed').length },
+      ]} />
+
+      <Panel>
+        <div className="table-toolbar">
+          <SearchField value={query} onChange={setQuery} placeholder={`Search ${view === 'Imaging' ? 'studies' : 'tests'}, patients or clinicians…`} />
+          <FilterSelect label="All statuses" value={status} onChange={setStatus} options={[{ value: 'active', label: 'Open orders' }, { value: 'ordered', label: 'Ordered' }, { value: 'in-progress', label: 'In progress' }, { value: 'completed', label: 'Resulted' }]} />
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>{view === 'Imaging' ? 'Study' : 'Test'}</th><th>Patient</th><th>Priority</th><th>Status</th><th>Requested</th><th aria-label="Actions" /></tr></thead>
+            <tbody>
+              {filtered.map((order) => {
+                const patient = patients.get(order.patientId)
+                return (
                   <tr key={order.id}>
-                    <td><b>{order.orderNumber}</b></td>
-                    <td>
-                      <Avatar name={order.patientName} size="sm" />
-                      <span>
-                        <b>{order.patientName}</b>
-                        <small>{order.mrn}</small>
-                      </span>
-                    </td>
-                    <td>{order.testName}</td>
-                    <td><Badge variant="neutral">{order.category}</Badge></td>
-                    <td>
-                      <Badge
-                        variant={
-                          order.priority === 'STAT' ? 'danger' : order.priority === 'Urgent' ? 'warning' : 'success'
-                        }
-                      >
-                        {order.priority}
-                      </Badge>
-                    </td>
-                    <td><StatusBadge status={order.status.toLowerCase().replace(' ', '-')} /></td>
-                    <td>{order.specimenType}</td>
-                    <td>{order.orderDate}</td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant={order.status === 'Completed' ? 'secondary' : 'outline'}
-                        onClick={() => setSelectedLab(order)}
-                      >
-                        {order.status === 'Completed' ? <Eye size={14} /> : <Loader size={14} />}
-                        {order.status === 'Completed' ? ' View' : ' Process'}
-                      </Button>
-                    </td>
+                    <td className="wrap"><b>{order.title}</b><small>{order.id}</small></td>
+                    <td>{patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}</td>
+                    <td><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></td>
+                    <td><StatusBadge status={order.status === 'completed' ? 'resulted' : order.status} /></td>
+                    <td>{relativeTime(order.createdAt, now)}<small>{order.createdBy}</small></td>
+                    <td className="row-actions">{actionFor(order)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filteredLab.length === 0 && (
-            <EmptyState icon={Microscope} title="No lab orders match" text="Try another search term or clear the status filter." />
-          )}
-        </Panel>
-      )}
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length === 0 && <EmptyState icon={view === 'Imaging' ? ScanLine : FlaskConical} title="No orders match" text="Try another search term or change the status filter." />}
+      </Panel>
 
-      {view === 'imaging' && (
-        <Panel className="imaging-panel">
-          <div className="imaging-toolbar">
-            <label className="imaging-search">
-              <Search size={16} />
-              <input
-                value={imagingQuery}
-                onChange={(event) => setImagingQuery(event.target.value)}
-                placeholder="Search imaging orders…"
-              />
-              {imagingQuery && (
-                <button onClick={() => setImagingQuery('')}>
-                  <X size={14} />
-                </button>
-              )}
-            </label>
-            <label>
-              <Filter size={15} />
-              <select value={imagingFilter} onChange={(event) => setImagingFilter(event.target.value)}>
-                <option value="all">All statuses</option>
-                {imagingStatuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="imaging-table-wrap">
-            <table className="imaging-table">
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Patient</th>
-                  <th>Modality</th>
-                  <th>Body Part</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Indication</th>
-                  <th>Requested</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredImaging.map((order) => (
-                  <tr key={order.id}>
-                    <td><b>{order.orderNumber}</b></td>
-                    <td>
-                      <Avatar name={order.patientName} size="sm" />
-                      <span>
-                        <b>{order.patientName}</b>
-                        <small>{order.mrn}</small>
-                      </span>
-                    </td>
-                    <td>{order.modality}</td>
-                    <td>{order.bodyPart}</td>
-                    <td>
-                      <Badge
-                        variant={
-                          order.priority === 'STAT' ? 'danger' : order.priority === 'Urgent' ? 'warning' : 'success'
-                        }
-                      >
-                        {order.priority}
-                      </Badge>
-                    </td>
-                    <td><StatusBadge status={order.status.toLowerCase().replace(' ', '-')} /></td>
-                    <td>{order.indication}</td>
-                    <td>{order.requestedAt}</td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant={order.status === 'Completed' ? 'secondary' : 'outline'}
-                        onClick={() => setSelectedImaging(order)}
-                      >
-                        {order.status === 'Completed' ? <Eye size={14} /> : <Loader size={14} />}
-                        {order.status === 'Completed' ? ' View' : ' Process'}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filteredImaging.length === 0 && (
-            <EmptyState icon={Activity} title="No imaging orders match" text="Try another search term or clear the status filter." />
-          )}
-        </Panel>
-      )}
-
-      {selectedLab && (
-        <Modal open={!!selectedLab} onClose={() => setSelectedLab(null)} title="Lab Order Details" subtitle={`${selectedLab.orderNumber} · ${selectedLab.testName}`} size="lg">
-          <div className="order-detail">
-            <div className="order-header">
-              <b>{selectedLab.orderNumber}</b>
-              <StatusBadge status={selectedLab.status.toLowerCase().replace(' ', '-')} />
-            </div>
-            <div className="order-meta">
-              <div>
-                <p><b>Patient:</b> {selectedLab.patientName} ({selectedLab.mrn})</p>
-                <p><b>Test:</b> {selectedLab.testName} · <b>Category:</b> {selectedLab.category}</p>
-              </div>
-              <div>
-                <p><b>Priority:</b> {selectedLab.priority}</p>
-                <p><b>Specimen:</b> {selectedLab.specimenType}</p>
-              </div>
-              <div>
-                <p><b>Ordered:</b> {selectedLab.orderDate}</p>
-                <p><b>Status:</b> {selectedLab.status}</p>
-              </div>
-            </div>
-            {selectedLab.reportNotes && (
-              <div className="order-result">
-                <h4>Result</h4>
-                <pre>{selectedLab.reportNotes}</pre>
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
-
-      {selectedImaging && (
-        <Modal open={!!selectedImaging} onClose={() => setSelectedImaging(null)} title="Imaging Order Details" subtitle={`${selectedImaging.orderNumber} · ${selectedImaging.modality} - ${selectedImaging.bodyPart}`} size="lg">
-          <div className="order-detail">
-            <div className="order-header">
-              <b>{selectedImaging.orderNumber}</b>
-              <StatusBadge status={selectedImaging.status.toLowerCase().replace(' ', '-')} />
-            </div>
-            <div className="order-meta">
-              <div>
-                <p><b>Patient:</b> {selectedImaging.patientName} ({selectedImaging.mrn})</p>
-                <p><b>Modality:</b> {selectedImaging.modality} · <b>Body Part:</b> {selectedImaging.bodyPart}</p>
-              </div>
-              <div>
-                <p><b>Priority:</b> {selectedImaging.priority}</p>
-                <p><b>Indication:</b> {selectedImaging.indication}</p>
-              </div>
-              <div>
-                <p><b>Requested:</b> {selectedImaging.requestedAt}</p>
-                <p><b>Status:</b> {selectedImaging.status}</p>
-              </div>
-            </div>
-            {selectedImaging.reportText && (
-              <div className="order-result">
-                <h4>Report</h4>
-                <pre>{selectedImaging.reportText}</pre>
-              </div>
-            )}
-          </div>
+      {canOrder && <OrderModal open={ordering} onClose={() => setOrdering(false)} kind={view} />}
+      {reporting && <ResultModal order={reporting} open onClose={() => setReporting(null)} />}
+      {viewing && (
+        <Modal open onClose={() => setViewing(null)} title={viewing.title} subtitle={`${viewing.id} · ${patients.get(viewing.patientId)?.name ?? ''}`} size="md">
+          <DetailGrid items={[['Patient', patients.get(viewing.patientId)?.name], ['MRN', patients.get(viewing.patientId)?.mrn], ['Priority', viewing.priority], ['Requested', `${formatDateTime(viewing.createdAt)} · ${viewing.createdBy}`]]} />
+          <h3 className="detail-heading">Verified result</h3>
+          <p className="result-text">{viewing.result ?? 'No result text recorded.'}</p>
+          <div className="modal-footer"><span /><Button variant="secondary" onClick={() => setViewing(null)}>Close</Button></div>
         </Modal>
       )}
     </motion.div>

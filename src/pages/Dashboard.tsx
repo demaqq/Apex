@@ -1,21 +1,17 @@
 import { motion } from 'framer-motion'
-import { Activity, AlertTriangle, ArrowRight, BedDouble, BellRing, Check, ChevronRight, ClipboardCheck, Clock3, Download, FileCheck2, FlaskConical, HeartPulse, Hospital, ListFilter, Network, Plus, ScanLine, Send, Siren, Stethoscope, TimerReset, TrendingUp, UserRoundCheck, UsersRound } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Activity, AlertTriangle, ArrowRight, BedDouble, BellRing, Check, ChevronRight, ClipboardCheck, Clock3, Download, FileCheck2, FlaskConical, HeartPulse, Hospital, ListFilter, Network, Plus, ScanLine,Siren, Stethoscope, TimerReset, TrendingUp, UserRoundCheck, UsersRound } from 'lucide-react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CompleteReferralModal, ResultModal, TriageModal } from '../components/ClinicalModals'
-import { Avatar, Button, DepartmentIcon, EmptyState, EsiBadge, Metric, PageHeader, Panel, StatusBadge, TextLink } from '../components/ui'
+import { Avatar, Button, DepartmentIcon, EmptyState, EsiBadge, Metric, PageHeader, Panel, StatusBadge } from '../components/ui'
+import type { MetricProps } from '../components/ui/Panel'
 import { departmentById, esiLabels } from '../data'
-import { downloadCsv, formatWait, relativeTime } from '../lib/format'
+import { downloadCsv, formatWait, relativeTime, today } from '../lib/format'
+import { useNow } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, Patient, Referral, RoleId } from '../types'
 
 const enter = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.38 } } }
-
-function useMinuteClock() {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer) }, [])
-  return now
-}
 
 function PatientQueue({ patients, title, description, mode = 'clinical', now }: { patients: Patient[]; title: string; description: string; mode?: 'clinical' | 'triage'; now: number }) {
   const { state, setSelectedPatientId } = useHospital()
@@ -101,7 +97,7 @@ function DecisionPanel({ patients }: { patients: Patient[] }) {
   const urgentOrders = state.orders.filter((order) => patientIds.has(order.patientId) && order.status !== 'completed' && order.priority !== 'routine').slice(0, 4)
   return <Panel title="Diagnostic decision points" action={<FlaskConical size={17} className="muted-icon" />}><div className="decision-list">{urgentOrders.map((order) => {
     const patient = state.patients.find((item) => item.id === order.patientId)
-    return patient && <button key={order.id} onClick={() => setSelectedPatientId(patient.id)}><span className={order.status === 'in-progress' ? 'active' : ''}><ScanLine size={16} /></span><div><b>{order.title}</b><p>{patient.name} · {order.status}</p></div><small>{relativeTime(order.createdAt)}</small></button>
+    return patient && <button key={order.id} onClick={() => setSelectedPatientId(patient.id)}><span className={order.status === 'in-progress' ? 'active' : ''}><ScanLine size={16} /></span><div><b>{order.title}</b><p>{patient.name} · {order.status === 'in-progress' ? 'In progress' : 'Ordered'}</p></div><small>{relativeTime(order.createdAt)}</small></button>
   })}</div><div className="decision-insight"><TrendingUp size={17} /><p><b>Lab turnaround is 8m faster</b><span>than the previous shift average.</span></p></div></Panel>
 }
 
@@ -135,11 +131,10 @@ function AdminFlowChart() {
 export default function Dashboard() {
   const { state, profile, can } = useHospital()
   const navigate = useNavigate()
-  const now = useMinuteClock()
+  const now = useNow()
   const [triageOpen, setTriageOpen] = useState(false)
   const role = (profile?.id ?? 'physician') as RoleId
   const activePatients = state.patients.filter((patient) => patient.status !== 'discharged')
-  const emergency = activePatients.filter((patient) => patient.department === 'emergency')
   const homeDepartment = profile?.department ?? 'emergency'
   const unitDepartment = departmentById(state.departments, homeDepartment)
   const unitPatients = activePatients.filter((patient) => patient.department === homeDepartment)
@@ -152,7 +147,7 @@ export default function Dashboard() {
   const departmentOrders = state.orders.filter((order) => order.department === profile?.department)
   const departmentReferrals = state.referrals.filter((referral) => referral.to === profile?.department)
 
-  const roleMetrics: Record<RoleId, Array<{ label: string; value: string | number; detail: string; icon: typeof Activity; tone?: string; progress?: number }>> = {
+  const roleMetrics: Record<RoleId, MetricProps[]> = {
     physician: [
       { label: 'High-acuity patients', value: unitHighAcuity.length, detail: `${unitPatients.length} active in ${unitDepartment.shortName}`, icon: Siren, tone: 'coral' },
       { label: 'Open diagnostics', value: unitOrders.filter((order) => order.status !== 'completed').length, detail: `${unitOrders.filter((order) => order.status === 'in-progress').length} studies in progress`, icon: FlaskConical, tone: 'blue' },
@@ -196,7 +191,7 @@ export default function Dashboard() {
     : activePatients.sort((a, b) => a.esi - b.esi)
 
   const exportOperations = () => {
-    downloadCsv(`northstar-operations-${new Date().toISOString().slice(0, 10)}.csv`, [['Department', 'Lead', 'Capacity', 'Occupied', 'Available', 'Occupancy %', 'Average wait (min)'], ...state.departments.map((department) => [department.name, department.lead, department.capacity, department.occupied, department.capacity - department.occupied, Math.round(department.occupied / department.capacity * 100), department.averageWait])])
+    downloadCsv(`operations-snapshot-${today()}.csv`, [['Department', 'Lead', 'Capacity', 'Occupied', 'Available', 'Occupancy %', 'Average wait (min)'], ...state.departments.map((department) => [department.name, department.lead, department.capacity, department.occupied, department.capacity - department.occupied, Math.round(department.occupied / department.capacity * 100), department.averageWait])])
   }
 
   const actions = <>

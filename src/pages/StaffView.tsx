@@ -1,212 +1,82 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Fragment } from 'react'
-import { Check, ChevronRight, Download, Filter, Loader, Search, ShieldCheck, Stethoscope, UserPlus, Users, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Building2, Download, Moon, Sun, UserCheck, UsersRound } from 'lucide-react'
+import { Avatar, Button, DepartmentIcon, DetailGrid, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge } from '../components/ui'
+import { departmentById } from '../data'
+import { downloadCsv, today } from '../lib/format'
+import { matches } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import { useStaff } from '../data'
-import { Avatar, Badge, Button, EmptyState, Modal, PageHeader, Panel, StatusBadge } from '../components/ui'
-import { downloadCsv, formatTime } from '../lib/format'
-import type { StaffMember } from '../types'
 
 export default function StaffView() {
-  const { state, notify } = useHospital()
-  const staff = useStaff()
+  const { state, can, setStaffDuty } = useHospital()
   const [query, setQuery] = useState('')
   const [department, setDepartment] = useState('all')
-  const [role, setRole] = useState('all')
-  const [status, setStatus] = useState('all')
-  const [selectedMember, setSelectedMember] = useState<StaffMember | null>(null)
+  const [duty, setDuty] = useState('all')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = state.staff.find((member) => member.id === selectedId) ?? null
+  const canManage = can('manage') || can('transfer')
 
-  const departments = useMemo(() => [...new Set(staff.map((s) => s.department))], [staff])
-  const roles = useMemo(() => [...new Set(staff.map((s) => s.role))], [staff])
-  const filtered = staff.filter((s) =>
-    (department === 'all' || s.department === department) &&
-    (role === 'all' || s.role === role) &&
-    (status === 'all' ||
-      (status === 'on-duty' && s.onDuty) ||
-      (status === 'off-duty' && !s.onDuty)) &&
-    (!query || `${s.name} ${s.role} ${s.department} ${s.specialty ?? ''}`.toLowerCase().includes(query.toLowerCase()))
-  )
+  const departments = [...new Set(state.staff.map((member) => member.department))]
+  const onDuty = state.staff.filter((member) => member.onDuty)
+  const filtered = state.staff.filter((member) =>
+    (department === 'all' || member.department === department) &&
+    (duty === 'all' || (duty === 'on' ? member.onDuty : !member.onDuty)) &&
+    matches(query, member.name, member.role, member.specialty, departmentById(state.departments, member.department).name, member.pager))
 
-  const onDutyCount = staff.filter((s) => s.onDuty).length
-  const totalStaff = staff.length
-  const byDepartment = useMemo(() =>
-    departments.map((dept) => ({
-      department: dept,
-      count: staff.filter((s) => s.department === dept).length,
-      onDuty: staff.filter((s) => s.department === dept && s.onDuty).length
-    })),
-    [staff, departments]
-  )
-
-  const exportStaff = () => downloadCsv('northstar-staff.csv', [
-    ['ID', 'Name', 'Role', 'Department', 'Specialty', 'Shift', 'On Duty', 'Pager', 'Email', 'Phone', 'License'],
-    ...staff.map((s) => [s.id, s.name, s.role, s.department, s.specialty ?? '', s.shift, s.onDuty ? 'Yes' : 'No', s.pagerNumber ?? s.pager, s.email, s.phone, s.licenseNumber ?? ''])
+  const exportStaff = () => downloadCsv(`staff-${today()}.csv`, [
+    ['ID', 'Name', 'Role', 'Department', 'Specialty', 'Shift', 'On duty', 'Pager', 'Phone', 'Email', 'Licence'],
+    ...state.staff.map((member) => [member.id, member.name, member.role, departmentById(state.departments, member.department).name, member.specialty, member.shift, member.onDuty ? 'Yes' : 'No', member.pager, member.phone, member.email, member.license]),
   ])
 
   return (
-    <motion.div className="staff-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader
-        eyebrow="WORKFORCE OPERATIONS · STAFF MANAGEMENT"
-        title="Staff & Scheduling"
-        description="Clinical staff directory, shift management, duty status and credential tracking."
-        actions={
-          <Fragment>
-            <Button variant="secondary" icon={Download} onClick={exportStaff}>Export staff list</Button>
-            <Button icon={UserPlus} onClick={() => setSelectedMember(null)}>Add staff member</Button>
-          </Fragment>
-        }
+        eyebrow="Workforce · Rota"
+        title="Staff & schedule"
+        description="Who is on shift, where they are, and how to reach them."
+        actions={<Button variant="secondary" icon={Download} onClick={exportStaff}>Export staff list</Button>}
       />
-      <div className="metrics-grid staff-metrics">
-        <div className="metric metric-blue">
-          <div className="metric-icon"><Users size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Total staff</p>
-            <p className="metric-value">{totalStaff}</p>
-            <p className="metric-detail">Across {departments.length} departments</p>
-          </div>
-        </div>
-        <div className="metric metric-green">
-          <div className="metric-icon"><Check size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">On duty now</p>
-            <p className="metric-value">{onDutyCount}</p>
-            <p className="metric-detail">{totalStaff - onDutyCount} off duty</p>
-          </div>
-        </div>
-        <div className="metric metric-teal">
-          <div className="metric-icon"><Stethoscope size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Clinical roles</p>
-            <p className="metric-value">
-              {roles.filter((r) => ['Physician', 'Surgeon', 'Nurse Practitioner', 'Head Nurse', 'Pharmacist', 'Lab Specialist', 'Anesthesiologist'].includes(r)).length}
-            </p>
-            <p className="metric-detail">Licensed practitioners</p>
-          </div>
-        </div>
-        <div className="metric metric-amber">
-          <div className="metric-icon"><ShieldCheck size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Departments</p>
-            <p className="metric-value">{departments.length}</p>
-            <p className="metric-detail">Staffed services</p>
-          </div>
-        </div>
+
+      <div className="metrics-grid">
+        <Metric label="On duty now" value={onDuty.length} detail={`of ${state.staff.length} rostered staff`} icon={UserCheck} tone="green" progress={state.staff.length ? onDuty.length / state.staff.length * 100 : 0} />
+        <Metric label="Day shift" value={state.staff.filter((member) => member.shift.startsWith('Day')).length} detail="07:00 – 15:00" icon={Sun} tone="amber" />
+        <Metric label="Evening & night" value={state.staff.filter((member) => !member.shift.startsWith('Day')).length} detail="15:00 – 07:00" icon={Moon} tone="blue" />
+        <Metric label="Departments covered" value={new Set(onDuty.map((member) => member.department)).size} detail={`${departments.length} departments on the rota`} icon={Building2} tone="teal" />
       </div>
 
-      <Panel className="staff-panel">
-        <div className="staff-toolbar">
-          <label className="staff-search">
-            <Search size={16} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search staff…"
-            />
-            {query && (
-              <button onClick={() => setQuery('')}>
-                <X size={14} />
-              </button>
-            )}
-          </label>
-          <label>
-            <Filter size={15} />
-            <select value={department} onChange={(event) => setDepartment(event.target.value)}>
-              <option value="all">All departments</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <Filter size={15} />
-            <select value={role} onChange={(event) => setRole(event.target.value)}>
-              <option value="all">All roles</option>
-              {roles.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="all">All</option>
-              <option value="on-duty">On duty</option>
-              <option value="off-duty">Off duty</option>
-            </select>
-          </label>
+      <Panel>
+        <div className="table-toolbar">
+          <SearchField value={query} onChange={setQuery} placeholder="Search name, role, specialty or pager…" />
+          <FilterSelect label="All departments" value={department} onChange={setDepartment} options={departments.map((id) => ({ value: id, label: departmentById(state.departments, id).name }))} />
+          <FilterSelect label="Any duty status" value={duty} onChange={setDuty} options={[{ value: 'on', label: 'On duty' }, { value: 'off', label: 'Off duty' }]} />
         </div>
-        <div className="staff-table-wrap">
-          <table className="staff-table">
-            <thead>
-              <tr>
-                <th>Staff</th>
-                <th>Role</th>
-                <th>Department</th>
-                <th>Specialty</th>
-                <th>Shift</th>
-                <th>Status</th>
-                <th>Contact</th>
-                <th>Action</th>
-              </tr>
-            </thead>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Name</th><th>Department</th><th>Shift</th><th>Pager</th><th>Status</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {filtered.map((member) => (
-                <tr key={member.id}>
-                  <td>
-                    <Avatar name={member.name} size="sm" />
-                    <span>
-                      <b>{member.name}</b>
-                      <small>{member.id}</small>
-                    </span>
-                  </td>
-                  <td>{member.role}</td>
-                  <td>{member.department}</td>
-                  <td>{member.specialty ?? '—'}</td>
+                <tr key={member.id} className="clickable-row" onClick={() => setSelectedId(member.id)}>
+                  <td><PersonCell name={member.name} detail={`${member.role} · ${member.specialty}`} /></td>
+                  <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
                   <td>{member.shift}</td>
-                  <td>
-                    <StatusBadge status={member.onDuty ? 'on-duty' : 'off-duty'} />
-                  </td>
-                  <td>{member.email ?? member.pagerNumber ?? member.pager ?? '—'}</td>
-                  <td>
-                    <Button size="sm" variant="outline" onClick={() => setSelectedMember(member)}>
-                      View
-                    </Button>
-                  </td>
+                  <td><b>{member.pager}</b><small>{member.phone}</small></td>
+                  <td><StatusBadge status={member.onDuty ? 'on-duty' : 'off-duty'} /></td>
+                  <td className="row-actions"><Button size="sm" variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedId(member.id) }}>Details</Button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {filtered.length === 0 && (
-          <EmptyState icon={Users} title="No staff match" text="Try another search term or clear the filters." />
-        )}
+        {filtered.length === 0 && <EmptyState icon={UsersRound} title="No staff match" text="Try another search term or clear the filters." />}
       </Panel>
 
-      {selectedMember && (
-        <Modal open={!!selectedMember} onClose={() => setSelectedMember(null)} title="Staff Details" subtitle={`${selectedMember.name} · ${selectedMember.role}`} size="lg">
-          <div className="staff-detail">
-            <div className="staff-header">
-              <Avatar name={selectedMember.name} size="lg" />
-              <div>
-                <h3>{selectedMember.name}</h3>
-                <p>{selectedMember.role} · {selectedMember.department}</p>
-                <StatusBadge status={selectedMember.onDuty ? 'on-duty' : 'off-duty'} />
-              </div>
-            </div>
-            <div className="staff-meta">
-              <div>
-                <p><b>Specialty:</b> {selectedMember.specialty ?? '—'}</p>
-                <p><b>Shift:</b> {selectedMember.shift}</p>
-              </div>
-              <div>
-                <p><b>Email:</b> {selectedMember.email ?? '—'}</p>
-                <p><b>Phone:</b> {selectedMember.phone ?? '—'}</p>
-              </div>
-              <div>
-                <p><b>Pager:</b> {selectedMember.pagerNumber ?? selectedMember.pager ?? '—'}</p>
-                <p><b>License:</b> {selectedMember.licenseNumber ?? '—'}</p>
-              </div>
-            </div>
+      {selected && (
+        <Modal open onClose={() => setSelectedId(null)} title={selected.name} subtitle={`${selected.role} · ${departmentById(state.departments, selected.department).name}`} size="md">
+          <div className="detail-head"><Avatar name={selected.name} size="lg" /><StatusBadge status={selected.onDuty ? 'on-duty' : 'off-duty'} /></div>
+          <DetailGrid items={[['Specialty', selected.specialty], ['Shift', selected.shift], ['Pager', selected.pager], ['Extension', selected.phone], ['Email', <a href={`mailto:${selected.email}`}>{selected.email}</a>], ['Licence', selected.license]]} />
+          <div className="modal-footer">
+            <Button variant="ghost" onClick={() => setSelectedId(null)}>Close</Button>
+            {canManage && <Button variant={selected.onDuty ? 'secondary' : 'primary'} icon={UserCheck} onClick={() => setStaffDuty(selected.id, !selected.onDuty)}>{selected.onDuty ? 'Mark off duty' : 'Mark on duty'}</Button>}
           </div>
         </Modal>
       )}
