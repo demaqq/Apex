@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Building2, Check, FlaskConical, Hospital, KeyRound, LayoutGrid, Plus, RotateCcw, Save, ScanLine, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { AlertTriangle, Building2, Check, FlaskConical, Hospital, KeyRound, LayoutGrid, Plus, RotateCcw, Save, ScanLine, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
 import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
 import { formatCurrency } from '../lib/format'
 import { ALL_NAV, CORE_MODULES } from '../lib/nav'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
-import type { Department, DepartmentId, ExternalProvider, FacilitySettings, InvestigationItem, Permission, RoleId, StaffMember } from '../types'
+import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
+import type { Department, DepartmentId, ExternalProvider, FacilitySettings, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
 type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
 
@@ -15,11 +16,13 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   refer: 'Refer to specialists', transfer: 'Transfer and admit', discharge: 'Discharge patients', cosign: 'Co-sign trainee notes', results: 'Report lab and imaging results',
   administer: 'Give medicines', dispense: 'Verify and dispense medicines', beds: 'Manage beds', theatre: 'Run theatre lists', anaesthesia: 'Anaesthesia records',
   services: 'Physio, nutrition and blood bank', billing: 'Billing and payments', manage: 'Facility administration',
+  'stock-receive': 'Receive stock deliveries', 'stock-adjust': 'Write off and adjust stock', 'formulary-edit': 'Edit medicines and prices', 'controlled-drugs': 'Release controlled medicines', 'records-export': 'Export patient lists',
 }
 const PERMISSION_GROUPS: Array<[string, Permission[]]> = [
   ['Clinical', ['triage', 'register', 'vitals', 'notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
   ['Services', ['results', 'administer', 'dispense', 'beds', 'theatre', 'anaesthesia', 'services']],
   ['Office', ['billing', 'manage']],
+  ['Sensitive — grant with care', SENSITIVE],
 ]
 const CURRENCIES: FacilitySettings['currency'][] = ['ETB', 'USD', 'EUR', 'GBP', 'KES']
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -87,7 +90,10 @@ function UsersTab() {
   const accessLabel = (member: StaffMember) => {
     if (member.suspended) return <Chip tone="danger">Suspended</Chip>
     if (!member.roleId) return <Chip tone="neutral">Directory only</Chip>
-    return member.permissions ? <Chip tone="warning">Custom · {member.permissions.length} permissions</Chip> : <Chip tone="success">Standard {roleProfiles[member.roleId].shortTitle.toLowerCase()}</Chip>
+    return <>
+      {member.permissions ? <Chip tone="warning">Custom · {member.permissions.length} permissions</Chip> : <Chip tone="success">Standard {roleProfiles[member.roleId].shortTitle.toLowerCase()}</Chip>}
+      {activePositions(member).map((p) => <Chip key={p.id} tone="accent">{positionById(p.id)?.title}{p.until ? ` · until ${p.until}` : ''}</Chip>)}
+    </>
   }
 
   return <>
@@ -103,6 +109,8 @@ function UsersTab() {
         ))}
       </div>
     </Panel>
+
+    <PositionsPanel />
 
     <Panel title="Accounts and access levels" action={<Button size="sm" icon={UserPlus} onClick={() => setAdding(true)}>Add user</Button>}>
       <div className="table-wrap">
@@ -132,6 +140,68 @@ function UsersTab() {
   </>
 }
 
+/* ---------------- Sensitive positions ---------------- */
+
+function PositionsPanel() {
+  const { state, removePosition } = useHospital()
+  const [assigning, setAssigning] = useState<PositionId | null>(null)
+  const eligible = state.staff.filter((member) => member.roleId && member.roleId !== 'administrator' && member.status !== 'Pending approval' && !member.suspended)
+  return (
+    <Panel title="Sensitive roles and privileges" action={<ShieldAlert size={17} className="muted-icon" />}>
+      <p className="table-footnote admin-note">These posts carry privileges that move stock, release controlled medicines or export patient data. Only the administrator can give or take them, every change goes into the audit log, and acting cover can end on a set date.</p>
+      <div className="position-grid">
+        {POSITIONS.map((position) => {
+          const holders = state.staff.filter((member) => activePositions(member).some((p) => p.id === position.id))
+          return (
+            <article key={position.id} className="position-card">
+              <header><b>{position.title}</b><Button size="sm" variant="secondary" icon={UserPlus} onClick={() => setAssigning(position.id)}>Assign</Button></header>
+              <p>{position.description}</p>
+              <div className="position-privs">{position.privileges.map((perm) => <span key={perm} className={SENSITIVE.includes(perm) ? 'sensitive' : ''}>{PERMISSION_LABELS[perm]}</span>)}</div>
+              <ul className="position-holders">
+                {holders.length === 0 && <li className="muted-text">No one assigned</li>}
+                {holders.map((member) => {
+                  const assignment = activePositions(member).find((p) => p.id === position.id)!
+                  return <li key={member.id}><PersonCell name={member.name} detail={`${member.role}${assignment.until ? ` · acting until ${assignment.until}` : ''}`} /><Button size="sm" variant="ghost" icon={X} aria-label={`Remove ${member.name} from ${position.title}`} onClick={() => removePosition(member.id, position.id)}>Remove</Button></li>
+                })}
+              </ul>
+            </article>
+          )
+        })}
+      </div>
+      {assigning && <AssignPositionModal position={assigning} people={eligible} onClose={() => setAssigning(null)} />}
+    </Panel>
+  )
+}
+
+function AssignPositionModal({ position, people, onClose }: { position: PositionId; people: StaffMember[]; onClose: () => void }) {
+  const { assignPosition } = useHospital()
+  const def = positionById(position)!
+  const [staffId, setStaffId] = useState('')
+  const [temporary, setTemporary] = useState(false)
+  const [until, setUntil] = useState('')
+  const [note, setNote] = useState('')
+  const [confirm, setConfirm] = useState(false)
+  const member = people.find((item) => item.id === staffId)
+  const resulting = member ? [...new Set([...(member.permissions ?? (member.roleId ? ROLE_PERMISSIONS[member.roleId] : [])), ...positionPrivileges(member), ...def.privileges])] : []
+  const warnings = dutyWarnings(resulting)
+  const valid = member && confirm && (!temporary || (until && new Date(until).getTime() > Date.now()))
+  return (
+    <Modal open onClose={onClose} title={`Assign ${def.title}`} subtitle={def.description} size="md">
+      <div className="position-privs">{def.privileges.map((perm) => <span key={perm} className={SENSITIVE.includes(perm) ? 'sensitive' : ''}>{PERMISSION_LABELS[perm]}</span>)}</div>
+      <div className="form-grid form-grid-2">
+        <label className="form-field span-2"><span>Person <b>*</b></span><select value={staffId} onChange={(event) => setStaffId(event.target.value)}><option value="">Choose a staff member…</option>{people.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.role}</option>)}</select></label>
+        <label className="remember-row span-2"><input type="checkbox" checked={temporary} onChange={(event) => setTemporary(event.target.checked)} />Acting cover — ends automatically</label>
+        {temporary && <label className="form-field"><span>Ends on <b>*</b></span><input type="date" value={until} onChange={(event) => setUntil(event.target.value)} /></label>}
+        <label className="form-field span-2"><span>Reason or reference</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="e.g. Appointment letter HR-2026-114, annual leave cover" /></label>
+      </div>
+      {member && member.roleId === 'nurse' && def.privileges.includes('controlled-drugs') && <div className="inline-error"><AlertTriangle size={16} />Nurses usually give controlled medicines on the ward; releasing them from the pharmacy is normally a pharmacist’s duty.</div>}
+      {warnings.map((warning) => <p key={warning} className="record-alerts"><span className="warning"><AlertTriangle size={14} />{warning}</span></p>)}
+      <label className="remember-row confirm-row"><input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />I confirm {member ? member.name : 'this person'} is authorised for these privileges.</label>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={ShieldCheck} disabled={!valid} onClick={() => { assignPosition(staffId, position, temporary ? until : undefined, note.trim() || undefined); onClose() }}>Assign</Button></div>
+    </Modal>
+  )
+}
+
 function AccessModal({ member, onClose, onSave }: { member: StaffMember; onClose: () => void; onSave: (permissions: Permission[]) => void }) {
   const defaults = member.roleId ? ROLE_PERMISSIONS[member.roleId] : []
   const [list, setList] = useState<Permission[]>(member.permissions ?? defaults)
@@ -139,13 +209,15 @@ function AccessModal({ member, onClose, onSave }: { member: StaffMember; onClose
   return (
     <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.roleId ? roleProfiles[member.roleId].title : member.role} · start from the role’s standard access, then adjust`} size="md">
       {PERMISSION_GROUPS.map(([group, permissions]) => (
-        <div key={group} className="perm-group">
+        <div key={group} className={`perm-group ${group.startsWith('Sensitive') ? 'sensitive' : ''}`}>
           <span className="detail-heading">{group}</span>
           <div className="perm-grid">{permissions.filter((permission) => permission !== 'manage').map((permission) => (
             <label key={permission} className={`perm ${list.includes(permission) ? 'on' : ''}`}><input type="checkbox" checked={list.includes(permission)} onChange={() => toggle(permission)} />{PERMISSION_LABELS[permission]}{defaults.includes(permission) && <small>standard</small>}</label>
           ))}</div>
         </div>
       ))}
+      {activePositions(member).length > 0 && <p className="table-footnote">Also holds: {activePositions(member).map((p) => positionById(p.id)?.title).join(', ')} — those privileges are added on top.</p>}
+      {dutyWarnings([...list, ...positionPrivileges(member)]).map((warning) => <p key={warning} className="record-alerts"><span className="warning"><AlertTriangle size={14} />{warning}</span></p>)}
       <div className="modal-footer"><Button variant="ghost" icon={RotateCcw} onClick={() => setList(defaults)}>Reset to standard</Button><div className="footer-actions"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Check} onClick={() => onSave(list)}>Save access</Button></div></div>
     </Modal>
   )

@@ -12,6 +12,10 @@ export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
 export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
+  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export'
+
+export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer'
+export interface PositionAssignment { id: PositionId; since: string; until?: string; by: string; note?: string }
 
 export interface Vitals {
   hr: number
@@ -523,6 +527,8 @@ export interface StaffMember {
   status?: 'Pending approval' | 'Active'
   /** Access granted by the administrator; falls back to the role's defaults. */
   permissions?: Permission[]
+  /** Sensitive posts (pharmacy manager, store keeper…) assigned by the administrator. */
+  positions?: PositionAssignment[]
 }
 
 /* ---------- Administration ---------- */

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { positionById, positionPrivileges } from '../lib/positions'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
 import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
@@ -25,6 +26,8 @@ import type {
   ObservationContext,
   ObservationSet,
   RoundNote,
+  PositionId,
+  PositionAssignment,
   RxCollection,
   NoteReview,
   OrderImage,
@@ -127,6 +130,8 @@ interface HospitalContextValue {
   removeProvider: (id: string) => void
   requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void
   approveStaff: (id: string) => void
+  assignPosition: (staffId: string, position: PositionId, until?: string, note?: string) => void
+  removePosition: (staffId: string, position: PositionId) => void
   setStaffPermissions: (id: string, permissions: Permission[]) => void
   saveFormularyItem: (item: FormularyItem) => void
   receiveStock: (medicationId: string, input: { quantity: number; batch: string; expiry: string; supplier: string }) => void
@@ -221,7 +226,7 @@ export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
   nurse: ['triage', 'notes', 'vitals', 'administer', 'beds'],
   consultant: ['refer', 'notes', 'discharge', 'cosign', 'prescribe'],
   diagnostics: ['results', 'notes'],
-  coordinator: ['transfer', 'notes', 'beds'],
+  coordinator: ['transfer', 'notes', 'beds', 'records-export'],
   administrator: ['manage'],
   intern: ['notes', 'vitals', 'prescribe', 'refer'],
   pharmacist: ['dispense', 'notes'],
@@ -293,7 +298,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const can = useCallback((permission: Permission) => {
     if (!currentRole) return false
     const me = state.staff.find((member) => member.roleId === currentRole)
-    return (me?.permissions ?? ROLE_PERMISSIONS[currentRole]).includes(permission)
+    return (me?.permissions ?? ROLE_PERMISSIONS[currentRole]).includes(permission) || positionPrivileges(me).includes(permission)
   }, [currentRole, state.staff])
 
   const actorName = useCallback((fallback: string) => (currentRole ? roleProfiles[currentRole].name : fallback), [currentRole])
@@ -537,6 +542,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const setPrescriptionStatus = useCallback((id: string, status: RxStatus) => {
     const actor = actorName('Pharmacy team')
+    if (status === 'Dispensed' || status === 'Ready for collection') {
+      const { prescriptions, formulary } = stateRef.current
+      const rx = prescriptions.find((item) => item.id === id)
+      const controlled = rx?.items.map((item) => formulary.find((med) => med.id === item.medicationId)).find((med) => med?.controlled)
+      if (controlled && !can('controlled-drugs')) { notify(`${controlled.name} is a controlled medicine — only staff with controlled-drugs authority can release it`, 'warning'); return }
+    }
     if (status === 'Dispensed') {
       const { prescriptions, formulary } = stateRef.current
       const rx = prescriptions.find((item) => item.id === id)
@@ -563,13 +574,15 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, formulary, stockMovements, prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, ...changes } : item) }, actor, action: `${status.toLowerCase()} ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
     })
     notify(`${id} ${status.toLowerCase()}`)
-  }, [actorName, commit, notify])
+  }, [actorName, can, commit, notify])
 
   const collectPrescription = useCallback((id: string, collection: Omit<RxCollection, 'id' | 'at' | 'by'>) => {
     const actor = actorName('Pharmacy team')
     const { prescriptions, formulary } = stateRef.current
     const rx = prescriptions.find((item) => item.id === id)
     if (!rx) return false
+    const controlled = collection.items.filter((item) => item.quantity > 0).map((item) => formulary.find((med) => med.id === item.medicationId)).find((med) => med?.controlled)
+    if (controlled && !can('controlled-drugs')) { notify(`${controlled.name} is a controlled medicine — only staff with controlled-drugs authority can hand it over`, 'warning'); return false }
     const short = collection.items.find((item) => (formulary.find((med) => med.id === item.medicationId)?.stock ?? 0) < item.quantity)
     if (short) { notify(`Not enough ${formulary.find((med) => med.id === short.medicationId)?.name ?? 'stock'} to supply`, 'warning'); return false }
     if (!collection.items.some((item) => item.quantity > 0)) { notify('Nothing to hand over', 'warning'); return false }
@@ -597,7 +610,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     })
     notify('Medicines handed over')
     return true
-  }, [actorName, commit, notify])
+  }, [actorName, can, commit, notify])
 
   const sendErx = useCallback((id: string, phone: string) => {
     const actor = actorName('Clinical team')
@@ -1079,6 +1092,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const restock = useCallback((medicationId: string, amount: number) => {
     const actor = actorName('Pharmacy team')
+    if (!can('stock-receive')) { notify('You need the “receive stock” privilege for this', 'warning'); return }
     commit((previous) => {
       const med = previous.formulary.find((item) => item.id === medicationId)
       if (!med) return null
@@ -1209,6 +1223,30 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Account approved')
   }, [actorName, commit, notify])
 
+  const assignPosition = useCallback((staffId: string, position: PositionId, until?: string, note?: string) => {
+    const actor = actorName('Administrator')
+    if (!can('manage')) { notify('Only the administrator can assign positions', 'warning'); return }
+    commit((previous) => {
+      const member = previous.staff.find((item) => item.id === staffId)
+      const def = positionById(position)
+      if (!member || !def) return null
+      const assignment: PositionAssignment = { id: position, since: new Date().toISOString(), by: actor, ...(until ? { until } : {}), ...(note ? { note } : {}) }
+      return { next: { ...previous, staff: previous.staff.map((item) => item.id === staffId ? { ...item, positions: [...(item.positions ?? []).filter((p) => p.id !== position), assignment] } : item) }, actor, action: `appointed ${member.name} as ${def.title}${until ? ` until ${until}` : ''} (${def.privileges.join(', ')})`, department: member.department }
+    })
+    notify('Position assigned')
+  }, [actorName, can, commit, notify])
+
+  const removePosition = useCallback((staffId: string, position: PositionId) => {
+    const actor = actorName('Administrator')
+    if (!can('manage')) return
+    commit((previous) => {
+      const member = previous.staff.find((item) => item.id === staffId)
+      if (!member) return null
+      return { next: { ...previous, staff: previous.staff.map((item) => item.id === staffId ? { ...item, positions: (item.positions ?? []).filter((p) => p.id !== position) } : item) }, actor, action: `removed ${member.name} from ${positionById(position)?.title ?? position}`, department: member.department }
+    })
+    notify('Position removed', 'info')
+  }, [actorName, can, commit, notify])
+
   const setStaffPermissions = useCallback((id: string, list: Permission[]) => {
     const actor = actorName('Administrator')
     commit((previous) => {
@@ -1220,15 +1258,17 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const saveFormularyItem = useCallback((item: FormularyItem) => {
     const actor = actorName('Pharmacy team')
+    if (!can('formulary-edit')) { notify('You need the “edit medicines and prices” privilege for this', 'warning'); return }
     commit((previous) => {
       const exists = previous.formulary.some((candidate) => candidate.id === item.id)
       return { next: { ...previous, formulary: exists ? previous.formulary.map((candidate) => candidate.id === item.id ? item : candidate) : [...previous.formulary, item] }, actor, action: `${exists ? 'updated' : 'added'} ${item.name} in the formulary`, department: 'pharmacy' }
     })
     notify('Medicine saved')
-  }, [actorName, commit, notify])
+  }, [actorName, can, commit, notify])
 
   const receiveStock = useCallback((medicationId: string, input: { quantity: number; batch: string; expiry: string; supplier: string }) => {
     const actor = actorName('Pharmacy team')
+    if (!can('stock-receive')) { notify('You need the “receive stock” privilege for this', 'warning'); return }
     commit((previous) => {
       const med = previous.formulary.find((item) => item.id === medicationId)
       if (!med || input.quantity <= 0) return null
@@ -1238,10 +1278,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Stock received')
-  }, [actorName, commit, notify])
+  }, [actorName, can, commit, notify])
 
   const writeOffStock = useCallback((medicationId: string, quantity: number, reason: string) => {
     const actor = actorName('Pharmacy team')
+    if (!can('stock-adjust')) { notify('You need the “write off and adjust stock” privilege for this', 'warning'); return }
     commit((previous) => {
       const med = previous.formulary.find((item) => item.id === medicationId)
       if (!med || quantity <= 0) return null
@@ -1252,7 +1293,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Stock written off', 'info')
-  }, [actorName, commit, notify])
+  }, [actorName, can, commit, notify])
 
   const resetDemo = useCallback(() => {
     setState(createInitialState())
@@ -1281,9 +1322,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }
