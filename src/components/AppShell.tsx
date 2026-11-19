@@ -8,6 +8,7 @@ import { patientCsv, relativeTime } from '../lib/format'
 import { beep, useNow, useSoundPref, useTheme } from '../lib/hooks'
 import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor } from '../lib/nav'
 import { useHospital } from '../store/HospitalStore'
+import { SPECIALTY } from '../lib/specialty'
 import type { DepartmentId } from '../types'
 import PatientDrawer from './PatientDrawer'
 import { Avatar, Brand, Button, Modal } from './ui'
@@ -37,8 +38,9 @@ export default function AppShell() {
   const role = currentRole ?? 'physician'
   const disabled = state.settings.disabledModules
   const isAdmin = role === 'administrator'
-  const sections = useMemo(() => navFor(role, disabled), [role, disabled])
-  const visibleNav = useMemo(() => ALL_NAV.filter((item) => canSee(item, role) && moduleEnabled(item.to, disabled)), [role, disabled])
+  const hasSpecialty = Boolean(SPECIALTY[profile?.department ?? ''])
+  const sections = useMemo(() => navFor(role, disabled).map((section) => ({ ...section, items: section.items.filter((item) => !item.specialty || hasSpecialty) })).filter((section) => section.items.length), [role, disabled, hasSpecialty])
+  const visibleNav = useMemo(() => ALL_NAV.filter((item) => canSee(item, role) && moduleEnabled(item.to, disabled) && (!item.specialty || hasSpecialty)), [role, disabled, hasSpecialty])
   const routeItem = ALL_NAV.find((item) => item.to === location.pathname)
   const blocked = routeItem && !visibleNav.includes(routeItem)
   const facility = state.settings

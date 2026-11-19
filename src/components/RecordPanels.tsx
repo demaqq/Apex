@@ -3,6 +3,7 @@ import { AlertTriangle, BellRing, FileCheck2, HeartPulse, Plus, Ruler, Stethosco
 import { EXAM_SYSTEMS, ICD10, WEIGHT_MEDIAN, newsResponse, newsTone, observationFlags, patientAlerts, patientNews2 } from '../lib/clinical'
 import { formatDate, formatDateTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
+import { specialtyFor } from '../lib/specialty'
 import type { Consciousness, DischargeSummary, Evaluation, Patient, Vitals } from '../types'
 import { Button, Chip } from './ui'
 
@@ -283,5 +284,53 @@ export function GrowthPanel({ patient }: { patient: Patient }) {
         </div>
       )}
     </section>
+  )
+}
+
+/* ---------------- Specialty assessment ---------------- */
+
+export function AssessmentPanel({ patient }: { patient: Patient }) {
+  const { can, saveAssessment } = useHospital()
+  const { config, latest, chips, alerts } = specialtyFor(patient)
+  const [values, setValues] = useState<Record<string, string>>(() => ({ ...(latest?.values ?? {}) }))
+  const [error, setError] = useState('')
+  if (!config) return null
+  const editable = (can('prescribe') || can('vitals') || can('refer')) && patient.status !== 'discharged'
+  const save = () => {
+    const missing = config.fields.filter((field) => field.required && !values[field.key]?.trim())
+    if (missing.length) { setError(`Complete: ${missing.map((field) => field.label).join(', ')}.`); return }
+    const outOfRange = config.fields.find((field) => field.type === 'number' && values[field.key] && ((field.min !== undefined && Number(values[field.key]) < field.min) || (field.max !== undefined && Number(values[field.key]) > field.max)))
+    if (outOfRange) { setError(`${outOfRange.label} must be between ${outOfRange.min} and ${outOfRange.max}.`); return }
+    const problem = config.check?.(values)
+    if (problem) { setError(problem); return }
+    saveAssessment(patient.id, values, config.summary(values)); setError('')
+  }
+  return (
+    <>
+      {latest && (
+        <section className="drawer-section">
+          <div className="section-label"><Stethoscope size={15} />{config.title}<span>{formatDateTime(latest.at)} · {latest.by}</span></div>
+          <p>{chips.map(([label, tone]) => <Chip key={label} tone={tone}>{label}</Chip>)}</p>
+          {alerts.length > 0 && <div className="record-alerts" style={{ marginTop: 10 }}>{alerts.map((alert) => <p key={alert} className="warning"><AlertTriangle size={14} />{alert}</p>)}</div>}
+        </section>
+      )}
+      {editable && (
+        <section className="drawer-section">
+          <div className="section-label"><Plus size={15} />{latest ? 'Update assessment' : `New ${config.title.toLowerCase()}`}</div>
+          <div className="form-grid obs-form">
+            {config.fields.map((field) => (
+              <label key={field.key} className={`form-field ${field.type === 'text' ? 'span-2' : ''}`}>
+                <span>{field.label}{field.required && <b> *</b>}</span>
+                {field.type === 'select'
+                  ? <select value={values[field.key] ?? ''} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}><option value="">Choose…</option>{field.options!.map((option) => <option key={option}>{option}</option>)}</select>
+                  : <input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} min={field.min} max={field.max} value={values[field.key] ?? ''} onChange={(event) => { setValues({ ...values, [field.key]: event.target.value }); setError('') }} />}
+              </label>
+            ))}
+          </div>
+          {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+          <div className="panel-actions"><Button icon={FileCheck2} onClick={save}>Save assessment</Button></div>
+        </section>
+      )}
+    </>
   )
 }

@@ -98,6 +98,8 @@ export interface Patient {
   weightKg?: number
   growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number }>
   evaluations?: Evaluation[]
+  /** Department-specific assessments (obstetric, cardiac, audiometry…), newest first. */
+  assessments?: Array<{ id: string; at: string; by: string; values: Record<string, string> }>
   discharge?: DischargeSummary
 }
 

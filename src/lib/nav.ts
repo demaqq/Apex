@@ -10,6 +10,8 @@ export interface NavItem {
   roles: RoleId[] | 'all'
   /** Single-key shortcut (Selam keymap). */
   key?: string
+  /** Only shown when the user's department has a specialty assessment. */
+  specialty?: boolean
 }
 
 const CLINICIANS: RoleId[] = ['physician', 'consultant', 'intern', 'nurse']
@@ -20,6 +22,7 @@ const CLINICAL_CLASSIC: RoleId[] = ['physician', 'nurse', 'consultant', 'diagnos
 export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
   { label: 'Clinical', items: [
     { to: '/dashboard', label: 'Overview', page: 'Overview', icon: LayoutDashboard, roles: CLASSIC, key: 'g' },
+    { to: '/specialty', label: 'Department dashboard', page: 'Department dashboard', icon: Stethoscope, roles: ['physician', 'consultant', 'intern', 'nurse'], key: 'y', specialty: true },
     { to: '/front-desk', label: 'Front desk', page: 'Front desk', icon: UserPlus, roles: ['receptionist', 'physician', 'nurse'], key: 'n' },
     { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant', 'receptionist'], key: 't' },
     { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'theatre', 'allied'], key: 'p' },

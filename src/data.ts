@@ -472,6 +472,9 @@ export function createInitialState(): HospitalState {
     const withObs = observations ? { ...patient, observations, vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : patient
     if (patient.id === 'p1006') return { ...withObs, weightKg: 24.6, growth: [{ at: ago(1051200), ageYears: 6, weightKg: 20.1, heightCm: 115 }, { at: ago(525600), ageYears: 7, weightKg: 22.0, heightCm: 121 }, { at: ago(27), ageYears: 8, weightKg: 24.6, heightCm: 127 }] }
     if (patient.id === 'p1002') return { ...withObs, insurance: 'Aetna' }
+    if (patient.id === 'p1017') return { ...withObs, assessments: [{ id: 'SA-1', at: ago(50), by: 'Dr. Hannah Reid', values: { lmp: new Date(Date.now() - 32 * 7 * 86_400_000).toISOString().slice(0, 10), gravida: '1', para: '0', fundal: '31', fhr: '148', presentation: 'Cephalic', contractions: '0' } }] }
+    if (patient.id === 'p1015') return { ...withObs, assessments: [{ id: 'SA-2', at: ago(30), by: 'Ms. Prianka Shah', values: { r500: '15', r1000: '20', r2000: '20', r4000: '25', l500: '35', l1000: '40', l2000: '45', l4000: '50', otoscopy: 'Effusion' } }] }
+    if (patient.id === 'p1008') return { ...withObs, assessments: [{ id: 'SA-3', at: ago(300), by: 'Dr. Amir Rahman', values: { rhythm: 'Sinus rhythm', rate: '72', qtc: '440', ef: '38', nyha: 'II' } }] }
     return withObs
   })
   return {

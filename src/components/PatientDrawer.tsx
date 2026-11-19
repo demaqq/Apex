@@ -3,14 +3,15 @@ import { Activity, AlertCircle, ArrowRight, BedDouble, Check, ClipboardList, Clo
 import { useEffect, useMemo, useState } from 'react'
 import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, RetriageModal, TransferModal } from './ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
-import { AlertsBox, DischargePanel, EvaluationPanel, GrowthPanel, ObservationsPanel } from './RecordPanels'
+import { AlertsBox, AssessmentPanel, DischargePanel, EvaluationPanel, GrowthPanel, ObservationsPanel } from './RecordPanels'
 import ClinicalChat from './ClinicalChat'
+import { SPECIALTY } from '../lib/specialty'
 import { stagesFor, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
 import type { ClinicalOrder, Referral } from '../types'
 
-type Tab = 'conversation' | 'overview' | 'observations' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
+type Tab = 'conversation' | 'overview' | 'assessment' | 'observations' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
 
 export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
@@ -48,7 +49,7 @@ export default function PatientDrawer() {
   const completedReferrals = patientReferrals.filter((referral) => referral.status === 'completed').length
 
   const tabs: Tab[] = patient ? [
-    'conversation', 'overview', 'observations', 'orders', 'referrals',
+    'conversation', 'overview', ...(SPECIALTY[patient.department] ? ['assessment' as Tab] : []), 'observations', 'orders', 'referrals',
     ...((can('prescribe') || can('refer') || (patient.evaluations?.length ?? 0) > 0) ? ['evaluation' as Tab] : []),
     ...(patient.age < 12 ? ['growth' as Tab] : []),
     ...((can('discharge') && ['admitted', 'observation', 'in-treatment'].includes(patient.status)) || patient.discharge ? ['discharge' as Tab] : []),
@@ -132,6 +133,7 @@ export default function PatientDrawer() {
                 </section>}
 
                 {tab === 'conversation' && <ClinicalChat patient={patient} />}
+                {tab === 'assessment' && <AssessmentPanel patient={patient} />}
                 {tab === 'observations' && <ObservationsPanel patient={patient} />}
                 {tab === 'evaluation' && <EvaluationPanel patient={patient} />}
                 {tab === 'growth' && <GrowthPanel patient={patient} />}

@@ -1,3 +1,4 @@
+import { specialtyFor } from './specialty'
 import type { ClinicalOrder, Consciousness, FormularyItem, OrderKind, OrderStatus, Patient, Prescription, Vitals } from '../types'
 
 /* ---------------- NEWS2 ---------------- */
@@ -222,6 +223,7 @@ export function patientAlerts(patient: Patient, orders: ClinicalOrder[]) {
   if (score && patient.vitals.hr && (score.score >= 5 || score.redFlag)) alerts.push({ tone: score.score >= 7 ? 'danger' : 'warning', text: `NEWS2 ${score.score} (${score.band}): ${newsResponse(score)}` })
   if (patient.escalation) alerts.push({ tone: 'warning', text: `Escalated to the medical team by ${patient.escalation.by} (NEWS2 ${patient.escalation.score})` })
   orders.filter((order) => order.patientId === patient.id && order.result && /\b(low|high|critical)\b/i.test(order.result)).forEach((order) => alerts.push({ tone: 'warning', text: `Abnormal result · ${order.title}: ${order.result}` }))
+  specialtyFor(patient).alerts.forEach((text) => alerts.push({ tone: 'warning', text }))
   const allergies = patient.allergies.filter((allergy) => !/no known|not yet/i.test(allergy))
   if (allergies.length) alerts.push({ tone: 'danger', text: `Allergy: ${allergies.join(', ')}` })
   return alerts
