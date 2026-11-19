@@ -26,11 +26,28 @@ export interface Vitals {
 
 export type Consciousness = 'Alert' | 'New confusion' | 'Voice' | 'Pain' | 'Unresponsive'
 
+export type ObservationContext = 'Triage' | 'Ward round' | 'Bedside' | 'Clinic' | 'Recovery'
+export const OBSERVATION_CONTEXTS: ObservationContext[] = ['Triage', 'Ward round', 'Bedside', 'Clinic', 'Recovery']
+
 export interface ObservationSet extends Vitals {
   at: string
   by: string
   onOxygen: boolean
   consciousness: Consciousness
+  /** Where the set was taken: at triage, on the ward round, at the bedside… */
+  context?: ObservationContext
+}
+
+/** A daily ward-round progress note (SOAP). */
+export interface RoundNote {
+  id: string
+  at: string
+  by: string
+  subjective: string
+  examination: string
+  assessment: string
+  plan: string
+  status: 'Improving' | 'Stable' | 'Deteriorating'
 }
 
 export interface Evaluation {
@@ -98,6 +115,8 @@ export interface Patient {
   weightKg?: number
   growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number }>
   evaluations?: Evaluation[]
+  /** Daily ward-round notes, newest first. */
+  rounds?: RoundNote[]
   /** Department-specific assessments (obstetric, cardiac, audiometry…), newest first. */
   assessments?: Array<{ id: string; at: string; by: string; values: Record<string, string> }>
   discharge?: DischargeSummary

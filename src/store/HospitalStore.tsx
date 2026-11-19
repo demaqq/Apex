@@ -22,6 +22,9 @@ import type {
   Appointment,
   BedState,
   Consciousness,
+  ObservationContext,
+  ObservationSet,
+  RoundNote,
   DischargeSummary,
   Evaluation,
   Invoice,
@@ -34,7 +37,7 @@ import type {
   StockMovement,
 } from '../types'
 
-const DATA_KEY = 'northstar-careos-data-v3'
+const DATA_KEY = 'northstar-careos-data-v4'
 const SESSION_KEY = 'northstar-careos-session'
 const DEPARTMENT_KEY = 'northstar-careos-department'
 const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
@@ -72,7 +75,8 @@ interface HospitalContextValue {
   setStaffDuty: (id: string, onDuty: boolean) => void
   activateCode: (id: string, location: string) => void
   standDownCode: (id: string) => void
-  recordObservations: (patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness) => void
+  recordObservations: (patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context?: ObservationContext) => void
+  saveRound: (patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => void
   escalatePatient: (patientId: string) => void
   advanceOrder: (orderId: string, result?: string, toStage?: number) => void
   setBedState: (bedId: string, state: BedState) => void
@@ -317,6 +321,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       riskFactors: input.riskFactors,
       resources: input.resources,
       vitals: input.vitals,
+      observations: [{ ...input.vitals, at: now, by: actor, onOxygen: false, consciousness: input.vitals.gcs < 15 ? 'New confusion' : 'Alert', context: 'Triage' }],
       department: 'emergency',
       encounterType: 'outpatient',
       location: input.esi === 1 ? 'Resus · allocation pending' : input.esi === 2 ? 'ED priority queue' : 'Waiting Room A',
@@ -608,16 +613,16 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     return state.staff.find((member) => member.roleId === currentRole)?.id ?? null
   }, [currentRole, state.staff])
 
-  const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness) => {
+  const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context: ObservationContext = 'Bedside') => {
     const actor = actorName('Nursing team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
-      const set = { ...vitals, at: new Date().toISOString(), by: actor, onOxygen, consciousness }
+      const set: ObservationSet = { ...vitals, at: new Date().toISOString(), by: actor, onOxygen, consciousness, context }
       const updated = { ...patient, vitals, observations: [set, ...(patient.observations ?? [])] }
       const score = patientNews2(updated)
       return {
-        next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `Observations recorded${score ? ` · NEWS2 ${score.score}` : ''}`, detail: `HR ${vitals.hr}, BP ${vitals.bpSys}/${vitals.bpDia}, RR ${vitals.rr}, SpO₂ ${vitals.spo2}%${onOxygen ? ' on oxygen' : ''}, T ${vitals.temp}°C, ${consciousness}.`, author: actor, department: patient.department }, { vitals, observations: set ? [set, ...(patient.observations ?? [])] : patient.observations }) },
+        next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${context} observations${score ? ` · NEWS2 ${score.score}` : ''}`, detail: `HR ${vitals.hr}, BP ${vitals.bpSys}/${vitals.bpDia}, RR ${vitals.rr}, SpO₂ ${vitals.spo2}%${onOxygen ? ' on oxygen' : ''}, T ${vitals.temp}°C, ${consciousness}.`, author: actor, department: patient.department }, { vitals, observations: set ? [set, ...(patient.observations ?? [])] : patient.observations }) },
         actor, action: `recorded observations for ${patient.name}${score ? ` (NEWS2 ${score.score})` : ''}`, department: patient.department, patientId,
       }
     })
@@ -714,7 +719,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient || patient.status !== 'awaiting-triage') return null
-      const set = { ...input.vitals, at: new Date().toISOString(), by: actor, onOxygen: false, consciousness: (input.vitals.gcs < 15 ? 'New confusion' : 'Alert') as Consciousness }
+      const set = { ...input.vitals, at: new Date().toISOString(), by: actor, onOxygen: false, consciousness: (input.vitals.gcs < 15 ? 'New confusion' : 'Alert') as Consciousness, context: 'Triage' as const }
       return {
         next: {
           ...previous,
@@ -854,6 +859,17 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Sample rejected — the ward has been asked to recollect', 'warning')
+  }, [actorName, commit, notify])
+
+  const saveRound = useCallback((patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const entry: RoundNote = { ...round, id: makeId('RN'), at: new Date().toISOString(), by: actor }
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `Ward round · ${round.status}`, detail: `${round.assessment} Plan: ${round.plan}`, author: actor, department: patient.department }, { rounds: [entry, ...(patient.rounds ?? [])] }) }, actor, action: `documented a ward round for ${patient.name}`, department: patient.department, patientId }
+    })
+    notify('Ward round saved')
   }, [actorName, commit, notify])
 
   const saveAssessment = useCallback((patientId: string, values: Record<string, string>, summary: string) => {
@@ -1115,11 +1131,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : setSelectedPatientId,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
-    recordObservations, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
+    recordObservations, saveRound, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

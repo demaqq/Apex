@@ -4,7 +4,8 @@ import { EXAM_SYSTEMS, ICD10, WEIGHT_MEDIAN, newsResponse, newsTone, observation
 import { formatDate, formatDateTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import { specialtyFor } from '../lib/specialty'
-import type { Consciousness, DischargeSummary, Evaluation, Patient, Vitals } from '../types'
+import type { Consciousness, DischargeSummary, Evaluation, ObservationContext, Patient, Vitals } from '../types'
+import { OBSERVATION_CONTEXTS } from '../types'
 import { Button, Chip } from './ui'
 
 /* ---------------- Alerts ---------------- */
@@ -25,7 +26,9 @@ export function AlertsBox({ patient }: { patient: Patient }) {
 const empty = { hr: '', rr: '', spo2: '', bpSys: '', bpDia: '', temp: '', gcs: '15', pain: '0' }
 
 export function ObservationsPanel({ patient }: { patient: Patient }) {
-  const { can, recordObservations, escalatePatient } = useHospital()
+  const { can, profile, recordObservations, escalatePatient } = useHospital()
+  const defaultContext: ObservationContext = patient.status === 'awaiting-triage' ? 'Triage' : ['physician', 'consultant', 'intern'].includes(profile?.id ?? '') ? 'Ward round' : patient.encounterType === 'outpatient' ? 'Clinic' : 'Bedside'
+  const [context, setContext] = useState<ObservationContext>(defaultContext)
   const [form, setForm] = useState<Record<keyof Vitals, string>>(empty)
   const [onOxygen, setOnOxygen] = useState(false)
   const [consciousness, setConsciousness] = useState<Consciousness>('Alert')
@@ -39,7 +42,7 @@ export function ObservationsPanel({ patient }: { patient: Patient }) {
     const missing = (['hr', 'rr', 'spo2', 'bpSys', 'bpDia', 'temp'] as const).filter((key) => !form[key])
     if (missing.length) { setError('Enter heart rate, respiratory rate, SpO₂, blood pressure and temperature.'); return }
     if (values.spo2 > 100 || values.spo2 < 50 || values.hr < 20 || values.hr > 250 || values.temp < 30 || values.temp > 43) { setError('One of the values is outside a plausible range. Check and re-enter.'); return }
-    recordObservations(patient.id, values, onOxygen, consciousness)
+    recordObservations(patient.id, values, onOxygen, consciousness, context)
     setForm(empty); setOnOxygen(false); setConsciousness('Alert'); setError('')
   }
 
@@ -56,10 +59,10 @@ export function ObservationsPanel({ patient }: { patient: Patient }) {
       {child && <p className="record-hint">Paediatric limits applied: heart rate above 150 or respiratory rate above 30 is flagged. NEWS2 is not used under 16.{patient.weightKg ? ` Weight ${patient.weightKg} kg — calculate doses per kg.` : ''}</p>}
 
       <section className="drawer-section">
-        <div className="section-label"><HeartPulse size={15} />Observation chart<span>{history.length} sets</span></div>
+        <div className="section-label"><HeartPulse size={15} />Observation log<span>{history.length} sets</span></div>
         <div className="table-wrap">
           <table className="data-table compact">
-            <thead><tr><th>Time</th><th className="num">HR</th><th className="num">BP</th><th className="num">RR</th><th className="num">SpO₂</th><th className="num">Temp</th><th>Level</th><th className="num">NEWS2</th></tr></thead>
+            <thead><tr><th>Time</th><th>Taken at</th><th className="num">HR</th><th className="num">BP</th><th className="num">RR</th><th className="num">SpO₂</th><th className="num">Temp</th><th>Level</th><th className="num">NEWS2</th></tr></thead>
             <tbody>
               {history.map((set) => {
                 const flags = observationFlags(set, patient.age).join(' ')
@@ -68,6 +71,7 @@ export function ObservationsPanel({ patient }: { patient: Patient }) {
                 return (
                   <tr key={set.at}>
                     <td><b>{formatDateTime(set.at)}</b><small>{set.by}</small></td>
+                    <td>{set.context ?? 'Bedside'}</td>
                     <td className={`num ${bad('HR')}`}>{set.hr}</td>
                     <td className={`num ${bad('BP')}`}>{set.bpSys}/{set.bpDia}</td>
                     <td className={`num ${bad('RR')}`}>{set.rr}</td>
@@ -87,6 +91,9 @@ export function ObservationsPanel({ patient }: { patient: Patient }) {
       {can('vitals') && patient.status !== 'discharged' && (
         <section className="drawer-section">
           <div className="section-label"><Plus size={15} />Record observations</div>
+          <div className="segmented small obs-context" role="radiogroup" aria-label="Where these observations were taken">
+            {OBSERVATION_CONTEXTS.map((item) => <button key={item} type="button" role="radio" aria-checked={context === item} className={context === item ? 'on' : ''} onClick={() => setContext(item)}>{item}</button>)}
+          </div>
           <div className="form-grid obs-form">
             {([['hr', 'Heart rate', '/min'], ['rr', 'Resp. rate', '/min'], ['spo2', 'SpO₂', '%'], ['bpSys', 'Systolic BP', 'mmHg'], ['bpDia', 'Diastolic BP', 'mmHg'], ['temp', 'Temperature', '°C'], ['gcs', 'GCS', '/15'], ['pain', 'Pain', '/10']] as Array<[keyof Vitals, string, string]>).map(([key, label, unit]) => (
               <label key={key} className="form-field"><span>{label} <small className="muted-text">{unit}</small></span><input type="number" step={key === 'temp' ? 0.1 : 1} value={form[key]} onChange={(event) => { setForm({ ...form, [key]: event.target.value }); setError('') }} /></label>

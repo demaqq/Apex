@@ -38,7 +38,7 @@ function eventStyle(event: TimelineEvent): { icon: LucideIcon; label: string; to
   if (title.startsWith('examination')) return { icon: Stethoscope, label: 'Examination', tone: 'exam' }
   if (title.startsWith('plan')) return { icon: ClipboardList, label: 'Plan', tone: 'plan' }
   if (title.startsWith('prescription')) return { icon: Pill, label: 'Medication', tone: 'order' }
-  if (title.startsWith('observations')) return { icon: HeartPulse, label: 'Vitals', tone: 'vitals' }
+  if (title.includes('observations')) return { icon: HeartPulse, label: 'Vitals', tone: 'vitals' }
   if (title.startsWith('escalated')) return { icon: AlertTriangle, label: 'Escalation', tone: 'alert' }
   switch (event.type) {
     case 'arrival': return { icon: UserRound, label: 'Arrival', tone: 'system' }

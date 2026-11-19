@@ -7,6 +7,7 @@ import type {
   CosignNote,
   Handover,
   ObservationSet,
+  RoundNote,
   Page,
   TheatreCase,
   Ward,
@@ -265,6 +266,14 @@ const referralSeed = (): Referral[] => [
 ]
 
 const orderSeed = (): ClinicalOrder[] => [
+  { id: 'OR-7990', patientId: 'p1010', title: 'Arterial blood gas', kind: 'Laboratory', department: 'laboratory', priority: 'emergent', status: 'completed', createdAt: ago(3 * 1440 + 230), createdBy: 'Dr. Maya Chen', result: 'pH 7.33, pCO₂ 7.1 kPa, pO₂ 7.4 kPa on air, HCO₃ 29. Compensated type 2 respiratory failure.' },
+  { id: 'OR-7991', patientId: 'p1010', title: 'Chest X-ray', kind: 'Imaging', department: 'radiology', priority: 'urgent', status: 'completed', createdAt: ago(3 * 1440 + 220), createdBy: 'Dr. Maya Chen', result: 'Hyperinflated lungs. No consolidation, effusion or pneumothorax.' },
+  { id: 'OR-7992', patientId: 'p1010', title: 'Full blood count and CRP', kind: 'Laboratory', department: 'laboratory', priority: 'routine', status: 'completed', createdAt: ago(1440 + 180), createdBy: 'Dr. Peter Hall', result: 'WCC 11.2, Hb 142, CRP 38 (down from 96).' },
+  { id: 'OR-7993', patientId: 'p1010', title: 'Chest physiotherapy', kind: 'Physiotherapy', department: 'ward', priority: 'routine', status: 'completed', stage: 3, createdAt: ago(2 * 1440), createdBy: 'Dr. Peter Hall', result: 'Airway clearance and breathing control taught; mobilising 40 m with frame.' },
+  { id: 'OR-7994', patientId: 'p1014', title: 'Chest X-ray', kind: 'Imaging', department: 'radiology', priority: 'urgent', status: 'completed', createdAt: ago(1440 + 470), createdBy: 'Dr. Maya Chen', result: 'Right lower lobe consolidation. No effusion.' },
+  { id: 'OR-7995', patientId: 'p1014', title: 'Blood cultures ×2', kind: 'Laboratory', department: 'laboratory', priority: 'urgent', status: 'completed', createdAt: ago(1440 + 460), createdBy: 'Dr. Maya Chen', result: 'No growth at 24 hours.' },
+  { id: 'OR-7996', patientId: 'p1014', title: 'Peripheral cannula insertion', kind: 'Procedure', department: 'internal-medicine', priority: 'routine', status: 'completed', stage: 2, createdAt: ago(1440 + 400), createdBy: 'Dr. Leo Park', result: '20G left forearm, first attempt.' },
+  { id: 'OR-7997', patientId: 'p1008', title: 'Coronary angiography and PCI to LAD', kind: 'Procedure', department: 'cardiology', priority: 'emergent', status: 'completed', stage: 2, createdAt: ago(1520), createdBy: 'Dr. Amir Rahman', result: '90% proximal LAD stenosis; one drug-eluting stent, TIMI 3 flow. Right radial access.' },
   { id: 'OR-8101', patientId: 'p1001', title: 'High-sensitivity troponin I', kind: 'Laboratory', department: 'laboratory', priority: 'emergent', status: 'in-progress', createdAt: ago(27), createdBy: 'Dr. Maya Chen' },
   { id: 'OR-8102', patientId: 'p1001', title: 'Portable chest X-ray', kind: 'Imaging', department: 'radiology', priority: 'urgent', status: 'ordered', createdAt: ago(22), createdBy: 'Dr. Maya Chen' },
   { id: 'OR-8103', patientId: 'p1003', title: 'CT angiography head and neck', kind: 'Imaging', department: 'radiology', priority: 'emergent', status: 'in-progress', createdAt: ago(21), createdBy: 'Dr. Tomas Reid' },
@@ -308,6 +317,10 @@ const prescriptionSeed = (): Prescription[] => [
   { id: 'RX-3102', patientId: 'p1002', prescriber: 'Dr. Maya Chen', department: 'emergency', createdAt: ago(70), priority: 'Urgent', status: 'Dispensed', diagnosis: 'Open distal forearm fracture', dispensedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-4', dosage: '1 g', frequency: 'Once daily', duration: '3 days', quantity: 3 }] },
   { id: 'RX-3103', patientId: 'p1013', prescriber: 'Dr. Hannah Reid', department: 'obgyn', createdAt: ago(18), priority: 'Urgent', status: 'Verified', diagnosis: 'Postpartum hypertension', verifiedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-11', dosage: '200 mg', frequency: 'Twice daily', duration: '7 days', quantity: 14 }] },
   { id: 'RX-3104', patientId: 'p1006', prescriber: 'Dr. Isaac Green', department: 'pediatrics', createdAt: ago(12), priority: 'Routine', status: 'Pending', diagnosis: 'Acute otitis media', items: [{ medicationId: 'med-12', dosage: '250 mg', frequency: 'Three times daily', duration: '5 days', quantity: 1 }, { medicationId: 'med-1', dosage: '240 mg', frequency: 'Every 6 h as needed', duration: '3 days', quantity: 12 }] },
+  { id: 'RX-3106', patientId: 'p1014', prescriber: 'Dr. Leo Park', department: 'internal-medicine', createdAt: ago(D + 6 * H), priority: 'Urgent', status: 'Dispensed', diagnosis: 'Community-acquired pneumonia', verifiedBy: 'Nina Wallace, PharmD', dispensedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-4', dosage: '1 g IV', frequency: 'Once daily', duration: '5 days', quantity: 5 }], administrations: [{ at: ago(D + 5 * H), by: 'Medical 5N nurse' }, { at: ago(5 * H), by: 'Medical 5N nurse' }] },
+  { id: 'RX-3107', patientId: 'p1014', prescriber: 'Dr. Leo Park', department: 'internal-medicine', createdAt: ago(D + 6 * H), priority: 'Routine', status: 'Dispensed', diagnosis: 'Fever', verifiedBy: 'Nina Wallace, PharmD', dispensedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-1', dosage: '1 g', frequency: 'Every 6 h', duration: '5 days', quantity: 20 }], administrations: [{ at: ago(D + 5 * H), by: 'Medical 5N nurse' }, { at: ago(23 * H), by: 'Medical 5N nurse' }, { at: ago(17 * H), by: 'Medical 5N nurse' }, { at: ago(11 * H), by: 'Medical 5N nurse' }, { at: ago(5 * H), by: 'Medical 5N nurse' }] },
+  { id: 'RX-3108', patientId: 'p1010', prescriber: 'Dr. Peter Hall', department: 'ward', createdAt: ago(3 * D), priority: 'Urgent', status: 'Dispensed', diagnosis: 'COPD exacerbation', verifiedBy: 'Nina Wallace, PharmD', dispensedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-7', dosage: '5 mg nebulised', frequency: 'Every 4 h', duration: '3 days', quantity: 18 }], administrations: [3 * D - 60, 3 * D - 300, 2 * D + 18 * H, 2 * D + 14 * H, 2 * D + 10 * H, 2 * D + 6 * H, D + 20 * H, D + 14 * H, D + 8 * H, D + 2 * H, 20 * H, 12 * H].map((minutes) => ({ at: ago(minutes), by: 'Ward 5S nurse' })) },
+  { id: 'RX-3109', patientId: 'p1008', prescriber: 'Dr. Amir Rahman', department: 'cardiology', createdAt: ago(1500), priority: 'Urgent', status: 'Dispensed', diagnosis: 'NSTEMI after PCI', verifiedBy: 'Nina Wallace, PharmD', dispensedBy: 'Nina Wallace, PharmD', items: [{ medicationId: 'med-14', dosage: '81 mg', frequency: 'Once daily', duration: '12 months', quantity: 30 }, { medicationId: 'med-15', dosage: '75 mg', frequency: 'Once daily', duration: '12 months', quantity: 30 }], administrations: [{ at: ago(1440), by: 'CCU nurse' }, { at: ago(60), by: 'CCU nurse' }] },
   { id: 'RX-3105', patientId: 'p1010', prescriber: 'Dr. Peter Hall', department: 'ward', createdAt: ago(55), priority: 'Routine', status: 'Pending', diagnosis: 'COPD exacerbation — discharge', items: [{ medicationId: 'med-7', dosage: '2 puffs', frequency: 'As needed', duration: '30 days', quantity: 2 }] },
 ]
 
@@ -400,12 +413,68 @@ const bedSeed = (wards: Ward[]): Bed[] => {
 
 const obs = (minutes: number, by: string, changes: Partial<Vitals>, onOxygen = false, consciousness: ObservationSet['consciousness'] = 'Alert'): ObservationSet => ({ ...baseVitals, ...changes, at: ago(minutes), by, onOxygen, consciousness })
 
+const H = 60
+const D = 1440
+/** Observation series: [minutes ago, context, changes, on oxygen?], newest first after sorting. */
+const series = (by: Record<string, string>, points: Array<[number, ObservationSet['context'], Partial<Vitals>, boolean?]>) =>
+  points.map(([minutes, context, changes, oxygen]) => ({ ...obs(minutes, by[context ?? 'Bedside'] ?? by.Bedside, changes, oxygen ?? false), context })).sort((a, b) => b.at.localeCompare(a.at))
+
 const observationSeed: Record<string, ObservationSet[]> = {
-  p1001: [obs(20, 'Sarah Okafor, RN', { hr: 108, rr: 22, spo2: 95, bpSys: 158, bpDia: 94, temp: 36.8, pain: 7 }), obs(46, 'Sarah Okafor, RN', { hr: 112, rr: 24, spo2: 94, bpSys: 162, bpDia: 96, temp: 36.9, pain: 8 })],
-  p1004: [obs(10, 'Sarah Okafor, RN', { hr: 124, rr: 28, spo2: 92, bpSys: 132, bpDia: 82, temp: 37.1, pain: 4 }, true), obs(39, 'Sarah Okafor, RN', { hr: 118, rr: 26, spo2: 91, bpSys: 128, bpDia: 80, temp: 37.0, pain: 4 })],
-  p1007: [obs(30, 'ICU outreach', { hr: 118, rr: 22, spo2: 96, bpSys: 102, bpDia: 62, temp: 38.6, pain: 3 }, true), obs(150, 'ICU outreach', { hr: 124, rr: 24, spo2: 95, bpSys: 96, bpDia: 58, temp: 38.9, pain: 3 }, true)],
-  p1010: [obs(240, 'Ward 5S nurse', { hr: 92, rr: 20, spo2: 93, bpSys: 138, bpDia: 80, temp: 36.9, pain: 2 }), obs(720, 'Ward 5S nurse', { hr: 98, rr: 22, spo2: 91, bpSys: 142, bpDia: 84, temp: 37.2, pain: 2 }, true)],
-  p1014: [obs(60, 'Medical 5N nurse', { hr: 104, rr: 23, spo2: 93, bpSys: 118, bpDia: 70, temp: 38.2, pain: 3 }, true), obs(300, 'Medical 5N nurse', { hr: 110, rr: 25, spo2: 91, bpSys: 112, bpDia: 68, temp: 38.7, pain: 3 }, true)],
+  p1001: series({ Triage: 'Sarah Okafor, RN', Bedside: 'Sarah Okafor, RN' }, [[46, 'Triage', { hr: 112, rr: 24, spo2: 94, bpSys: 162, bpDia: 96, temp: 36.9, pain: 8 }], [20, 'Bedside', { hr: 108, rr: 22, spo2: 95, bpSys: 158, bpDia: 94, temp: 36.8, pain: 7 }]]),
+  p1004: series({ Triage: 'Sarah Okafor, RN', Bedside: 'Sarah Okafor, RN' }, [[39, 'Triage', { hr: 118, rr: 26, spo2: 91, bpSys: 128, bpDia: 80, temp: 37.0, pain: 4 }], [10, 'Bedside', { hr: 124, rr: 28, spo2: 92, bpSys: 132, bpDia: 82, temp: 37.1, pain: 4 }, true]]),
+  p1007: series({ Triage: 'Sarah Okafor, RN', Bedside: 'ICU outreach', 'Ward round': 'Dr. Ana Costa' }, [
+    [8 * H + 30, 'Triage', { hr: 128, rr: 26, spo2: 94, bpSys: 92, bpDia: 54, temp: 39.2, pain: 4 }],
+    [6 * H, 'Bedside', { hr: 126, rr: 24, spo2: 95, bpSys: 94, bpDia: 56, temp: 39.0, pain: 3 }, true],
+    [150, 'Ward round', { hr: 124, rr: 24, spo2: 95, bpSys: 96, bpDia: 58, temp: 38.9, pain: 3 }, true],
+    [30, 'Bedside', { hr: 118, rr: 22, spo2: 96, bpSys: 102, bpDia: 62, temp: 38.6, pain: 3 }, true],
+  ]),
+  p1008: series({ Triage: 'Sarah Okafor, RN', Bedside: 'CCU nurse', 'Ward round': 'Dr. Amir Rahman' }, [
+    [1560, 'Triage', { hr: 98, rr: 20, spo2: 96, bpSys: 148, bpDia: 90, temp: 36.8, pain: 7 }],
+    [1200, 'Bedside', { hr: 84, rr: 18, spo2: 97, bpSys: 136, bpDia: 80, temp: 36.9, pain: 2 }],
+    [780, 'Bedside', { hr: 78, rr: 16, spo2: 97, bpSys: 130, bpDia: 76, temp: 36.7, pain: 1 }],
+    [300, 'Ward round', { hr: 74, rr: 16, spo2: 97, bpSys: 128, bpDia: 74, temp: 36.6, pain: 0 }],
+    [90, 'Bedside', { hr: 72, rr: 16, spo2: 97, bpSys: 128, bpDia: 72, temp: 36.7, pain: 0 }],
+  ]),
+  p1010: series({ Triage: 'Sarah Okafor, RN', Bedside: 'Ward 5S nurse', 'Ward round': 'Dr. Peter Hall' }, [
+    [3 * D + 4 * H, 'Triage', { hr: 112, rr: 28, spo2: 86, bpSys: 150, bpDia: 88, temp: 37.8, pain: 3 }],
+    [3 * D, 'Bedside', { hr: 108, rr: 26, spo2: 88, bpSys: 146, bpDia: 86, temp: 37.6, pain: 3 }, true],
+    [2 * D + 16 * H, 'Bedside', { hr: 104, rr: 25, spo2: 89, bpSys: 144, bpDia: 84, temp: 37.5, pain: 2 }, true],
+    [2 * D + 2 * H, 'Ward round', { hr: 102, rr: 24, spo2: 90, bpSys: 142, bpDia: 84, temp: 37.4, pain: 2 }, true],
+    [D + 18 * H, 'Bedside', { hr: 100, rr: 23, spo2: 90, bpSys: 140, bpDia: 82, temp: 37.3, pain: 2 }, true],
+    [D + 2 * H, 'Ward round', { hr: 98, rr: 22, spo2: 91, bpSys: 142, bpDia: 84, temp: 37.2, pain: 2 }, true],
+    [12 * H, 'Bedside', { hr: 96, rr: 21, spo2: 92, bpSys: 140, bpDia: 82, temp: 37.0, pain: 2 }],
+    [4 * H, 'Ward round', { hr: 92, rr: 20, spo2: 93, bpSys: 138, bpDia: 80, temp: 36.9, pain: 2 }],
+  ]),
+  p1013: series({ Triage: 'Alicia Moore, RM', Bedside: 'Alicia Moore, RM', 'Ward round': 'Dr. Hannah Reid' }, [
+    [190, 'Triage', { hr: 98, rr: 18, spo2: 98, bpSys: 168, bpDia: 106, temp: 36.9, pain: 6 }],
+    [130, 'Bedside', { hr: 96, rr: 18, spo2: 98, bpSys: 166, bpDia: 104, temp: 36.9, pain: 5 }],
+    [42, 'Ward round', { hr: 96, rr: 18, spo2: 98, bpSys: 164, bpDia: 102, temp: 36.9, pain: 5 }],
+  ]),
+  p1014: series({ Triage: 'Sarah Okafor, RN', Bedside: 'Medical 5N nurse', 'Ward round': 'Dr. Leo Park' }, [
+    [D + 8 * H, 'Triage', { hr: 106, rr: 24, spo2: 92, bpSys: 124, bpDia: 74, temp: 38.4, pain: 3 }],
+    [D + 2 * H, 'Bedside', { hr: 102, rr: 22, spo2: 94, bpSys: 122, bpDia: 72, temp: 37.9, pain: 3 }, true],
+    [20 * H, 'Bedside', { hr: 98, rr: 21, spo2: 95, bpSys: 124, bpDia: 74, temp: 37.6, pain: 2 }, true],
+    [5 * H, 'Bedside', { hr: 110, rr: 25, spo2: 91, bpSys: 112, bpDia: 68, temp: 38.7, pain: 3 }, true],
+    [3 * H, 'Ward round', { hr: 108, rr: 24, spo2: 92, bpSys: 114, bpDia: 70, temp: 38.5, pain: 3 }, true],
+    [60, 'Bedside', { hr: 104, rr: 23, spo2: 93, bpSys: 118, bpDia: 70, temp: 38.2, pain: 3 }, true],
+  ]),
+}
+
+const round = (minutes: number, by: string, status: RoundNote['status'], subjective: string, examination: string, assessment: string, plan: string): RoundNote => ({ id: uid('RN'), at: ago(minutes), by, status, subjective, examination, assessment, plan })
+
+const roundSeed: Record<string, RoundNote[]> = {
+  p1010: [
+    round(4 * H, 'Dr. Peter Hall', 'Improving', 'Breathing much easier, walked to the bathroom unaided.', 'Scattered wheeze only, no accessory muscle use. SpO₂ 93% on air.', 'COPD exacerbation, day 3, responding to treatment.', 'Stop oxygen. Inhaler technique review, home oxygen assessment, plan discharge tomorrow.'),
+    round(D + 2 * H, 'Dr. Peter Hall', 'Improving', 'Less breathless, sputum clearer.', 'Bilateral wheeze, reduced. SpO₂ 91% on 1 L.', 'Improving exacerbation on prednisolone and nebulisers.', 'Wean nebulisers to inhalers. Continue antibiotics day 3 of 5.'),
+    round(2 * D + 2 * H, 'Dr. Peter Hall', 'Stable', 'Tired, breathless on minimal exertion.', 'Widespread wheeze, prolonged expiration. SpO₂ 90% on 2 L.', 'Infective COPD exacerbation, day 1 on the ward.', 'Target SpO₂ 88–92%. Nebulisers 4-hourly, oral steroids, amoxicillin. Repeat gas if drowsy.'),
+  ],
+  p1014: [
+    round(3 * H, 'Dr. Leo Park', 'Deteriorating', 'Rigors overnight, more breathless.', 'Coarse crackles right base, new bronchial breathing. SpO₂ 92% on 2 L. Glucose 14.2.', 'Pneumonia not settling at 24 h; CURB-65 2.', 'Escalate antibiotics, repeat chest X-ray and bloods, sliding-scale review with diabetes team.'),
+    round(D + 2 * H, 'Dr. Leo Park', 'Stable', 'Productive cough, eating a little.', 'Crackles right base. SpO₂ 94% on 2 L.', 'Community-acquired pneumonia, day 1.', 'IV ceftriaxone, fluids, 4-hourly observations, diabetic diet referral.'),
+  ],
+  p1008: [
+    round(300, 'Dr. Amir Rahman', 'Improving', 'No chest pain overnight.', 'Radial site clean, no haematoma. Heart sounds normal, chest clear.', 'NSTEMI after LAD stent, day 1, uncomplicated.', 'Echo before discharge, continue dual antiplatelets, step down to ward.'),
+  ],
 }
 
 const theatreSeed = (): TheatreCase[] => [
@@ -469,7 +538,8 @@ export function createInitialState(): HospitalState {
   const wards = wardSeed()
   const patients = patientSeed().map((patient) => {
     const observations = observationSeed[patient.id]
-    const withObs = observations ? { ...patient, observations, vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : patient
+    const rounds = roundSeed[patient.id]
+    const withObs = observations ? { ...patient, observations, ...(rounds ? { rounds } : {}), vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : patient
     if (patient.id === 'p1006') return { ...withObs, weightKg: 24.6, growth: [{ at: ago(1051200), ageYears: 6, weightKg: 20.1, heightCm: 115 }, { at: ago(525600), ageYears: 7, weightKg: 22.0, heightCm: 121 }, { at: ago(27), ageYears: 8, weightKg: 24.6, heightCm: 127 }] }
     if (patient.id === 'p1002') return { ...withObs, insurance: 'Aetna' }
     if (patient.id === 'p1017') return { ...withObs, assessments: [{ id: 'SA-1', at: ago(50), by: 'Dr. Hannah Reid', values: { lmp: new Date(Date.now() - 32 * 7 * 86_400_000).toISOString().slice(0, 10), gravida: '1', para: '0', fundal: '31', fhr: '148', presentation: 'Cephalic', contractions: '0' } }] }
