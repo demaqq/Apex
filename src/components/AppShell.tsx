@@ -1,14 +1,16 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sun, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sparkles, Sun, Volume2, VolumeX, X } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { departmentById } from '../data'
 import { stagesFor, orderStage } from '../lib/clinical'
 import { patientCsv, relativeTime } from '../lib/format'
-import { beep, useNow, useSoundPref, useTheme } from '../lib/hooks'
+import { beep, useAmbientPref, useNow, useSoundPref, useTheme } from '../lib/hooks'
 import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor } from '../lib/nav'
 import { useHospital } from '../store/HospitalStore'
 import { SPECIALTY } from '../lib/specialty'
+import { applyDeptTheme, themeFor } from '../lib/deptTheme'
+import { Ambient } from './Ambient'
 import type { DepartmentId } from '../types'
 import PatientDrawer from './PatientDrawer'
 import { Avatar, Brand, Button, Modal } from './ui'
@@ -20,6 +22,9 @@ export default function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const { theme, cycle: cycleTheme } = useTheme()
+  const [ambientOn, setAmbientOn] = useAmbientPref()
+  const deptTheme = useMemo(() => themeFor(currentRole === 'administrator' ? undefined : profile?.department, state.departments.find((item) => item.id === profile?.department)), [currentRole, profile?.department, state.departments])
+  useEffect(() => { applyDeptTheme(deptTheme); return () => applyDeptTheme(null) }, [deptTheme])
   const [sound, setSound] = useSoundPref()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -131,8 +136,10 @@ export default function AppShell() {
     setCodeOpen(false); setCodeLocation('')
   }
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
+  const themeLabel = theme === 'light' ? 'White' : theme === 'dark' ? 'Black' : 'Match device'
 
   return <div className="app-layout">
+    <Ambient kind={deptTheme.ambient} />
     <AnimatePresence>{mobileOpen && <motion.div className="mobile-nav-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileOpen(false)} />}</AnimatePresence>
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="sidebar-brand"><Brand name={facility.name} tagline={`${facility.type} · ${facility.city || facility.tagline}`} /><button className="sidebar-mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={19} /></button></div>
@@ -176,7 +183,8 @@ export default function AppShell() {
           <div className="topbar-tools">
             <button className="code-button" onClick={() => setCodeOpen(true)} title="Call an emergency code (C)"><Megaphone size={15} /><span>Emergency code</span></button>
             <button className="icon-button" aria-pressed={sound} onClick={() => { setSound(!sound); if (!sound) beep(1) }} aria-label={sound ? 'Alert sound on' : 'Alert sound off'} title={sound ? 'Alert sound on' : 'Alert sound off'}>{sound ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
-            <button className="icon-button" onClick={cycleTheme} aria-label={`Theme: ${theme}`} title={`Theme: ${theme} (click to change)`}><ThemeIcon size={18} /></button>
+            <button className="icon-button" aria-pressed={ambientOn} onClick={() => setAmbientOn(!ambientOn)} aria-label={ambientOn ? 'Department animation on' : 'Department animation off'} title={`${deptTheme.name} theme · animation ${ambientOn ? 'on' : 'off'}`}><Sparkles size={18} /></button>
+            <button className="icon-button" onClick={cycleTheme} aria-label={`Theme: ${themeLabel}`} title={`Theme: ${themeLabel} (click to change)`}><ThemeIcon size={18} /></button>
           </div>
           <div className="topbar-popovers" ref={popoverRef}>
             <div className="popover-anchor">

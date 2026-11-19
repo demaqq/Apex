@@ -3,7 +3,7 @@ export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coo
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
   | 'emergency' | 'cardiology' | 'neurology' | 'radiology' | 'laboratory' | 'icu' | 'surgery' | 'ward'
-  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology'
+  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology'
 export type DepartmentId = CoreDepartmentId | (string & {})
 
 export type PatientStatus = 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'

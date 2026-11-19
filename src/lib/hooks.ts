@@ -43,6 +43,17 @@ export function useTheme() {
   return { theme, cycle }
 }
 
+/** Department background animation on/off. */
+export function useAmbientPref() {
+  const [on, setOn] = useState(() => readPref<string>('northstar-ambient', 'on') === 'on')
+  useEffect(() => {
+    writePref('northstar-ambient', on ? 'on' : 'off')
+    if (on) document.documentElement.removeAttribute('data-ambient-off')
+    else document.documentElement.setAttribute('data-ambient-off', '')
+  }, [on])
+  return [on, setOn] as const
+}
+
 /** Alert sound preference for emergency codes and pages. */
 export function useSoundPref() {
   const [on, setOn] = useState(() => readPref<string>('northstar-sound', 'off') === 'on')

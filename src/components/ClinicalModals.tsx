@@ -219,7 +219,7 @@ export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient
 }
 
 const locationNames: Record<DepartmentId, string> = {
-  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03',
+  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05'
 }
 
 export function TransferModal({ patient, open, onClose }: { patient: Patient; open: boolean; onClose: () => void }) {
@@ -227,12 +227,12 @@ export function TransferModal({ patient, open, onClose }: { patient: Patient; op
   const destinations = state.departments.filter((department) => department.id !== patient.department)
   const [to, setTo] = useState<DepartmentId>('ward')
   const [location, setLocation] = useState(locationNames.ward)
-  useEffect(() => { if (open) { const first = patient.department === 'ward' ? 'cardiology' : 'ward'; setTo(first); setLocation(locationNames[first]) } }, [open, patient.department])
+  useEffect(() => { if (open) { const first = patient.department === 'ward' ? 'cardiology' : 'ward'; setTo(first); setLocation(locationNames[first] ?? '') } }, [open, patient.department])
   const destination = destinations.find((department) => department.id === to)
   const full = destination ? destination.occupied >= destination.capacity : true
   return <Modal open={open} onClose={onClose} title="Coordinate patient transfer" subtitle={`${patient.name} · From ${patient.location}`} size="md">
     <div className="form-grid">
-      <label className="form-field"><span>Destination department</span><select value={to} onChange={(event) => { const value = event.target.value as DepartmentId; setTo(value); setLocation(locationNames[value]) }}>{destinations.map((department) => <option key={department.id} value={department.id} disabled={department.occupied >= department.capacity}>{department.name} — {department.capacity - department.occupied} spaces</option>)}</select></label>
+      <label className="form-field"><span>Destination department</span><select value={to} onChange={(event) => { const value = event.target.value as DepartmentId; setTo(value); setLocation(locationNames[value] ?? '') }}>{destinations.map((department) => <option key={department.id} value={department.id} disabled={department.occupied >= department.capacity}>{department.name} — {department.capacity - department.occupied} spaces</option>)}</select></label>
       <label className="form-field"><span>Bed / location</span><input value={location} onChange={(event) => setLocation(event.target.value)} /></label>
     </div>
     {destination && <div className={`capacity-banner ${full ? 'full' : ''}`}><BedDouble size={21} /><div><b>{destination.name}</b><span>{destination.occupied}/{destination.capacity} occupied · {destination.onCall} on call</span></div><strong>{Math.round(destination.occupied / destination.capacity * 100)}%</strong></div>}

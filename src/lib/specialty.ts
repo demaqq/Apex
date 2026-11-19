@@ -213,10 +213,45 @@ const nutrition: SpecialtyConfig = {
   summary: (v) => `${v.weight} kg${v.muac ? `, MUAC ${v.muac} cm` : ''}, oedema ${v.oedema}`,
 }
 
+const oncology: SpecialtyConfig = {
+  title: 'Oncology review',
+  worklist: 'Chemotherapy and oncology patients: fitness for treatment and toxicity',
+  fields: [
+    { key: 'diagnosis', label: 'Primary cancer', type: 'text', required: true },
+    { key: 'stage', label: 'Stage', type: 'select', options: ['I', 'II', 'III', 'IV', 'Not staged'] },
+    { key: 'regimen', label: 'Regimen', type: 'text' },
+    { key: 'cycle', label: 'Cycle number', type: 'number', min: 1, max: 40 },
+    { key: 'ecog', label: 'ECOG performance status', type: 'select', options: ['0', '1', '2', '3', '4'], required: true },
+    { key: 'anc', label: 'Neutrophils (×10⁹/L)', type: 'number', min: 0, max: 50 },
+    { key: 'platelets', label: 'Platelets (×10⁹/L)', type: 'number', min: 0, max: 1500 },
+    { key: 'toxicity', label: 'Worst toxicity (CTCAE)', type: 'select', options: ['None', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4'] },
+  ],
+  calc: (v) => {
+    const chips: Array<[string, Tone]> = []
+    const alerts: string[] = []
+    if (v.stage) chips.push([`Stage ${v.stage}`, v.stage === 'IV' ? 'warning' : 'neutral'])
+    if (v.cycle) chips.push([`Cycle ${v.cycle}`, 'accent'])
+    const ecog = Number(v.ecog)
+    chips.push([`ECOG ${ecog}`, ecog >= 3 ? 'danger' : ecog === 2 ? 'warning' : 'success'])
+    const anc = num(v.anc)
+    const plt = num(v.platelets)
+    if (anc !== undefined) chips.push([`ANC ${anc}`, anc < 1 ? 'danger' : anc < 1.5 ? 'warning' : 'success'])
+    if (plt !== undefined) chips.push([`Plt ${plt}`, plt < 75 ? 'danger' : plt < 100 ? 'warning' : 'success'])
+    if (anc !== undefined && anc < 0.5) alerts.push('Severe neutropenia (below 0.5): high infection risk — treat any fever as neutropenic sepsis.')
+    else if (anc !== undefined && anc < 1) alerts.push('Neutrophils below 1.0: hold chemotherapy and recheck.')
+    if (plt !== undefined && plt < 75) alerts.push('Platelets below 75: hold chemotherapy and recheck.')
+    if (ecog >= 3) alerts.push('ECOG 3 or more: review fitness for systemic treatment and goals of care.')
+    if (v.toxicity === 'Grade 3' || v.toxicity === 'Grade 4') alerts.push(`${v.toxicity} toxicity: delay or dose-reduce per protocol.`)
+    return { chips, alerts }
+  },
+  summary: (v) => `${v.diagnosis}${v.cycle ? `, cycle ${v.cycle}` : ''}, ECOG ${v.ecog}${v.anc ? `, ANC ${v.anc}` : ''}`,
+}
+
 /** Specialty assessment for each department id; administrators can add “ophthalmology” to enable the eye exam. */
 export const SPECIALTY: Record<string, SpecialtyConfig> = {
   obgyn: obstetric,
   pediatrics: nutrition,
+  oncology,
   cardiology: cardiac,
   emergency: critical,
   icu: critical,

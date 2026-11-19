@@ -1,28 +1,27 @@
-/* Design tokens, resets and shared primitives. Loaded before page styles so pages can override. */
+/* Design tokens, resets and shared primitives. Loaded before page styles so pages can override.
+ *
+ * Two modes — Black (dark, the original green) and White (light green glass) — and a department
+ * palette on top. The department sets five inputs on <html> (see lib/deptTheme.ts):
+ *   --a-d / --a-d2 / --a-dt / --a-don  accent for dark surfaces (bright, strong, text, text-on-accent)
+ *   --a-l / --a-l2                     accent for light surfaces (mid, strong)
+ *   --a-tint                           hue that tints canvas, panels and lines
+ *   --a-2                              secondary hue for the ambient background
+ */
 :root {
+  --a-d: #2dd4bf;
+  --a-d2: #14b8a6;
+  --a-dt: #5eead4;
+  --a-don: #052e2b;
+  --a-l: #0f766e;
+  --a-l2: #115e59;
+  --a-tint: #0d9488;
+  --a-2: #22c55e;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --canvas: #071a1e;
-  --paper: #0f2a30;
-  --sunken: #0b2126;
-  --chip: #16373e;
-  --navy: #040f12;
-  --ink: #f1f5f9;
-  --text: #cfdcde;
-  --muted: #8aa3a8;
-  --faint: #6b8589;
-  --line: #17363d;
-  --line-soft: #1f4851;
-  --teal: #2dd4bf;
-  --teal-dark: #14b8a6;
-  --teal-soft: #123137;
-  --accent-soft: rgba(45, 212, 191, .13);
-  --accent-text: #5eead4;
-  --on-accent: #052e2b;
   --danger: #f87171;
   --danger-text: #fca5a5;
   --warn-text: #fcd34d;
@@ -31,109 +30,125 @@
   --coral: #f97316;
   --amber: #f59e0b;
   --blue: #3b82f6;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 5px 20px rgba(0, 0, 0, .2);
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .45);
-  --series-1: #0d9488;
   --series-2: #3b82f6;
-  color-scheme: dark;
 }
 
-/* Light theme: follows the device unless the person picked a theme. */
+/* ---------- Black (dark) ---------- */
+:root, .sidebar, .login-page, .always-dark {
+  --canvas: color-mix(in oklab, var(--a-tint) 12%, #050b0d);
+  --paper: color-mix(in oklab, var(--a-tint) 18%, #0a1114);
+  --sunken: color-mix(in oklab, var(--a-tint) 14%, #070d10);
+  --chip: color-mix(in oklab, var(--a-tint) 24%, #0e1a1e);
+  --navy: color-mix(in oklab, var(--a-tint) 8%, #030809);
+  --ink: #f1f5f9;
+  --text: color-mix(in oklab, var(--a-tint) 6%, #d0d9db);
+  --muted: color-mix(in oklab, var(--a-tint) 14%, #8c9ea2);
+  --faint: color-mix(in oklab, var(--a-tint) 14%, #6a7f83);
+  --line: color-mix(in oklab, var(--a-tint) 24%, #0e1a1d);
+  --line-soft: color-mix(in oklab, var(--a-tint) 30%, #13232a);
+  --teal: var(--a-d);
+  --teal-dark: var(--a-d2);
+  --teal-soft: color-mix(in oklab, var(--a-d) 16%, #0a1114);
+  --accent-soft: color-mix(in srgb, var(--a-d) 14%, transparent);
+  --accent-text: var(--a-dt);
+  --on-accent: var(--a-don);
+  --series-1: var(--a-l);
+  --glass-blur: none;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 5px 20px rgba(0, 0, 0, .2);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .45);
+  color-scheme: dark;
+}
+/* The sidebar and sign-in screen stay dark in both modes, as in Selam. */
+.sidebar, .login-page, .always-dark {
+  color: var(--text);
+  --danger: #f87171;
+  --danger-text: #fca5a5;
+  --warn-text: #fcd34d;
+  --ok-text: #86efac;
+  --info-text: #93c5fd;
+  --paper: color-mix(in oklab, var(--a-tint) 14%, #070d10);
+  --canvas: color-mix(in oklab, var(--a-tint) 8%, #030809);
+}
+
+/* ---------- White (light green glass) ---------- */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-  --canvas: #f2f6f6;
-    --paper: #ffffff;
-    --sunken: #f5f9f9;
-    --chip: #e8f1f1;
+    --canvas: color-mix(in oklab, var(--a-tint) 9%, #f5faf7);
+    --paper: rgba(255, 255, 255, .72);
+    --sunken: color-mix(in srgb, color-mix(in oklab, var(--a-tint) 7%, #ffffff) 62%, transparent);
+    --chip: color-mix(in oklab, var(--a-tint) 12%, #ffffff);
     --navy: #071a1e;
     --ink: #0f1f24;
     --text: #334155;
-    --muted: #5b6b77;
-    --faint: #7c8a94;
-    --line: #e2e8f0;
-    --line-soft: #d3dee2;
-    --teal: #0d9488;
-    --teal-dark: #0f766e;
-    --teal-soft: #e6f7f5;
-    --accent-soft: rgba(13, 148, 136, .1);
-    --accent-text: #0f766e;
+    --muted: #55656f;
+    --faint: #75848d;
+    --line: color-mix(in srgb, var(--a-l2) 15%, transparent);
+    --line-soft: color-mix(in srgb, var(--a-l2) 22%, transparent);
+    --teal: var(--a-l);
+    --teal-dark: var(--a-l2);
+    --teal-soft: color-mix(in oklab, var(--a-l) 12%, #ffffff);
+    --accent-soft: color-mix(in srgb, var(--a-l) 11%, transparent);
+    --accent-text: var(--a-l2);
     --on-accent: #ffffff;
     --danger: #dc2626;
     --danger-text: #b91c1c;
     --warn-text: #b45309;
     --ok-text: #15803d;
     --info-text: #1d4ed8;
-    --shadow: 0 1px 2px rgba(15, 31, 36, .06), 0 4px 14px rgba(15, 31, 36, .06);
-    --shadow-lg: 0 18px 50px rgba(15, 31, 36, .18);
     --series-2: #2563eb;
+    --glass-blur: blur(18px) saturate(160%);
+    --shadow: 0 1px 2px rgba(15, 31, 36, .05), 0 8px 24px color-mix(in srgb, var(--a-l2) 9%, transparent);
+    --shadow-lg: 0 18px 50px color-mix(in srgb, var(--a-l2) 20%, rgba(15, 31, 36, .1));
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --series-2: #2563eb;
-  --canvas: #f2f6f6;
-  --paper: #ffffff;
-  --sunken: #f5f9f9;
-  --chip: #e8f1f1;
+  --canvas: color-mix(in oklab, var(--a-tint) 9%, #f5faf7);
+  --paper: rgba(255, 255, 255, .72);
+  --sunken: color-mix(in srgb, color-mix(in oklab, var(--a-tint) 7%, #ffffff) 62%, transparent);
+  --chip: color-mix(in oklab, var(--a-tint) 12%, #ffffff);
   --navy: #071a1e;
   --ink: #0f1f24;
   --text: #334155;
-  --muted: #5b6b77;
-  --faint: #7c8a94;
-  --line: #e2e8f0;
-  --line-soft: #d3dee2;
-  --teal: #0d9488;
-  --teal-dark: #0f766e;
-  --teal-soft: #e6f7f5;
-  --accent-soft: rgba(13, 148, 136, .1);
-  --accent-text: #0f766e;
+  --muted: #55656f;
+  --faint: #75848d;
+  --line: color-mix(in srgb, var(--a-l2) 15%, transparent);
+  --line-soft: color-mix(in srgb, var(--a-l2) 22%, transparent);
+  --teal: var(--a-l);
+  --teal-dark: var(--a-l2);
+  --teal-soft: color-mix(in oklab, var(--a-l) 12%, #ffffff);
+  --accent-soft: color-mix(in srgb, var(--a-l) 11%, transparent);
+  --accent-text: var(--a-l2);
   --on-accent: #ffffff;
   --danger: #dc2626;
   --danger-text: #b91c1c;
   --warn-text: #b45309;
   --ok-text: #15803d;
   --info-text: #1d4ed8;
-  --shadow: 0 1px 2px rgba(15, 31, 36, .06), 0 4px 14px rgba(15, 31, 36, .06);
-  --shadow-lg: 0 18px 50px rgba(15, 31, 36, .18);
+  --series-2: #2563eb;
+  --glass-blur: blur(18px) saturate(160%);
+  --shadow: 0 1px 2px rgba(15, 31, 36, .05), 0 8px 24px color-mix(in srgb, var(--a-l2) 9%, transparent);
+  --shadow-lg: 0 18px 50px color-mix(in srgb, var(--a-l2) 20%, rgba(15, 31, 36, .1));
   color-scheme: light;
 }
 
-/* The sidebar and sign-in screen stay dark in both themes, as in Selam. */
-.sidebar, .login-page, .always-dark {
-  --canvas: #071a1e;
-  --paper: #0f2a30;
-  --sunken: #0b2126;
-  --chip: #16373e;
-  --navy: #040f12;
-  --ink: #f1f5f9;
-  --text: #cfdcde;
-  --muted: #8aa3a8;
-  --faint: #6b8589;
-  --line: #17363d;
-  --line-soft: #1f4851;
-  --teal: #2dd4bf;
-  --teal-dark: #14b8a6;
-  --teal-soft: #123137;
-  --accent-soft: rgba(45, 212, 191, .13);
-  --accent-text: #5eead4;
-  --on-accent: #052e2b;
-  --danger: #f87171;
-  --danger-text: #fca5a5;
-  --warn-text: #fcd34d;
-  --ok-text: #86efac;
-  --info-text: #93c5fd;
-  --coral: #f97316;
-  --amber: #f59e0b;
-  --blue: #3b82f6;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 5px 20px rgba(0, 0, 0, .2);
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .45);
-  color-scheme: dark;
-  --paper: #0b2126;
-  --canvas: #040f12;
+/* White mode: tinted gradient canvas and frosted-glass surfaces. */
+:root[data-theme="light"] body { background: radial-gradient(1200px 700px at 85% -10%, color-mix(in srgb, var(--a-l) 16%, transparent), transparent 60%), radial-gradient(900px 600px at -10% 110%, color-mix(in srgb, var(--a-2) 14%, transparent), transparent 60%), var(--canvas); background-attachment: fixed; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) body { background: radial-gradient(1200px 700px at 85% -10%, color-mix(in srgb, var(--a-l) 16%, transparent), transparent 60%), radial-gradient(900px 600px at -10% 110%, color-mix(in srgb, var(--a-2) 14%, transparent), transparent 60%), var(--canvas); background-attachment: fixed; }
+}
+.panel, .metric, .modal, .patient-drawer, .work-card, .code-card, .queue-patient, .consult-card, .department-card, .trend-card, .chat-composer, .popover, .board-card, .chart-stat, .news-card, .round-list li, .bed-tile, .network-summary-strip, .records-filters > label, .inline-search, .global-search {
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+:root[data-theme="light"] :is(.panel, .metric, .modal, .patient-drawer, .work-card, .board-card, .popover) { border-color: rgba(255, 255, 255, .75); box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .8); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) :is(.panel, .metric, .modal, .patient-drawer, .work-card, .board-card, .popover) { border-color: rgba(255, 255, 255, .75); box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .8); }
 }
 
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--canvas); scroll-behavior: smooth; }
+body { background: var(--canvas); transition: background-color .4s ease; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
@@ -160,7 +175,7 @@ h1, h2, h3, .brand-copy strong { font-family: 'Space Grotesk', 'Inter', sans-ser
 ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #14b8a6; box-shadow: 0 0 0 3px var(--accent-soft); flex-shrink: 0; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--teal-dark); box-shadow: 0 0 0 3px var(--accent-soft); flex-shrink: 0; }
 .muted-icon { color: var(--faint); }
 .danger-text, .abnormal-text { color: var(--danger) !important; }
 .success-text { color: var(--teal) !important; }
@@ -210,14 +225,14 @@ h1, h2, h3, .brand-copy strong { font-family: 'Space Grotesk', 'Inter', sans-ser
 /* Status Badge */
 .status-badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 4px 7px; border-radius: 5px; background: var(--accent-soft); color: var(--teal); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-badge > span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .8; }
-.status-in-treatment, .status-in-progress, .status-accepted { color: #14b8a6; background: var(--accent-soft); }
+.status-in-treatment, .status-in-progress, .status-accepted { color: var(--teal-dark); background: var(--accent-soft); }
 .status-waiting, .status-pending, .status-ordered, .status-observation { color: #f59e0b; background: rgba(245, 158, 11, .15); }
 .status-admitted, .status-completed { color: #3b82f6; background: rgba(59, 130, 246, .15); }
 .status-discharged { color: var(--faint); background: rgba(100, 116, 139, .15); }
 .status-declined, .status-critical-capacity { color: #ef4444; background: rgba(239, 68, 68, .15); }
 .status-awaiting-triage { color: #f97316; background: rgba(249, 115, 22, .15); }
 .status-limited, .status-high-occupancy { color: #f97316; background: rgba(249, 115, 22, .15); }
-.status-available, .status-accepting-patients { color: #14b8a6; background: var(--accent-soft); }
+.status-available, .status-accepting-patients { color: var(--teal-dark); background: var(--accent-soft); }
 
 /* Page Header */
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 25px; margin-bottom: 24px; }
