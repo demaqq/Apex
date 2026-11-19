@@ -75,6 +75,8 @@ export interface TimelineEvent {
   detail: string
   author: string
   department: DepartmentId
+  /** Links order and result events to their order so the thread can show live progress. */
+  orderId?: string
 }
 
 export interface Patient {

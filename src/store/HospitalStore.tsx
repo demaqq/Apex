@@ -55,7 +55,7 @@ interface HospitalContextValue {
   addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority) => void
   updateOrder: (id: string, status: OrderStatus, result?: string) => void
   transferPatient: (patientId: string, to: DepartmentId, location: string) => void
-  addNote: (patientId: string, note: string) => void
+  addNote: (patientId: string, note: string, title?: string) => void
   dischargePatient: (patientId: string) => void
   createPrescription: (input: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'prescriber'>) => void
   setPrescriptionStatus: (id: string, status: RxStatus) => void
@@ -335,7 +335,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor }, ...previous.orders],
-          patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order sent to ${unitName(department)}. Priority: ${priority}.`, author: actor, department }),
+          patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order sent to ${unitName(department)}. Priority: ${priority}.`, author: actor, department, orderId: id }),
         },
         actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
       }
@@ -375,7 +375,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           orders: previous.orders.map((item) => item.id === orderId ? { ...item, status, stage: done ? ORDER_STAGES[item.kind].length - 1 : Math.max(1, orderStage(item)), result: result ?? item.result } : item),
-          patients: withTimeline(previous.patients, patient.id, { type: done ? 'result' : 'order', title: done ? `${order.title} resulted` : `${order.title} started`, detail: result || `Study is now in progress with ${actor}.`, author: actor, department: order.department }),
+          patients: withTimeline(previous.patients, patient.id, { type: done ? 'result' : 'order', title: done ? `${order.title} resulted` : `${order.title} started`, detail: result || `Study is now in progress with ${actor}.`, author: actor, department: order.department, orderId: order.id }),
         },
         actor, action: `${done ? 'reported' : 'started'} ${order.title} for ${patient.name}`, department: order.department, patientId: patient.id,
       }
@@ -419,7 +419,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(`Transfer to ${unitName(to)} confirmed`)
   }, [actorName, commit, notify])
 
-  const addNote = useCallback((patientId: string, note: string) => {
+  const addNote = useCallback((patientId: string, note: string, title?: string) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -428,10 +428,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return {
         next: {
           ...previous,
-          patients: withTimeline(previous.patients, patientId, { type: 'note', title: needsCosign ? 'Clinical note (awaiting co-signature)' : 'Clinical note added', detail: note.trim(), author: actor, department: patient.department }),
-          cosignNotes: needsCosign ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: note.trim(), status: 'Pending review' }, ...previous.cosignNotes] : previous.cosignNotes,
+          patients: withTimeline(previous.patients, patientId, { type: 'note', title: needsCosign ? `${title ?? 'Clinical note'} (awaiting co-signature)` : title ?? 'Clinical note added', detail: note.trim(), author: actor, department: patient.department }),
+          cosignNotes: needsCosign ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: title ? `${title}: ${note.trim()}` : note.trim(), status: 'Pending review' }, ...previous.cosignNotes] : previous.cosignNotes,
         },
-        actor, action: `added a clinical note for ${patient.name}`, department: patient.department, patientId,
+        actor, action: `added ${title ? title.toLowerCase() : 'a clinical note'} for ${patient.name}`, department: patient.department, patientId,
       }
     })
     notify(currentRole === 'intern' ? 'Note saved and sent for co-signature' : 'Note saved to the shared episode')
@@ -610,7 +610,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           orders: previous.orders.map((item) => item.id === orderId ? { ...item, stage: next, status, specimen, result: result ?? item.result } : item),
-          patients: withTimeline(previous.patients, patient.id, { type: status === 'completed' ? 'result' : 'order', title: `${order.title}: ${stages[next].toLowerCase()}`, detail: result || `${order.kind} order moved to “${stages[next]}” by ${actor}.`, author: actor, department: order.department }),
+          patients: withTimeline(previous.patients, patient.id, { type: status === 'completed' || result ? 'result' : 'order', title: `${order.title}: ${stages[next].toLowerCase()}`, detail: result || `${order.kind} order moved to “${stages[next]}” by ${actor}.`, author: actor, department: order.department, orderId: order.id }),
         },
         actor, action: `marked ${order.title} ${stages[next].toLowerCase()} for ${patient.name}`, department: order.department, patientId: patient.id,
       }

@@ -4,17 +4,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, RetriageModal, TransferModal } from './ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
 import { AlertsBox, DischargePanel, EvaluationPanel, GrowthPanel, ObservationsPanel } from './RecordPanels'
+import ClinicalChat from './ClinicalChat'
 import { ORDER_STAGES, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
 import type { ClinicalOrder, Referral } from '../types'
 
-type Tab = 'overview' | 'observations' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
+type Tab = 'conversation' | 'overview' | 'observations' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
 
 export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
   const patient = state.patients.find((item) => item.id === selectedPatientId)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>('conversation')
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState('')
   const [retriageOpen, setRetriageOpen] = useState(false)
@@ -26,7 +27,7 @@ export default function PatientDrawer() {
   const [completeReferral, setCompleteReferral] = useState<Referral | null>(null)
 
   useEffect(() => {
-    if (selectedPatientId) { setTab('overview'); setNoteOpen(false); setNote('') }
+    if (selectedPatientId) { setTab('conversation'); setNoteOpen(false); setNote('') }
   }, [selectedPatientId])
 
   useEffect(() => {
@@ -47,7 +48,7 @@ export default function PatientDrawer() {
   const completedReferrals = patientReferrals.filter((referral) => referral.status === 'completed').length
 
   const tabs: Tab[] = patient ? [
-    'overview', 'observations', 'orders', 'referrals',
+    'conversation', 'overview', 'observations', 'orders', 'referrals',
     ...((can('prescribe') || can('refer') || (patient.evaluations?.length ?? 0) > 0) ? ['evaluation' as Tab] : []),
     ...(patient.age < 12 ? ['growth' as Tab] : []),
     ...((can('discharge') && ['admitted', 'observation', 'in-treatment'].includes(patient.status)) || patient.discharge ? ['discharge' as Tab] : []),
@@ -63,7 +64,7 @@ export default function PatientDrawer() {
   return <>
     <AnimatePresence>
       {patient && <motion.div className="drawer-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
-        <motion.aside className="patient-drawer" role="dialog" aria-modal="true" aria-label={`${patient.name} clinical record`} initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 32, stiffness: 330 }}>
+        <motion.aside className="patient-drawer" role="dialog" aria-modal="true" aria-label={`${patient.name} clinical record`} initial={{ opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 10 }} transition={{ type: 'spring', damping: 28, stiffness: 340 }}>
           <div className="drawer-topbar"><span><span className="live-dot" />SHARED CLINICAL EPISODE</span><button className="icon-button" onClick={close} aria-label="Close patient record"><X size={20} /></button></div>
           <div className="patient-identity">
             <div className="patient-identity-main"><Avatar name={patient.name} size="xl" /><div><div className="patient-name-row"><h2>{patient.name}</h2><EsiBadge level={patient.esi} compact /><NewsChip patient={patient} /></div><p>{patient.mrn} <span>·</span> {patient.age} years <span>·</span> {patient.sex}</p><div className="patient-location"><MapPin size={14} />{department?.name} <span>/</span> {patient.location}</div></div></div>
@@ -75,14 +76,14 @@ export default function PatientDrawer() {
             {canReferPatient && <Button size="sm" variant="secondary" icon={Network} onClick={() => setReferralOpen(true)}>Refer</Button>}
             {ownsPatient && (profile?.id === 'physician' || profile?.id === 'administrator') && <Button size="sm" variant="secondary" icon={FlaskConical} onClick={() => setOrderOpen(true)}>Order</Button>}
             {can('transfer') && (profile?.id === 'coordinator' || ownsPatient) && <Button size="sm" variant="secondary" icon={BedDouble} onClick={() => setTransferOpen(true)}>Transfer</Button>}
-            {can('notes') && <Button size="sm" variant="ghost" icon={MessageSquareText} onClick={() => setNoteOpen((value) => !value)}>Note</Button>}
+            {can('notes') && <Button size="sm" variant="ghost" icon={MessageSquareText} onClick={() => setTab('conversation')}>Message</Button>}
           </div>}
 
           <div className="drawer-tabs" role="tablist">
             {tabs.map((item) => <button key={item} role="tab" aria-selected={tab === item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item === 'orders' ? `Orders ${patientOrders.length ? `(${patientOrders.length})` : ''}` : item === 'referrals' ? `Referrals ${patientReferrals.length ? `(${patientReferrals.length})` : ''}` : item.charAt(0).toUpperCase() + item.slice(1)}</button>)}
           </div>
 
-          <div className="drawer-content">
+          <div className={`drawer-content ${tab === 'conversation' ? 'is-chat' : ''}`}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div key={tab} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.16 }}>
                 {noteOpen && <div className="note-composer"><label htmlFor="clinical-note">Add to the shared timeline</label><textarea id="clinical-note" autoFocus rows={4} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Assessment, plan, safety-netting or handoff note…" /><div><Button size="sm" variant="ghost" onClick={() => setNoteOpen(false)}>Cancel</Button><Button size="sm" disabled={!note.trim()} onClick={saveNote}>Save note<Send size={14} /></Button></div></div>}
@@ -130,6 +131,7 @@ export default function PatientDrawer() {
                   })}</div>}
                 </section>}
 
+                {tab === 'conversation' && <ClinicalChat patient={patient} />}
                 {tab === 'observations' && <ObservationsPanel patient={patient} />}
                 {tab === 'evaluation' && <EvaluationPanel patient={patient} />}
                 {tab === 'growth' && <GrowthPanel patient={patient} />}

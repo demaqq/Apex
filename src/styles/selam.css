@@ -211,3 +211,84 @@ svg.flow-map { width: 100%; height: auto; }
   .generate-invoice { flex-wrap: wrap; width: 100%; }
   .generate-invoice select { max-width: none; flex: 1; }
 }
+
+/* ---------- Patient record as a centered modal ---------- */
+.drawer-backdrop { display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(4, 15, 18, .55); backdrop-filter: blur(4px); }
+.patient-drawer { position: relative; inset: auto; width: min(1080px, 100%); height: min(900px, calc(100vh - 48px)); border: 1px solid var(--line-soft); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow-lg); }
+.drawer-content.is-chat { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.drawer-content.is-chat > div { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+@media (max-width: 700px) {
+  .drawer-backdrop { padding: 0; align-items: stretch; }
+  .patient-drawer { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+}
+
+/* ---------- Clinical conversation ---------- */
+.chat { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.chat-thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 18px 22px 12px; scroll-behavior: smooth; }
+.chat-day { display: flex; justify-content: center; margin: 6px 0; }
+.chat-day span { padding: 3px 10px; border-radius: 999px; background: var(--chip); color: var(--muted); font-size: 11px; font-weight: 600; }
+.chat-row { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; }
+.chat-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+.chat-bubble { padding: 9px 13px 10px; border: 1px solid var(--line-soft); border-radius: 14px 14px 14px 4px; background: var(--paper); box-shadow: var(--shadow); }
+.chat-row.mine .chat-bubble { border-color: transparent; border-radius: 14px 14px 4px 14px; background: color-mix(in srgb, var(--teal) 16%, var(--paper)); }
+.chat-row.tone-result .chat-bubble { border-left: 3px solid #22c55e; }
+.chat-row.tone-alert .chat-bubble { border-left: 3px solid var(--danger); }
+.chat-row.tone-system .chat-bubble { background: var(--sunken); box-shadow: none; }
+.chat-row.tone-system { opacity: .9; }
+.chat-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 3px; font-size: 11px; color: var(--muted); }
+.chat-meta b { color: var(--ink); font-size: 12px; }
+.chat-meta time { margin-left: auto; font-family: 'IBM Plex Mono', monospace; }
+.chat-kind { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; }
+.tone-history .chat-kind { background: color-mix(in srgb, #8b5cf6 16%, transparent); color: #a78bfa; }
+.tone-exam .chat-kind { background: color-mix(in srgb, #3b82f6 16%, transparent); color: var(--info-text); }
+.tone-order .chat-kind { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--warn-text); }
+.tone-result .chat-kind { background: color-mix(in srgb, #22c55e 15%, transparent); color: var(--ok-text); }
+.tone-alert .chat-kind { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger-text); }
+.chat-title:empty { display: none; }
+.chat-title { color: var(--ink); font-size: 13px; font-weight: 600; }
+.chat-text { color: var(--text); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }
+.chat-order { margin-top: 7px; }
+.chat-result { display: flex; gap: 6px; margin-top: 6px; padding: 6px 9px; border-radius: 8px; background: var(--sunken); color: var(--ink); font-size: 12.5px; }
+
+.chat-composer { flex-shrink: 0; padding: 10px 16px 12px; border-top: 1px solid var(--line-soft); background: var(--paper); }
+.chat-modes { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+.chat-modes button { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 32px; padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--sunken); color: var(--muted); font-size: 12.5px; font-weight: 600; transition: all .15s; }
+.chat-modes button:hover { color: var(--ink); border-color: var(--teal); }
+.chat-modes button.active { background: var(--teal); border-color: var(--teal); color: var(--on-accent); }
+.chat-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.chat-picks:empty { display: none; }
+.pick { height: 28px; padding: 0 10px; border: 1px dashed var(--line-soft); border-radius: 999px; background: transparent; color: var(--text); font-size: 12px; transition: all .12s; }
+.pick:hover { border-style: solid; border-color: var(--teal); color: var(--ink); }
+.pick.on { border-style: solid; border-color: var(--teal); background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.pick.priority { text-transform: capitalize; }
+.pick.priority.on.urgent { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--warn-text); }
+.pick.priority.on.emergent { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-text); }
+.pick-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line-soft); }
+.chat-vitals { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; }
+.chat-vitals label:not(.remember-row) { display: flex; flex-direction: column; gap: 3px; width: 78px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.chat-vitals label.wide { width: 210px; }
+.chat-vitals input, .chat-vitals select { height: 32px; padding: 0 8px; border-radius: 7px; font-size: 13px; }
+.chat-warnings { margin-bottom: 8px; }
+.chat-warnings p { padding: 6px 10px; font-size: 12px; }
+.chat-input { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--sunken); transition: border-color .15s, box-shadow .15s; }
+.chat-input:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-input textarea { flex: 1; min-height: 40px; max-height: 160px; padding: 9px 0; border: 0 !important; outline: 0; background: transparent !important; box-shadow: none !important; resize: none; font-size: 14px; line-height: 1.45; }
+.chat-send { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border: 0; border-radius: 50%; background: var(--teal); color: var(--on-accent); box-shadow: 0 4px 14px var(--accent-soft); }
+.chat-send:hover { background: var(--teal-dark); }
+.chat-hint { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--faint); font-size: 11px; }
+.chat-hint b { color: var(--accent-text); }
+@media (max-width: 700px) {
+  .chat-row { max-width: 92%; }
+  .chat-thread { padding: 14px 12px 10px; }
+  .chat-composer { padding: 8px 10px 10px; }
+}
+
+/* Keep confirmations clear of the conversation composer while a record is open. */
+.app-layout:has(.drawer-backdrop) .toast-stack { top: 16px; bottom: auto; }
+.drawer-tabs button { white-space: nowrap; }
+@media (max-width: 700px) {
+  .patient-identity-meta { position: static !important; margin-top: 8px; }
+  .patient-name-row { flex-wrap: wrap; }
+  .chat-modes button { height: 30px; padding: 0 10px; }
+  .app-layout:has(.drawer-backdrop) .toast-stack { left: 10px; right: 10px; top: 10px; }
+}
