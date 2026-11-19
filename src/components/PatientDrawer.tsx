@@ -3,14 +3,17 @@ import { Activity, AlertCircle, ArrowRight, BedDouble, Check, ClipboardList, Clo
 import { useEffect, useMemo, useState } from 'react'
 import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, RetriageModal, TransferModal } from './ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
-import { AlertsBox, DischargePanel, EvaluationPanel, GrowthPanel, ObservationsPanel } from './RecordPanels'
+import { AlertsBox, AssessmentPanel, DischargePanel, EvaluationPanel } from './RecordPanels'
+import { ChartsPanel } from './ChartsPanel'
 import ClinicalChat from './ClinicalChat'
-import { ORDER_STAGES, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
+import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
+import { SPECIALTY } from '../lib/specialty'
+import { stagesFor, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
 import type { ClinicalOrder, Referral } from '../types'
 
-type Tab = 'conversation' | 'overview' | 'observations' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
+type Tab = 'conversation' | 'overview' | 'assessment' | 'charts' | 'orders' | 'referrals' | 'evaluation' | 'discharge' | 'timeline'
 
 export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
@@ -48,9 +51,8 @@ export default function PatientDrawer() {
   const completedReferrals = patientReferrals.filter((referral) => referral.status === 'completed').length
 
   const tabs: Tab[] = patient ? [
-    'conversation', 'overview', 'observations', 'orders', 'referrals',
+    'conversation', 'overview', ...(SPECIALTY[patient.department] ? ['assessment' as Tab] : []), 'charts', 'orders', 'referrals',
     ...((can('prescribe') || can('refer') || (patient.evaluations?.length ?? 0) > 0) ? ['evaluation' as Tab] : []),
-    ...(patient.age < 12 ? ['growth' as Tab] : []),
     ...((can('discharge') && ['admitted', 'observation', 'in-treatment'].includes(patient.status)) || patient.discharge ? ['discharge' as Tab] : []),
     'timeline',
   ] : []
@@ -119,7 +121,7 @@ export default function PatientDrawer() {
                 </>}
 
                 {tab === 'orders' && <section className="drawer-section"><div className="section-label"><ClipboardList size={15} />DIAGNOSTICS & CLINICAL ORDERS</div>
-                  {patientOrders.length === 0 ? <div className="drawer-empty"><ClipboardList size={25} /><p>No orders on this episode yet.</p>{ownsPatient && (profile?.id === 'physician' || profile?.id === 'administrator') && <Button size="sm" icon={Plus} onClick={() => setOrderOpen(true)}>Place first order</Button>}</div> : <div className="clinical-card-list">{patientOrders.map((order) => <article key={order.id} className="clinical-list-card"><div className="clinical-card-top"><span className="order-kind">{order.kind}</span><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></div><h3>{order.title}</h3><p><span className="mono">{order.id}</span> · {order.createdBy} · {relativeTime(order.createdAt)}</p><OrderStepper order={order} />{order.specimen && <p className="record-hint">Specimen <span className="mono">{order.specimen.id}</span> · {order.specimen.type} · collected by {order.specimen.collectedBy}</p>}{order.result && <div className="result-box"><b>Result</b><p>{order.result}</p></div>}{currentRole && canAdvanceOrder(order, currentRole) && <div className="card-action-row">{needsResult(order) ? <Button size="sm" onClick={() => setResultOrder(order)}>Enter result<FileText size={14} /></Button> : <Button size="sm" variant="secondary" onClick={() => advanceOrder(order.id)}>Mark {ORDER_STAGES[order.kind][orderStage(order) + 1].toLowerCase()}<ArrowRight size={14} /></Button>}</div>}</article>)}</div>}
+                  {patientOrders.length === 0 ? <div className="drawer-empty"><ClipboardList size={25} /><p>No orders on this episode yet.</p>{ownsPatient && (profile?.id === 'physician' || profile?.id === 'administrator') && <Button size="sm" icon={Plus} onClick={() => setOrderOpen(true)}>Place first order</Button>}</div> : <div className="clinical-card-list">{patientOrders.map((order) => <article key={order.id} className="clinical-list-card"><div className="clinical-card-top"><span className="order-kind">{order.kind}</span><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></div><h3>{order.title}</h3><p><span className="mono">{order.id}</span> · {order.createdBy} · {relativeTime(order.createdAt)}</p><OrderStepper order={order} />{order.specimen && <p className="record-hint">Specimen <span className="mono">{order.specimen.id}</span> · {order.specimen.type} · collected by {order.specimen.collectedBy}</p>}{order.result && <div className="result-box"><b>Result</b><p>{order.result}</p></div>}<ImageStrip order={order} />{canAttachImages(order, currentRole) && <div className="card-action-row"><AttachImagesButton order={order} /></div>}{currentRole && canAdvanceOrder(order, currentRole) && <div className="card-action-row">{needsResult(order) ? <Button size="sm" onClick={() => setResultOrder(order)}>Enter result<FileText size={14} /></Button> : <Button size="sm" variant="secondary" onClick={() => advanceOrder(order.id)}>Mark {stagesFor(order)[orderStage(order) + 1].toLowerCase()}<ArrowRight size={14} /></Button>}</div>}</article>)}</div>}
                 </section>}
 
                 {tab === 'referrals' && <section className="drawer-section"><div className="section-label"><Network size={15} />INTERDEPARTMENTAL REFERRALS</div>
@@ -132,9 +134,9 @@ export default function PatientDrawer() {
                 </section>}
 
                 {tab === 'conversation' && <ClinicalChat patient={patient} />}
-                {tab === 'observations' && <ObservationsPanel patient={patient} />}
+                {tab === 'assessment' && <AssessmentPanel patient={patient} />}
+                {tab === 'charts' && <ChartsPanel patient={patient} />}
                 {tab === 'evaluation' && <EvaluationPanel patient={patient} />}
-                {tab === 'growth' && <GrowthPanel patient={patient} />}
                 {tab === 'discharge' && <DischargePanel patient={patient} />}
                 {tab === 'timeline' && <section className="drawer-section"><div className="section-label"><Clock3 size={15} />COMPLETE EPISODE TIMELINE<span>{patient.timeline.length} events</span></div><div className="patient-timeline">{[...patient.timeline].sort((a, b) => b.at.localeCompare(a.at)).map((event) => <article key={event.id}><div className={`timeline-icon timeline-${event.type}`}>{event.type === 'triage' ? <Activity size={15} /> : event.type === 'transfer' ? <BedDouble size={15} /> : event.type === 'referral' ? <Network size={15} /> : event.type === 'order' || event.type === 'result' ? <FlaskConical size={15} /> : event.type === 'note' ? <MessageSquareText size={15} /> : <UserRound size={15} />}</div><div><span>{formatDate(event.at)} · {formatTime(event.at)}</span><h3>{event.title}</h3><p>{event.detail}</p><small>{event.author}</small></div></article>)}</div></section>}
               </motion.div>

@@ -7,7 +7,7 @@ import { Avatar, Button, DepartmentIcon, EmptyState, EsiBadge, Metric, PageHeade
 import type { MetricProps } from '../components/ui/Panel'
 import { departmentById, esiLabels } from '../data'
 import { downloadCsv, formatWait, relativeTime, today } from '../lib/format'
-import { useNow } from '../lib/hooks'
+import { useNow, useRedact } from '../lib/hooks'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, Patient, Referral, RoleId } from '../types'
 
@@ -32,7 +32,8 @@ function PatientQueue({ patients, title, description, mode = 'clinical', now }: 
 
 function ActivityFeed({ limit = 5 }: { limit?: number }) {
   const { state, setSelectedPatientId } = useHospital()
-  return <Panel title="Live hospital activity" action={<span className="panel-live"><span className="live-dot" />SYNCED</span>}><div className="activity-feed">{state.activities.slice(0, limit).map((activity) => <button key={activity.id} onClick={() => activity.patientId && setSelectedPatientId(activity.patientId)}><span className="activity-department" style={{ color: departmentById(state.departments, activity.department).color }}><DepartmentIcon id={activity.department} size={17} /></span><div><p><b>{activity.actor}</b> {activity.action}</p><span>{relativeTime(activity.at)} · {departmentById(state.departments, activity.department).shortName}</span></div></button>)}</div></Panel>
+  const redact = useRedact()
+  return <Panel title="Live hospital activity" action={<span className="panel-live"><span className="live-dot" />SYNCED</span>}><div className="activity-feed">{state.activities.slice(0, limit).map((activity) => <button key={activity.id} onClick={() => activity.patientId && setSelectedPatientId(activity.patientId)}><span className="activity-department" style={{ color: departmentById(state.departments, activity.department).color }}><DepartmentIcon id={activity.department} size={17} /></span><div><p><b>{activity.actor}</b> {redact.text(activity.action)}</p><span>{relativeTime(activity.at)} · {departmentById(state.departments, activity.department).shortName}</span></div></button>)}</div></Panel>
 }
 
 function DepartmentPressure({ limit = 5 }: { limit?: number }) {
@@ -83,6 +84,21 @@ function DiagnosticWorklist({ limit }: { limit?: number }) {
     </Panel>
     {reporting && <ResultModal order={reporting} open={!!reporting} onClose={() => setReporting(null)} />}
   </>
+}
+
+function AdminWorkforce() {
+  const { state } = useHospital()
+  const navigate = useNavigate()
+  const pending = state.staff.filter((member) => member.status === 'Pending approval')
+  const onDuty = state.staff.filter((member) => member.onDuty && !member.suspended).length
+  return <Panel title="Workforce and access" action={<button className="panel-action" onClick={() => navigate('/admin')}>Administration<ArrowRight size={14} /></button>}>
+    <div className="care-glance">
+      <div><span><UsersRound size={20} /></span><p><b>{onDuty}</b><small>Staff on duty</small></p></div>
+      <div><span><UserRoundCheck size={20} /></span><p><b>{pending.length}</b><small>Access requests to review</small></p></div>
+      <div><span><FlaskConical size={20} /></span><p><b>{state.investigations.filter((item) => item.active && !item.inHouse).length}</b><small>Investigations referred out</small></p></div>
+    </div>
+    <div className="care-glance-note"><Check size={16} /><span>Administrators manage the facility; patient records stay with the clinical team.</span></div>
+  </Panel>
 }
 
 function AcuityMix({ patients }: { patients: Patient[] }) {
@@ -212,7 +228,7 @@ export default function Dashboard() {
     {role === 'consultant' ? <motion.div className="dashboard-grid consultant-grid" variants={enter}><ReferralInbox /><div className="dashboard-side"><DepartmentPressure limit={4} /><ActivityFeed limit={5} /></div></motion.div>
       : role === 'diagnostics' ? <motion.div className="dashboard-grid diagnostics-grid" variants={enter}><DiagnosticWorklist /><div className="dashboard-side"><Panel title={homeDepartment === 'laboratory' ? 'Laboratory turnaround' : 'Reporting turnaround'} action={<Clock3 size={17} className="muted-icon" />}><div className="turnaround-hero"><span>Average this shift</span><strong>{homeDepartment === 'laboratory' ? '52' : '38'}<small>min</small></strong><p><TrendingUp size={14} />{homeDepartment === 'laboratory' ? '8' : '12'}% faster than last shift</p></div><div className="turnaround-rows">{(homeDepartment === 'laboratory' ? [['Troponin', '34 min', '58%'], ['FBC', '41 min', '69%'], ['Blood gas', '18 min', '38%']] : [['CT', '24 min', '62%'], ['MRI', '52 min', '86%'], ['Plain film', '31 min', '72%']]).map(([label, time, width]) => <div key={label}><span>{label}</span><b>{time}</b><i><motion.em initial={{ width: 0 }} animate={{ width }} /></i></div>)}</div></Panel><ActivityFeed limit={4} /></div></motion.div>
         : role === 'coordinator' ? <motion.div variants={enter}><CapacityBoard /><div className="dashboard-grid coordinator-lower"><FlowRequestPanel /><ActivityFeed limit={5} /></div></motion.div>
-          : role === 'administrator' ? <motion.div variants={enter}><div className="dashboard-grid admin-grid"><AdminFlowChart /><DepartmentPressure limit={5} /></div><div className="dashboard-grid coordinator-lower"><PatientQueue patients={queuePatients} title="High-acuity hospital census" description="Cross-department clinical risk, ordered by ESI." now={now} /><ActivityFeed limit={5} /></div></motion.div>
+          : role === 'administrator' ? <motion.div variants={enter}><div className="dashboard-grid admin-grid"><AdminFlowChart /><DepartmentPressure limit={5} /></div><div className="dashboard-grid coordinator-lower"><AdminWorkforce /><ActivityFeed limit={5} /></div></motion.div>
             : <motion.div className="dashboard-grid" variants={enter}><PatientQueue patients={queuePatients} title={role === 'nurse' ? `${unitDepartment.shortName} nursing queue` : `${unitDepartment.shortName} clinical queue`} description={role === 'nurse' ? 'Full unit, ordered by acuity and longest waiting time.' : 'Your specialty census, ordered by clinical acuity.'} mode={role === 'nurse' ? 'triage' : 'clinical'} now={now} /><div className="dashboard-side">{role === 'nurse' ? <AcuityMix patients={unitPatients} /> : <DecisionPanel patients={unitPatients} />}<ActivityFeed limit={4} /></div></motion.div>}
 
     {['physician', 'nurse'].includes(role) && <motion.div className="dashboard-bottom-grid" variants={enter}><DepartmentPressure limit={5} /><Panel title="Connected care at a glance" action={<button className="panel-action" onClick={() => navigate('/network')}>Explore network<ArrowRight size={14} /></button>}><div className="care-glance"><div><span><Network size={20} /></span><p><b>{state.referrals.filter((referral) => referral.status === 'pending').length}</b><small>Awaiting specialist response</small></p></div><div><span><FlaskConical size={20} /></span><p><b>{state.orders.filter((order) => order.status === 'in-progress').length}</b><small>Diagnostics in progress</small></p></div><div><span><BedDouble size={20} /></span><p><b>{state.departments.reduce((sum, department) => sum + department.capacity - department.occupied, 0)}</b><small>Spaces across the hospital</small></p></div></div><div className="care-glance-note"><HeartPulse size={16} /><span>One episode record keeps clinical context intact at every handoff.</span></div></Panel></motion.div>}

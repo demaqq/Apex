@@ -1,13 +1,16 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sun, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sparkles, Sun, Volume2, VolumeX, X } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { departmentById } from '../data'
-import { ORDER_STAGES, orderStage } from '../lib/clinical'
+import { stagesFor, orderStage } from '../lib/clinical'
 import { patientCsv, relativeTime } from '../lib/format'
-import { beep, useNow, useSoundPref, useTheme } from '../lib/hooks'
-import { ALL_NAV, canSee, navFor, pageName as pageNameFor } from '../lib/nav'
+import { beep, useAmbientPref, useNow, useSoundPref, useTheme } from '../lib/hooks'
+import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor } from '../lib/nav'
 import { useHospital } from '../store/HospitalStore'
+import { SPECIALTY } from '../lib/specialty'
+import { applyDeptTheme, themeFor } from '../lib/deptTheme'
+import { Ambient } from './Ambient'
 import type { DepartmentId } from '../types'
 import PatientDrawer from './PatientDrawer'
 import { Avatar, Brand, Button, Modal } from './ui'
@@ -19,6 +22,9 @@ export default function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const { theme, cycle: cycleTheme } = useTheme()
+  const [ambientOn, setAmbientOn] = useAmbientPref()
+  const deptTheme = useMemo(() => themeFor(currentRole === 'administrator' ? undefined : profile?.department, state.departments.find((item) => item.id === profile?.department)), [currentRole, profile?.department, state.departments])
+  useEffect(() => { applyDeptTheme(deptTheme); return () => applyDeptTheme(null) }, [deptTheme])
   const [sound, setSound] = useSoundPref()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -35,8 +41,14 @@ export default function AppShell() {
   const now = useNow(15_000)
   const pageName = pageNameFor(location.pathname) ?? 'Page not found'
   const role = currentRole ?? 'physician'
-  const sections = useMemo(() => navFor(role), [role])
-  const visibleNav = useMemo(() => ALL_NAV.filter((item) => canSee(item, role)), [role])
+  const disabled = state.settings.disabledModules
+  const isAdmin = role === 'administrator'
+  const hasSpecialty = Boolean(SPECIALTY[profile?.department ?? ''])
+  const sections = useMemo(() => navFor(role, disabled).map((section) => ({ ...section, items: section.items.filter((item) => !item.specialty || hasSpecialty) })).filter((section) => section.items.length), [role, disabled, hasSpecialty])
+  const visibleNav = useMemo(() => ALL_NAV.filter((item) => canSee(item, role) && moduleEnabled(item.to, disabled) && (!item.specialty || hasSpecialty)), [role, disabled, hasSpecialty])
+  const routeItem = ALL_NAV.find((item) => item.to === location.pathname)
+  const blocked = routeItem && !visibleNav.includes(routeItem)
+  const facility = state.settings
 
   const activeCodes = state.codes.filter((code) => code.active)
   const myPages = state.pages.filter((page) => page.toStaffId === myStaffId && !page.acknowledgedAt)
@@ -52,7 +64,7 @@ export default function AppShell() {
   }, [activeCodes, myPages, sound])
 
   useEffect(() => { setMobileOpen(false); setNotificationsOpen(false); setProfileOpen(false) }, [location.pathname])
-  useEffect(() => { document.title = `${pageName} · Northstar CareOS` }, [pageName])
+  useEffect(() => { document.title = `${pageName} · ${facility.name}` }, [pageName, facility.name])
   useEffect(() => { if (!searchOpen) setSearch('') }, [searchOpen])
   useEffect(() => { setSearchIndex(0) }, [search, searchOpen])
 
@@ -86,19 +98,21 @@ export default function AppShell() {
     const query = search.trim().toLowerCase()
     const close = () => setSearchOpen(false)
     if (!query) {
+      if (isAdmin) return [{ group: 'Modules', items: visibleNav.map((item) => ({ key: item.to, label: item.label, run: () => { navigate(item.to); close() } })) }]
       return [{ group: 'Active patients', items: state.patients.filter((patient) => patient.status !== 'discharged').slice(0, 6).map((patient) => ({ key: patient.id, label: patient.name, detail: `${patient.mrn} · ${patient.location}`, run: () => { setSelectedPatientId(patient.id); close() } })) }]
     }
     const has = (...fields: Array<string | undefined>) => fields.join(' ').toLowerCase().includes(query)
     return [
       { group: 'Modules', items: visibleNav.filter((item) => has(item.label, item.page)).map((item) => ({ key: item.to, label: item.label, detail: item.key ? `Shortcut ${item.key.toUpperCase()}` : undefined, run: () => { navigate(item.to); close() } })) },
-      { group: 'Patients', items: state.patients.filter((patient) => has(patient.name, patient.mrn, patient.complaint, patient.location)).slice(0, 6).map((patient) => ({ key: patient.id, label: patient.name, detail: `${patient.mrn} · ${patient.location}`, run: () => { setSelectedPatientId(patient.id); close() } })) },
-      { group: 'Orders', items: state.orders.filter((order) => has(order.title, order.id)).slice(0, 4).map((order) => ({ key: order.id, label: order.title, detail: `${order.kind} · ${ORDER_STAGES[order.kind][orderStage(order)]} · ${state.patients.find((patient) => patient.id === order.patientId)?.name ?? ''}`, run: () => { setSelectedPatientId(order.patientId); close() } })) },
+      { group: 'Patients', items: isAdmin ? [] : state.patients.filter((patient) => has(patient.name, patient.mrn, patient.complaint, patient.location)).slice(0, 6).map((patient) => ({ key: patient.id, label: patient.name, detail: `${patient.mrn} · ${patient.location}`, run: () => { setSelectedPatientId(patient.id); close() } })) },
+      { group: 'Orders', items: isAdmin ? [] : state.orders.filter((order) => has(order.title, order.id)).slice(0, 4).map((order) => ({ key: order.id, label: order.title, detail: `${order.kind} · ${stagesFor(order)[orderStage(order)]} · ${state.patients.find((patient) => patient.id === order.patientId)?.name ?? ''}`, run: () => { setSelectedPatientId(order.patientId); close() } })) },
       { group: 'Staff', items: state.staff.filter((member) => has(member.name, member.role, member.pager)).slice(0, 4).map((member) => ({ key: member.id, label: member.name, detail: `${member.role} · pager ${member.pager}`, run: () => { navigate('/staff'); close() } })) },
     ].filter((group) => group.items.length)
-  }, [search, state.patients, state.orders, state.staff, visibleNav, navigate, setSelectedPatientId])
+  }, [search, state.patients, state.orders, state.staff, visibleNav, navigate, setSelectedPatientId, isAdmin])
   const flatHits = hits.flatMap((group) => group.items)
 
   const notifications = useMemo(() => {
+    if (profile?.id === 'administrator') return []
     const referralItems = state.referrals.filter((referral) => referral.status === 'pending' && (profile?.id === 'administrator' || referral.to === profile?.department)).map((referral) => ({ id: referral.id, patientId: referral.patientId, title: `${referral.priority === 'emergent' ? 'Emergent' : 'New'} ${departmentById(state.departments, referral.to).shortName} referral`, detail: referral.reason, at: referral.createdAt, kind: 'referral' }))
     const orderItems = state.orders.filter((order) => order.status !== 'completed' && (profile?.id === 'administrator' || order.department === profile?.department)).map((order) => ({ id: order.id, patientId: order.patientId, title: `${order.status === 'ordered' ? 'New' : 'Active'} ${order.kind.toLowerCase()} order`, detail: order.title, at: order.createdAt, kind: 'order' }))
     return [...referralItems, ...orderItems].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8)
@@ -122,11 +136,13 @@ export default function AppShell() {
     setCodeOpen(false); setCodeLocation('')
   }
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
+  const themeLabel = theme === 'light' ? 'White' : theme === 'dark' ? 'Black' : 'Match device'
 
   return <div className="app-layout">
+    <Ambient kind={deptTheme.ambient} />
     <AnimatePresence>{mobileOpen && <motion.div className="mobile-nav-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileOpen(false)} />}</AnimatePresence>
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-      <div className="sidebar-brand"><Brand /><button className="sidebar-mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={19} /></button></div>
+      <div className="sidebar-brand"><Brand name={facility.name} tagline={`${facility.type} · ${facility.city || facility.tagline}`} /><button className="sidebar-mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={19} /></button></div>
 
       <div className="pulse-panel" aria-label="Hospital live status">
         <div className="pulse-title"><span className="live-dot" />Live pulse</div>
@@ -160,14 +176,15 @@ export default function AppShell() {
 
     <div className="app-main">
       <header className="topbar">
-        <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="mobile-logo"><Brand compact /></div><div className="breadcrumb"><span>Northstar General</span><i>/</i><b>{pageName}</b></div></div>
+        <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="mobile-logo"><Brand compact /></div><div className="breadcrumb"><span>{facility.name}</span><i>/</i><b>{pageName}</b></div></div>
         <div className="topbar-right">
           <button className="global-search" onClick={() => setSearchOpen(true)}><Search size={17} /><span>Search patients, orders, staff…</span><kbd>/</kbd></button>
           <div className="topbar-time"><b>{new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(now)}</b><span>{new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(now)}</span></div>
           <div className="topbar-tools">
             <button className="code-button" onClick={() => setCodeOpen(true)} title="Call an emergency code (C)"><Megaphone size={15} /><span>Emergency code</span></button>
             <button className="icon-button" aria-pressed={sound} onClick={() => { setSound(!sound); if (!sound) beep(1) }} aria-label={sound ? 'Alert sound on' : 'Alert sound off'} title={sound ? 'Alert sound on' : 'Alert sound off'}>{sound ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
-            <button className="icon-button" onClick={cycleTheme} aria-label={`Theme: ${theme}`} title={`Theme: ${theme} (click to change)`}><ThemeIcon size={18} /></button>
+            <button className="icon-button" aria-pressed={ambientOn} onClick={() => setAmbientOn(!ambientOn)} aria-label={ambientOn ? 'Department animation on' : 'Department animation off'} title={`${deptTheme.name} theme · animation ${ambientOn ? 'on' : 'off'}`}><Sparkles size={18} /></button>
+            <button className="icon-button" onClick={cycleTheme} aria-label={`Theme: ${themeLabel}`} title={`Theme: ${themeLabel} (click to change)`}><ThemeIcon size={18} /></button>
           </div>
           <div className="topbar-popovers" ref={popoverRef}>
             <div className="popover-anchor">
@@ -195,9 +212,11 @@ export default function AppShell() {
             <Button size="sm" variant="secondary" onClick={() => acknowledgePage(page.id)}>Acknowledge</Button>
           </div>)}
         </div>}
-        <Suspense fallback={<div className="page-loading" role="status" aria-label="Loading page" />}><Outlet /></Suspense>
+        {blocked
+          ? <div className="panel not-found"><div className="empty-state"><span><ShieldCheck size={21} /></span><h3>{!moduleEnabled(location.pathname, disabled) ? 'This module is switched off' : 'Not available in your workspace'}</h3><p>{!moduleEnabled(location.pathname, disabled) ? 'An administrator has switched this module off for your facility.' : isAdmin ? 'Administrators manage the facility and do not have access to patient records.' : 'Your role does not include this area. Ask an administrator if you need access.'}</p><Button onClick={() => navigate('/')}>Go to my home screen</Button></div></div>
+          : <Suspense fallback={<div className="page-loading" role="status" aria-label="Loading page" />}><Outlet /></Suspense>}
       </main>
-      <footer className="app-footer"><span>Northstar CareOS · Synthetic demonstration environment</span><span><span className="live-dot" />Changes saved on this device</span></footer>
+      <footer className="app-footer"><span>{facility.name} · {facility.type}{facility.city ? ` · ${facility.city}` : ''} · Synthetic demonstration data</span><span><span className="live-dot" />Changes saved on this device</span></footer>
     </div>
 
     <PatientDrawer />

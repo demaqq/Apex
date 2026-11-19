@@ -94,7 +94,7 @@
 .demo-label > span {
   width: 6px;
   height: 6px;
-  background: #14b8a6;
+  background: var(--teal-dark);
   border-radius: 50%;
   box-shadow: 0 0 0 3px var(--accent-soft);
 }

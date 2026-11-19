@@ -1,15 +1,23 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, BadgeCheck, Ban, ClipboardList, Download, PackageCheck, Pill, Plus, ShieldCheck } from 'lucide-react'
-import { Badge, Button, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { AlertTriangle, BadgeCheck, Ban, CalendarX2, ClipboardList, Download, PackageCheck, PackageMinus, PackagePlus, Pencil, Pill, Plus, ShieldCheck } from 'lucide-react'
+import { Badge, Button, Chip, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
 import { departmentById } from '../data'
-import { downloadCsv, formatCurrency, relativeTime, today } from '../lib/format'
-import { interactionBetween, prescribingWarnings } from '../lib/clinical'
+import { downloadCsv, formatCurrency, formatDate, formatDateTime, relativeTime, today } from '../lib/format'
+import { interactionBetween } from '../lib/clinical'
 import { matches, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import type { FormularyItem, Prescription, RxPriority } from '../types'
+import type { FormularyItem, Prescription } from '../types'
+import { CollectionDesk, CollectModal, EPrescribeModal } from '../components/EPrescription'
 
-type View = 'queue' | 'prescriptions' | 'formulary' | 'interactions'
+type View = 'queue' | 'collection' | 'prescriptions' | 'formulary' | 'inventory' | 'interactions'
+
+/** 'expired', 'soon' (within 90 days) or 'ok'. */
+const expiryState = (expiry?: string) => {
+  if (!expiry) return 'ok'
+  const days = (new Date(expiry).getTime() - Date.now()) / 86_400_000
+  return days < 0 ? 'expired' : days <= 90 ? 'soon' : 'ok'
+}
 
 const stockTone = (item: FormularyItem) => item.stock <= item.reorderLevel ? 'danger' : item.stock <= item.reorderLevel * 1.5 ? 'warning' : 'success'
 
@@ -22,6 +30,7 @@ export default function PharmacyView() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [creating, setCreating] = useState(false)
+  const [collecting, setCollecting] = useState<string | null>(null)
 
   const medication = useMemo(() => new Map(state.formulary.map((item) => [item.id, item])), [state.formulary])
   const queue = state.prescriptions.filter((rx) => rx.status === 'Pending' || rx.status === 'Verified')
@@ -44,9 +53,11 @@ export default function PharmacyView() {
 
   const actionsFor = (rx: Prescription) => <>
     {canDispense && rx.status === 'Pending' && <Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setPrescriptionStatus(rx.id, 'Verified')}>Verify</Button>}
-    {canDispense && rx.status === 'Verified' && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Dispensed')}>Dispense</Button>}
+    {canDispense && rx.status === 'Verified' && !rx.eRx && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Dispensed')}>Dispense</Button>}
+    {canDispense && rx.status === 'Verified' && rx.eRx && <Button size="sm" icon={PackageCheck} onClick={() => setPrescriptionStatus(rx.id, 'Ready for collection')}>Mark ready</Button>}
+    {canDispense && (rx.status === 'Ready for collection' || rx.status === 'Part collected') && <Button size="sm" icon={PackageCheck} onClick={() => setCollecting(rx.id)}>Hand over</Button>}
     {!canDispense && ['Pending', 'Verified'].includes(rx.status) && <span className="muted-text">With pharmacy</span>}
-    {canDispense && (rx.status === 'Pending' || rx.status === 'Verified') && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setPrescriptionStatus(rx.id, 'Cancelled')} aria-label={`Cancel ${rx.id}`}>Cancel</Button>}
+    {canDispense && ['Pending', 'Verified', 'Ready for collection'].includes(rx.status) && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setPrescriptionStatus(rx.id, 'Cancelled')} aria-label={`Cancel ${rx.id}`}>Cancel</Button>}
   </>
 
   return (
@@ -54,7 +65,7 @@ export default function PharmacyView() {
       <PageHeader
         eyebrow="Pharmacy · Clinical verification"
         title="Pharmacy"
-        description="Verify and dispense prescriptions, and keep an eye on formulary stock."
+        description="Verify and dispense prescriptions, hand over e-prescriptions to patients, and keep an eye on formulary stock."
         actions={<>
           <Button variant="secondary" icon={Download} onClick={exportCurrent}>Export {view === 'formulary' ? 'formulary' : 'prescriptions'}</Button>
           {canPrescribe && <Button icon={Plus} onClick={() => setCreating(true)}>New prescription</Button>}
@@ -68,7 +79,7 @@ export default function PharmacyView() {
         <Metric label="Below reorder level" value={lowStock.length} detail={lowStock.length ? lowStock.map((item) => item.name).join(', ') : 'All lines stocked'} icon={AlertTriangle} tone="coral" />
       </div>
 
-      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }, { value: 'interactions', label: 'Interaction checker' }]} />
+      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, ...(canDispense ? [{ value: 'collection' as View, label: 'e-Prescription pickup', count: state.prescriptions.filter((rx) => rx.eRx && (rx.status === 'Ready for collection' || rx.status === 'Part collected')).length || undefined }] : []), { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }, ...(canDispense ? [{ value: 'inventory' as View, label: 'Inventory', count: state.formulary.filter((item) => item.stock <= item.reorderLevel || expiryState(item.expiry) !== 'ok').length || undefined }] : []), { value: 'interactions', label: 'Interaction checker' }]} />
 
       {view === 'queue' && (
         <div className="card-grid">
@@ -76,7 +87,7 @@ export default function PharmacyView() {
             const patient = patients.get(rx.patientId)
             return (
               <article key={rx.id} className={`work-card priority-${rx.priority.toLowerCase()}`}>
-                <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span><StatusBadge status={rx.status} /></header>
+                <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span>{rx.eRx && <span className="erx-tag">e-Rx · patient collects</span>}<StatusBadge status={rx.status} /></header>
                 {patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}
                 {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag"><AlertTriangle size={13} />Allergies: {patient.allergies.join(', ')}</p>}
                 <ul className="rx-lines">
@@ -97,7 +108,7 @@ export default function PharmacyView() {
         <Panel>
           <div className="table-toolbar">
             <SearchField value={query} onChange={setQuery} placeholder="Search patient, Rx number or medicine…" />
-            <FilterSelect label="All statuses" value={filter} onChange={setFilter} options={['Pending', 'Verified', 'Dispensed', 'Cancelled']} />
+            <FilterSelect label="All statuses" value={filter} onChange={setFilter} options={['Pending', 'Verified', 'Ready for collection', 'Part collected', 'Dispensed', 'Cancelled']} />
           </div>
           <div className="table-wrap">
             <table className="data-table">
@@ -107,7 +118,7 @@ export default function PharmacyView() {
                   const patient = patients.get(rx.patientId)
                   return (
                     <tr key={rx.id}>
-                      <td><b>{rx.id}</b><small>{relativeTime(rx.createdAt)}</small></td>
+                      <td><b>{rx.id}</b><small>{rx.eRx ? <span className="mono">{rx.eRx.code} · </span> : null}{relativeTime(rx.createdAt)}</small></td>
                       <td>{patient && <PersonCell name={patient.name} detail={patient.mrn} onClick={() => setSelectedPatientId(patient.id)} />}</td>
                       <td className="wrap">{rxLabel(rx)}</td>
                       <td><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span></td>
@@ -153,75 +164,15 @@ export default function PharmacyView() {
         </Panel>
       )}
 
+      {view === 'collection' && canDispense && <CollectionDesk />}
+      {view === 'inventory' && canDispense && <Inventory />}
       {view === 'interactions' && <InteractionChecker />}
 
-      <NewPrescriptionModal open={creating} onClose={() => setCreating(false)} />
+      <EPrescribeModal open={creating} onClose={() => setCreating(false)} />
+      {collecting && state.prescriptions.find((rx) => rx.id === collecting) && <CollectModal rx={state.prescriptions.find((rx) => rx.id === collecting)!} onClose={() => setCollecting(null)} />}
     </motion.div>
   )
 }
-
-function NewPrescriptionModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { state, profile, createPrescription } = useHospital()
-  const activePatients = state.patients.filter((patient) => patient.status !== 'discharged')
-  const [patientId, setPatientId] = useState('')
-  const [medicationId, setMedicationId] = useState(state.formulary[0]?.id ?? '')
-  const [dosage, setDosage] = useState('')
-  const [frequency, setFrequency] = useState('')
-  const [duration, setDuration] = useState('')
-  const [quantity, setQuantity] = useState(1)
-  const [priority, setPriority] = useState<RxPriority>('Routine')
-  const [diagnosis, setDiagnosis] = useState('')
-  const [error, setError] = useState('')
-  const patient = activePatients.find((item) => item.id === patientId)
-  const med = state.formulary.find((item) => item.id === medicationId)
-  const warnings = patient && med ? prescribingWarnings(med, patient, state.prescriptions, state.formulary) : []
-  const [acknowledged, setAcknowledged] = useState(false)
-
-  const reset = () => { setAcknowledged(false); setPatientId(''); setMedicationId(state.formulary[0]?.id ?? ''); setDosage(''); setFrequency(''); setDuration(''); setQuantity(1); setPriority('Routine'); setDiagnosis(''); setError('') }
-  const close = () => { reset(); onClose() }
-  const submit = () => {
-    if (!patient || !med || !dosage.trim() || !frequency.trim() || !duration.trim() || quantity < 1) { setError('Choose a patient and medicine, and complete dose, frequency, duration and quantity.'); return }
-    if (warnings.some((warning) => warning.level === 'High') && !acknowledged) { setError('Review the high-risk warnings and confirm the prescription is clinically justified.'); return }
-    createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority, diagnosis: diagnosis.trim() || undefined, items: [{ medicationId: med.id, dosage: dosage.trim(), frequency: frequency.trim(), duration: duration.trim(), quantity }] })
-    close()
-  }
-
-  return (
-    <Modal open={open} onClose={close} title="New prescription" subtitle="Sends the order to the pharmacy verification queue" size="md">
-      <div className="form-grid form-grid-2">
-        <label className="form-field span-2"><span>Patient <b>*</b></span>
-          <select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}>
-            <option value="">Select a patient…</option>
-            {activePatients.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.mrn}</option>)}
-          </select>
-        </label>
-        {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag span-2"><AlertTriangle size={13} />Recorded allergies: {patient.allergies.join(', ')}</p>}
-        <label className="form-field span-2"><span>Medicine <b>*</b></span>
-          <select value={medicationId} onChange={(event) => setMedicationId(event.target.value)}>
-            {state.formulary.map((item) => <option key={item.id} value={item.id}>{item.name} {item.strength} · {item.dosageForm} ({item.stock} in stock)</option>)}
-          </select>
-        </label>
-        {warnings.length > 0 && <div className="span-2 rx-warnings" role="alert">
-          {warnings.map((warning, index) => <p key={index} className={warning.level === 'High' ? 'danger' : 'warning'}><AlertTriangle size={14} />{warning.text}</p>)}
-          {warnings.some((warning) => warning.level === 'High') && <label className="remember-row"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I have reviewed these warnings; the prescription is clinically justified.</label>}
-        </div>}
-        <label className="form-field"><span>Dose <b>*</b></span><input value={dosage} onChange={(event) => setDosage(event.target.value)} placeholder="e.g. 500 mg" /></label>
-        <label className="form-field"><span>Frequency <b>*</b></span><input value={frequency} onChange={(event) => setFrequency(event.target.value)} placeholder="e.g. Every 8 h" /></label>
-        <label className="form-field"><span>Duration <b>*</b></span><input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="e.g. 7 days" /></label>
-        <label className="form-field"><span>Quantity ({med?.unit ?? 'units'}) <b>*</b></span><input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(0, Math.floor(Number(event.target.value))))} /></label>
-        <label className="form-field span-2"><span>Indication</span><input value={diagnosis} onChange={(event) => setDiagnosis(event.target.value)} placeholder="e.g. Community-acquired pneumonia" /></label>
-        <div className="form-field span-2"><span>Priority</span>
-          <div className="priority-control">
-            {(['Routine', 'Urgent', 'STAT'] as RxPriority[]).map((value) => <button type="button" key={value} aria-pressed={priority === value} className={priority === value ? `active ${{ Routine: 'routine', Urgent: 'urgent', STAT: 'emergent' }[value]}` : ''} onClick={() => setPriority(value)}>{value}</button>)}
-          </div>
-        </div>
-      </div>
-      {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
-      <div className="modal-footer"><Button variant="ghost" onClick={close}>Cancel</Button><Button icon={Pill} onClick={submit}>Send to pharmacy</Button></div>
-    </Modal>
-  )
-}
-
 
 function InteractionChecker() {
   const { state } = useHospital()
@@ -246,5 +197,131 @@ function InteractionChecker() {
         <p className="record-hint">Decision support only. Check an up-to-date drug reference before acting.</p>
       </div>
     </Panel>
+  )
+}
+
+function Inventory() {
+  const { state, receiveStock, writeOffStock, saveFormularyItem } = useHospital()
+  const [query, setQuery] = useState('')
+  const [receiving, setReceiving] = useState<FormularyItem | null>(null)
+  const [writingOff, setWritingOff] = useState<FormularyItem | null>(null)
+  const [editing, setEditing] = useState<FormularyItem | null>(null)
+  const meds = new Map(state.formulary.map((item) => [item.id, item]))
+  const low = state.formulary.filter((item) => item.stock <= item.reorderLevel)
+  const soon = state.formulary.filter((item) => expiryState(item.expiry) === 'soon')
+  const expired = state.formulary.filter((item) => expiryState(item.expiry) === 'expired')
+  const value = state.formulary.reduce((sum, item) => sum + item.stock * item.pricePerUnit, 0)
+  const list = state.formulary.filter((item) => matches(query, item.name, item.genericName, item.category, item.batch, item.supplier))
+    .sort((a, b) => Number(b.stock <= b.reorderLevel) - Number(a.stock <= a.reorderLevel) || a.name.localeCompare(b.name))
+  const blank: FormularyItem = { id: '', name: '', genericName: '', generic: '', contraindications: [], category: 'Analgesic', dosageForm: 'Tablet', strength: '', stock: 0, unit: 'tablet', reorderLevel: 50, pricePerUnit: 0, route: 'PO' }
+
+  return <>
+    <div className="metrics-grid">
+      <Metric label="Stock value" value={formatCurrency(value)} detail={`${state.formulary.length} medicines`} icon={Pill} tone="teal" />
+      <Metric label="Below reorder level" value={low.length} detail={low.map((item) => item.name).join(', ') || 'All lines stocked'} icon={AlertTriangle} tone="coral" />
+      <Metric label="Expiring in 90 days" value={soon.length} detail={soon.map((item) => item.name).join(', ') || 'Nothing due'} icon={CalendarX2} tone="amber" />
+      <Metric label="Expired" value={expired.length} detail={expired.length ? 'Write off and quarantine' : 'None'} icon={PackageMinus} tone="blue" />
+    </div>
+    <Panel>
+      <div className="table-toolbar">
+        <SearchField value={query} onChange={setQuery} placeholder="Search medicine, batch or supplier…" />
+        <Button icon={Plus} onClick={() => setEditing(blank)}>Add medicine</Button>
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>Medicine</th><th className="num">In stock</th><th className="num">Reorder at</th><th>Batch · expiry</th><th>Supplier</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {list.map((item) => {
+              const exp = expiryState(item.expiry)
+              return (
+                <tr key={item.id}>
+                  <td><b>{item.name} {item.strength}</b><small>{item.dosageForm} · {item.category}{item.controlled ? ' · controlled' : ''}</small></td>
+                  <td className="num"><Badge variant={stockTone(item)}>{item.stock.toLocaleString()} {item.unit}</Badge></td>
+                  <td className="num">{item.reorderLevel.toLocaleString()}</td>
+                  <td>{item.batch ? <span className="mono">{item.batch}</span> : <span className="muted-text">—</span>}{item.expiry && <small>{exp === 'expired' ? <Chip tone="danger">Expired {formatDate(item.expiry)}</Chip> : exp === 'soon' ? <Chip tone="warning">Expires {formatDate(item.expiry)}</Chip> : `Expires ${formatDate(item.expiry)}`}</small>}</td>
+                  <td>{item.supplier ?? <span className="muted-text">—</span>}</td>
+                  <td className="row-actions">
+                    <Button size="sm" icon={PackagePlus} onClick={() => setReceiving(item)}>Receive</Button>
+                    <Button size="sm" variant="ghost" icon={PackageMinus} onClick={() => setWritingOff(item)}>Write off</Button>
+                    <button type="button" className="icon-button" aria-label={`Edit ${item.name}`} onClick={() => setEditing(item)}><Pencil size={15} /></button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+    <Panel title="Stock movements">
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>When</th><th>Medicine</th><th>Movement</th><th className="num">Quantity</th><th>Details</th><th>By</th></tr></thead>
+          <tbody>{state.stockMovements.slice(0, 30).map((move) => <tr key={move.id}><td>{formatDateTime(move.at)}</td><td>{meds.get(move.medicationId)?.name ?? '—'}</td><td><Chip tone={move.type === 'Received' ? 'success' : move.type === 'Written off' ? 'danger' : 'neutral'}>{move.type}</Chip></td><td className={`num ${move.quantity < 0 ? 'danger-text' : ''}`}>{move.quantity > 0 ? '+' : ''}{move.quantity}</td><td className="wrap">{move.note}</td><td>{move.by}</td></tr>)}</tbody>
+        </table>
+      </div>
+      {state.stockMovements.length === 0 && <p className="table-footnote">Receipts, dispensing and write-offs appear here.</p>}
+    </Panel>
+    {receiving && <ReceiveModal item={receiving} onClose={() => setReceiving(null)} onSave={(input) => { receiveStock(receiving.id, input); setReceiving(null) }} />}
+    {writingOff && <WriteOffModal item={writingOff} onClose={() => setWritingOff(null)} onSave={(quantity, reason) => { writeOffStock(writingOff.id, quantity, reason); setWritingOff(null) }} />}
+    {editing && <MedicineModal item={editing} onClose={() => setEditing(null)} onSave={(item) => { saveFormularyItem(item); setEditing(null) }} />}
+  </>
+}
+
+function ReceiveModal({ item, onClose, onSave }: { item: FormularyItem; onClose: () => void; onSave: (input: { quantity: number; batch: string; expiry: string; supplier: string }) => void }) {
+  const [quantity, setQuantity] = useState('')
+  const [batch, setBatch] = useState('')
+  const [expiry, setExpiry] = useState('')
+  const [supplier, setSupplier] = useState(item.supplier ?? '')
+  const pastExpiry = expiry && new Date(expiry).getTime() < Date.now()
+  return (
+    <Modal open onClose={onClose} title={`Receive ${item.name} ${item.strength}`} subtitle={`Currently ${item.stock} ${item.unit} in stock`} size="sm">
+      <div className="form-grid form-grid-2">
+        <label className="form-field"><span>Quantity ({item.unit}) <b>*</b></span><input type="number" min={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
+        <label className="form-field"><span>Batch number</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
+        <label className="form-field"><span>Expiry date</span><input type="date" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>
+        <label className="form-field"><span>Supplier</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="e.g. EPSS" /></label>
+      </div>
+      {pastExpiry && <div className="inline-error" role="alert"><AlertTriangle size={16} />This batch has already expired.</div>}
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={PackagePlus} disabled={!(Number(quantity) > 0) || Boolean(pastExpiry)} onClick={() => onSave({ quantity: Math.floor(Number(quantity)), batch: batch.trim(), expiry, supplier: supplier.trim() })}>Add to stock</Button></div>
+    </Modal>
+  )
+}
+
+function WriteOffModal({ item, onClose, onSave }: { item: FormularyItem; onClose: () => void; onSave: (quantity: number, reason: string) => void }) {
+  const [quantity, setQuantity] = useState('')
+  const [reason, setReason] = useState(expiryState(item.expiry) === 'expired' ? 'Expired' : 'Damaged')
+  return (
+    <Modal open onClose={onClose} title={`Write off ${item.name}`} subtitle={`${item.stock} ${item.unit} in stock`} size="sm">
+      <div className="form-grid form-grid-2">
+        <label className="form-field"><span>Quantity <b>*</b></span><input type="number" min={1} max={item.stock} value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
+        <label className="form-field"><span>Reason</span><select value={reason} onChange={(event) => setReason(event.target.value)}>{['Expired', 'Damaged', 'Recalled', 'Stock count correction', 'Lost'].map((value) => <option key={value}>{value}</option>)}</select></label>
+      </div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="danger" icon={PackageMinus} disabled={!(Number(quantity) > 0)} onClick={() => onSave(Math.floor(Number(quantity)), reason)}>Write off</Button></div>
+    </Modal>
+  )
+}
+
+function MedicineModal({ item, onClose, onSave }: { item: FormularyItem; onClose: () => void; onSave: (item: FormularyItem) => void }) {
+  const [form, setForm] = useState(item)
+  const [contra, setContra] = useState(item.contraindications.join(', '))
+  const set = <K extends keyof FormularyItem>(key: K, value: FormularyItem[K]) => setForm({ ...form, [key]: value })
+  const valid = form.name.trim() && form.strength.trim() && form.unit.trim()
+  return (
+    <Modal open onClose={onClose} title={item.id ? `Edit ${item.name}` : 'Add a medicine'} subtitle="Appears in prescribing, dispensing and the interaction checker" size="md">
+      <div className="form-grid form-grid-3">
+        <label className="form-field"><span>Brand or common name <b>*</b></span><input value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
+        <label className="form-field"><span>Generic name</span><input value={form.genericName} onChange={(event) => set('genericName', event.target.value)} /></label>
+        <label className="form-field"><span>Category</span><input value={form.category} onChange={(event) => set('category', event.target.value)} /></label>
+        <label className="form-field"><span>Form</span><input value={form.dosageForm} onChange={(event) => set('dosageForm', event.target.value)} /></label>
+        <label className="form-field"><span>Strength <b>*</b></span><input value={form.strength} onChange={(event) => set('strength', event.target.value)} placeholder="500 mg" /></label>
+        <label className="form-field"><span>Route</span><input value={form.route} onChange={(event) => set('route', event.target.value)} /></label>
+        <label className="form-field"><span>Unit <b>*</b></span><input value={form.unit} onChange={(event) => set('unit', event.target.value)} placeholder="tablet" /></label>
+        <label className="form-field"><span>Reorder level</span><input type="number" min={0} value={form.reorderLevel} onChange={(event) => set('reorderLevel', Number(event.target.value))} /></label>
+        <label className="form-field"><span>Unit price</span><input type="number" min={0} step="0.01" value={form.pricePerUnit} onChange={(event) => set('pricePerUnit', Number(event.target.value))} /></label>
+        <label className="form-field span-3"><span>Contraindications <small className="muted-text">comma separated</small></span><input value={contra} onChange={(event) => setContra(event.target.value)} /></label>
+        <label className="remember-row"><input type="checkbox" checked={Boolean(form.controlled)} onChange={(event) => set('controlled', event.target.checked)} />Controlled medicine</label>
+      </div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={() => onSave({ ...form, id: form.id || `med-${Date.now().toString(36)}`, name: form.name.trim(), genericName: form.genericName.trim() || form.name.trim(), generic: item.id ? item.generic : (form.genericName || form.name).trim().toLowerCase().split(' ')[0], contraindications: contra.split(',').map((value) => value.trim()).filter(Boolean) })}>{item.id ? 'Save' : 'Add medicine'}</Button></div>
+    </Modal>
   )
 }

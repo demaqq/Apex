@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ORDER_STAGES, newsTone, orderStage, patientNews2 } from '../../lib/clinical'
+import { newsTone, orderStage, patientNews2, stagesFor } from '../../lib/clinical'
 import type { ClinicalOrder, Patient } from '../../types'
 
 export function Chip({ tone = 'accent', children }: { tone?: 'accent' | 'danger' | 'warning' | 'success' | 'neutral'; children: ReactNode }) {
@@ -16,7 +16,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
 }
 
 export function OrderStepper({ order }: { order: ClinicalOrder }) {
-  return <Stepper steps={ORDER_STAGES[order.kind]} current={orderStage(order)} />
+  return <Stepper steps={stagesFor(order)} current={orderStage(order)} />
 }
 
 export function NewsChip({ patient }: { patient: Patient }) {

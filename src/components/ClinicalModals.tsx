@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BedDouble, Check, ClipboardPlus, FileCheck2, HeartPulse, Info, Network, Send, Stethoscope } from 'lucide-react'
 import { calculateEsi, commonRisks, esiLabels } from '../data'
-import { ORDER_STAGES } from '../lib/clinical'
+import { stagesFor } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, DepartmentId, Patient, Priority, Referral, Vitals } from '../types'
 import { Button, EsiBadge, Modal } from './ui'
+import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 
 const defaultVitals: Vitals = { hr: 80, rr: 16, spo2: 98, bpSys: 120, bpDia: 75, temp: 36.8, gcs: 15, pain: 2 }
 
@@ -182,27 +183,35 @@ const orderTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; depart
 
 export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient; open: boolean; onClose: () => void; kind?: ClinicalOrder['kind'] }) {
   const { state, addOrder } = useHospital()
-  const templates = kind ? orderTemplates.filter((item) => item.kind === kind) : orderTemplates
+  // Lab and imaging come from the administrator's catalogue; other services keep their templates.
+  const catalogue = state.investigations.filter((item) => item.active).map((item) => ({ title: item.name, kind: item.kind as ClinicalOrder['kind'], department: (item.kind === 'Imaging' ? 'radiology' : 'laboratory') as DepartmentId, inHouse: item.inHouse }))
+  const allTemplates = [...catalogue, ...orderTemplates.filter((item) => !['Laboratory', 'Imaging'].includes(item.kind)).map((item) => ({ ...item, inHouse: true }))]
+  const templates = kind ? allTemplates.filter((item) => item.kind === kind) : allTemplates
+  const [performAt, setPerformAt] = useState('in-house')
   const [patientId, setPatientId] = useState(patient?.id ?? '')
   const [template, setTemplate] = useState(0)
   const [title, setTitle] = useState(templates[0].title)
   const [priority, setPriority] = useState<Priority>('urgent')
   const [error, setError] = useState('')
-  useEffect(() => { if (open) { setPatientId(patient?.id ?? ''); setTemplate(0); setTitle(templates[0].title); setPriority('urgent'); setError('') } }, [open, patient?.id, kind])
+  useEffect(() => { if (open) { setPatientId(patient?.id ?? ''); setTemplate(0); setPerformAt('in-house'); setTitle(templates[0].title); setPriority('urgent'); setError('') } }, [open, patient?.id, kind])
   const item = templates[template] ?? templates[0]
   const target = patient ?? state.patients.find((candidate) => candidate.id === patientId)
+  const referable = item && (item.kind === 'Laboratory' || item.kind === 'Imaging')
+  const partners = referable ? state.providers.filter((provider) => provider.active && provider.services.includes(item.kind as 'Laboratory' | 'Imaging')) : []
+  const where = item && !item.inHouse && performAt === 'in-house' ? partners[0]?.id ?? 'in-house' : performAt
   const submit = () => {
     if (!target) { setError('Choose the patient this order is for.'); return }
     if (!title.trim()) { setError('Enter an order description.'); return }
-    addOrder(target.id, title, item.kind, item.department, priority)
+    addOrder(target.id, title, item.kind, item.department, priority, referable && where !== 'in-house' ? where : undefined)
     onClose()
   }
   return <Modal open={open} onClose={onClose} title={kind === 'Imaging' ? 'Request imaging' : kind === 'Laboratory' ? 'Request laboratory tests' : kind ? `Request ${kind.toLowerCase()}` : 'Place an order'} subtitle={target ? `${target.name} · Order will appear in the receiving worklist` : 'Order will appear in the receiving worklist'} size="md">
     <div className="form-grid">
       {!patient && <label className="form-field"><span>Patient <b>*</b></span><select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}><option value="">Select a patient…</option>{state.patients.filter((candidate) => candidate.status !== 'discharged').map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.mrn} · {candidate.location}</option>)}</select></label>}
-      <label className="form-field"><span>Order template</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(templates[index].title) }}>{templates.map((order, index) => <option key={order.title} value={index}>{order.title}</option>)}</select></label>
+      <label className="form-field"><span>Order template</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(templates[index].title); setPerformAt('in-house') }}>{templates.map((order, index) => <option key={`${order.kind}-${order.title}`} value={index}>{order.title}</option>)}</select></label>
       <label className="form-field"><span>Order description <b>*</b></span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <div className="order-meta"><span><b>Destination</b>{item.kind === 'Blood bank' ? 'Blood bank' : item.kind === 'Physiotherapy' ? 'Physiotherapy' : item.kind === 'Nutrition' ? 'Nutrition and dietetics' : item.department === 'radiology' ? 'Radiology & Imaging' : item.department === 'laboratory' ? 'Clinical Laboratory' : 'Pharmacy'}</span><span><b>Type</b>{item.kind}</span></div>
+      {referable && <label className="form-field"><span>Where it is done</span><select value={where} onChange={(event) => setPerformAt(event.target.value)}>{item.inHouse && <option value="in-house">In-house {item.kind === 'Imaging' ? 'radiology' : 'laboratory'}</option>}{partners.map((provider) => <option key={provider.id} value={provider.id}>Refer to {provider.name}</option>)}</select>{!item.inHouse && <small className="muted-text">Not available in-house — choose a referral partner.</small>}</label>}
       <div className="form-field"><span>Priority</span><div className="priority-control">{(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button type="button" key={value} aria-pressed={priority === value} className={priority === value ? `active ${value}` : ''} onClick={() => setPriority(value)}>{value}</button>)}</div></div>
     </div>
     {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
@@ -211,7 +220,7 @@ export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient
 }
 
 const locationNames: Record<DepartmentId, string> = {
-  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03',
+  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05', ophthalmology: 'Eye clinic · Room 2'
 }
 
 export function TransferModal({ patient, open, onClose }: { patient: Patient; open: boolean; onClose: () => void }) {
@@ -219,12 +228,12 @@ export function TransferModal({ patient, open, onClose }: { patient: Patient; op
   const destinations = state.departments.filter((department) => department.id !== patient.department)
   const [to, setTo] = useState<DepartmentId>('ward')
   const [location, setLocation] = useState(locationNames.ward)
-  useEffect(() => { if (open) { const first = patient.department === 'ward' ? 'cardiology' : 'ward'; setTo(first); setLocation(locationNames[first]) } }, [open, patient.department])
+  useEffect(() => { if (open) { const first = patient.department === 'ward' ? 'cardiology' : 'ward'; setTo(first); setLocation(locationNames[first] ?? '') } }, [open, patient.department])
   const destination = destinations.find((department) => department.id === to)
   const full = destination ? destination.occupied >= destination.capacity : true
   return <Modal open={open} onClose={onClose} title="Coordinate patient transfer" subtitle={`${patient.name} · From ${patient.location}`} size="md">
     <div className="form-grid">
-      <label className="form-field"><span>Destination department</span><select value={to} onChange={(event) => { const value = event.target.value as DepartmentId; setTo(value); setLocation(locationNames[value]) }}>{destinations.map((department) => <option key={department.id} value={department.id} disabled={department.occupied >= department.capacity}>{department.name} — {department.capacity - department.occupied} spaces</option>)}</select></label>
+      <label className="form-field"><span>Destination department</span><select value={to} onChange={(event) => { const value = event.target.value as DepartmentId; setTo(value); setLocation(locationNames[value] ?? '') }}>{destinations.map((department) => <option key={department.id} value={department.id} disabled={department.occupied >= department.capacity}>{department.name} — {department.capacity - department.occupied} spaces</option>)}</select></label>
       <label className="form-field"><span>Bed / location</span><input value={location} onChange={(event) => setLocation(event.target.value)} /></label>
     </div>
     {destination && <div className={`capacity-banner ${full ? 'full' : ''}`}><BedDouble size={21} /><div><b>{destination.name}</b><span>{destination.occupied}/{destination.capacity} occupied · {destination.onCall} on call</span></div><strong>{Math.round(destination.occupied / destination.capacity * 100)}%</strong></div>}
@@ -233,8 +242,9 @@ export function TransferModal({ patient, open, onClose }: { patient: Patient; op
   </Modal>
 }
 
-export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; open: boolean; onClose: () => void }) {
-  const { state, advanceOrder } = useHospital()
+export function ResultModal({ order: initial, open, onClose }: { order: ClinicalOrder; open: boolean; onClose: () => void }) {
+  const { state, advanceOrder, currentRole } = useHospital()
+  const order = state.orders.find((item) => item.id === initial.id) ?? initial
   const patient = state.patients.find((item) => item.id === order.patientId)
   const [result, setResult] = useState(order.result ?? '')
   const [error, setError] = useState('')
@@ -242,9 +252,11 @@ export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; op
   return <Modal open={open} onClose={onClose} title="Release diagnostic result" subtitle={`${order.id} · ${order.title}`} size="md">
     <div className="context-banner"><FileCheck2 size={21} /><div><b>{patient?.name} · {patient?.mrn}</b><span>{order.priority} priority · Ordered by {order.createdBy}</span></div></div>
     <label className="form-field"><span>Verified findings / report <b>*</b></span><textarea autoFocus rows={7} value={result} onChange={(event) => { setResult(event.target.value); setError('') }} placeholder="Enter the verified result, key values and any comparison or clinical caveat…" /></label>
+    {order.kind === 'Imaging' && <div className="report-images"><div><b>Images</b><span>{order.images?.length ? `${order.images.length} attached — clinicians see them with the report` : 'Attach key images so the requesting team can see them with the report.'}</span></div>{canAttachImages(order, currentRole) && <AttachImagesButton order={order} />}</div>}
+    {order.kind === 'Imaging' && <ImageStrip order={order} />}
     <div className="handoff-note"><Info size={17} /><span>{order.kind === 'Laboratory' ? 'The result goes to “Awaiting verification” until a senior scientist or pathologist verifies it.' : 'Releasing this report makes it visible in the patient chart and the ordering clinician’s dashboard.'}</span></div>
     {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (result.trim().length < 8) { setError('Enter a verified result before releasing.'); return } advanceOrder(order.id, result, order.kind === 'Laboratory' ? 3 : ORDER_STAGES[order.kind].length - 1); onClose() }}>Verify & release<FileCheck2 size={17} /></Button></div>
+    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (result.trim().length < 8) { setError('Enter a verified result before releasing.'); return } advanceOrder(order.id, result, order.kind === 'Laboratory' && !order.externalProviderId ? 3 : stagesFor(order).length - 1); onClose() }}>Verify & release<FileCheck2 size={17} /></Button></div>
   </Modal>
 }
 

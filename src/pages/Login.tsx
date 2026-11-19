@@ -2,12 +2,11 @@ import { useState, type CSSProperties, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, Check, Eye, EyeOff, LockKeyhole } from 'lucide-react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Brand, Button, DepartmentIcon } from '../components/ui'
-import { departmentSeed, roleProfiles } from '../data'
+import { Brand, Button, DepartmentIcon, Modal } from '../components/ui'
+import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import type { DepartmentId, RoleId } from '../types'
 
-const clinicalDepartments: DepartmentId[] = ['emergency', 'pediatrics', 'surgery', 'obgyn', 'internal-medicine', 'ent', 'dermatology', 'cardiology', 'neurology', 'icu', 'ward']
 const diagnosticDepartments: DepartmentId[] = ['radiology', 'laboratory']
 const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator']
 
@@ -15,7 +14,8 @@ const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'dia
 const ECG = 'M0 60 H78 L90 60 L98 26 L106 94 L114 42 L122 60 H198 L210 60 L218 26 L226 94 L234 42 L242 60 H318 L330 60 L338 26 L346 94 L354 42 L362 60 H438 L450 60 L458 26 L466 94 L474 42 L482 60 H600'
 
 export default function Login() {
-  const { state, currentRole, login } = useHospital()
+  const { state, currentRole, login, signInBlock, requestAccess } = useHospital()
+  const [requesting, setRequesting] = useState(false)
   const navigate = useNavigate()
   const [selected, setSelected] = useState<RoleId>('physician')
   const [department, setDepartment] = useState<DepartmentId>('emergency')
@@ -25,7 +25,8 @@ export default function Login() {
   const [error, setError] = useState('')
   const profile = roleProfiles[selected]
   const canChooseDepartment = ['physician', 'nurse', 'diagnostics'].includes(selected)
-  const options = selected === 'diagnostics' ? diagnosticDepartments : clinicalDepartments
+  const live = state.departments.filter((item) => item.active !== false)
+  const options = selected === 'diagnostics' ? diagnosticDepartments.filter((id) => live.some((item) => item.id === id)) : live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
 
   if (currentRole) return <Navigate to={ROLE_HOME[currentRole]} replace />
 
@@ -33,6 +34,8 @@ export default function Login() {
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (accessKey.trim().toUpperCase() !== 'NORTHSTAR') { setError('Use the demo access key NORTHSTAR to sign in.'); return }
+    const blocked = signInBlock(selected)
+    if (blocked) { setError(blocked); return }
     login(selected, remember, canChooseDepartment ? department : undefined)
     navigate(ROLE_HOME[selected])
   }
@@ -42,7 +45,7 @@ export default function Login() {
   return (
     <main className="login-page">
       <section className="login-story-panel">
-        <Brand />
+        <Brand name={state.settings.name} tagline={`${state.settings.type} · ${state.settings.tagline}`} />
         <div>
           <svg viewBox="0 0 600 120" className="ecg" aria-hidden="true">
             <path d={ECG} fill="none" className="ecg-base" strokeWidth="2" />
@@ -56,7 +59,7 @@ export default function Login() {
             <div><b>{ROLE_ORDER.length}</b>role workspaces</div>
           </div>
         </div>
-        <small>Synthetic demonstration data only · Northstar University Hospital</small>
+        <small>Synthetic demonstration data only · {state.settings.name}{state.settings.city ? `, ${state.settings.city}` : ''}</small>
       </section>
 
       <section className="login-access-panel">
@@ -84,7 +87,7 @@ export default function Login() {
               <div className="department-picker">
                 <DepartmentIcon id={department} size={16} />
                 <select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>
-                  {options.map((id) => <option key={id} value={id}>{departmentSeed.find((item) => item.id === id)?.name}</option>)}
+                  {options.map((id) => <option key={id} value={id}>{state.departments.find((item) => item.id === id)?.name}</option>)}
                 </select>
               </div>
             </label>
@@ -100,8 +103,32 @@ export default function Login() {
           {error && <p className="form-error" role="alert">{error}</p>}
           <label className="remember-row"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />Remember this device</label>
           <Button type="submit" size="lg" className="login-submit">Sign in as {profile.name}<ArrowRight size={18} /></Button>
+          <p className="login-lede">New to {state.settings.name}? <button type="button" className="link-button" onClick={() => setRequesting(true)}>Request access</button> — an administrator approves it and sets your access.</p>
         </form>
+        {requesting && <RequestAccessModal onClose={() => setRequesting(false)} onSubmit={(input) => { requestAccess(input); setRequesting(false) }} />}
       </section>
     </main>
+  )
+}
+
+function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void }) {
+  const { state } = useHospital()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [roleId, setRoleId] = useState<RoleId>('nurse')
+  const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
+  const [specialty, setSpecialty] = useState('')
+  const valid = name.trim().split(/\s+/).length >= 2 && /.+@.+\..+/.test(email)
+  return (
+    <Modal open onClose={onClose} title="Request access" subtitle={`An administrator at ${state.settings.name} will review your request`} size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="form-field"><span>Work email <b>*</b></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label className="form-field"><span>Profession</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{ROLE_ORDER.filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="form-field span-2"><span>Specialty, unit or licence number</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
+      </div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={() => onSubmit({ name, roleId, department, specialty, email })}>Send request</Button></div>
+    </Modal>
   )
 }

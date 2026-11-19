@@ -43,6 +43,17 @@ export function useTheme() {
   return { theme, cycle }
 }
 
+/** Department background animation on/off. */
+export function useAmbientPref() {
+  const [on, setOn] = useState(() => readPref<string>('northstar-ambient', 'on') === 'on')
+  useEffect(() => {
+    writePref('northstar-ambient', on ? 'on' : 'off')
+    if (on) document.documentElement.removeAttribute('data-ambient-off')
+    else document.documentElement.setAttribute('data-ambient-off', '')
+  }, [on])
+  return [on, setOn] as const
+}
+
 /** Alert sound preference for emergency codes and pages. */
 export function useSoundPref() {
   const [on, setOn] = useState(() => readPref<string>('northstar-sound', 'off') === 'on')
@@ -67,4 +78,21 @@ export function beep(count = 3) {
       osc.stop(audio.currentTime + i * 0.35 + 0.2)
     }
   } catch { /* audio unavailable */ }
+}
+
+/**
+ * Administrators don't see patient identities: replaces patient names with
+ * their MRN in free text (activity, audit) and returns a display label.
+ */
+export function useRedact() {
+  const { state, currentRole } = useHospital()
+  return useMemo(() => {
+    const hide = currentRole === 'administrator'
+    const patients = state.patients
+    return {
+      hide,
+      text: (value: string) => hide ? patients.reduce((out, patient) => out.split(patient.name).join(patient.mrn), value) : value,
+      name: (patient: Patient) => hide ? `Patient ${patient.mrn}` : patient.name,
+    }
+  }, [state.patients, currentRole])
 }

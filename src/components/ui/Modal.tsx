@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 interface ModalProps {
@@ -9,6 +10,9 @@ interface ModalProps {
   children: ReactNode
   size?: 'sm' | 'md' | 'lg' | 'xl'
 }
+
+/** Open dialogs, topmost last: only the top one answers Escape and traps Tab. */
+const stack: string[] = []
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
@@ -28,8 +32,10 @@ export function Modal({ open, onClose, title, subtitle, children, size = 'md' }:
     const first = content?.querySelector<HTMLElement>('input, select, textarea')
     ;(first ?? content)?.focus()
 
+    stack.push(titleId)
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.stopPropagation(); onCloseRef.current() }
+      if (stack[stack.length - 1] !== titleId) return
+      if (event.key === 'Escape') { event.stopPropagation(); onCloseRef.current(); return }
       if (event.key !== 'Tab' || !content) return
       const focusable = content.querySelectorAll<HTMLElement>(FOCUSABLE)
       if (!focusable.length) return
@@ -38,17 +44,21 @@ export function Modal({ open, onClose, title, subtitle, children, size = 'md' }:
       if (event.shiftKey && document.activeElement === firstEl) { event.preventDefault(); lastEl.focus() }
       else if (!event.shiftKey && document.activeElement === lastEl) { event.preventDefault(); firstEl.focus() }
     }
-    document.addEventListener('keydown', handleKeyDown)
+    // Capture on window so the dialog handles keys before page-level shortcuts and the record popup.
+    window.addEventListener('keydown', handleKeyDown, true)
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keydown', handleKeyDown, true)
+      const at = stack.lastIndexOf(titleId)
+      if (at >= 0) stack.splice(at, 1)
       document.body.style.overflow = overflow
       previous?.focus?.()
     }
-  }, [open])
+  }, [open, titleId])
 
   if (!open) return null
 
-  return (
+  // Portal to <body> so frosted-glass ancestors (backdrop-filter) can't trap the fixed overlay.
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div ref={contentRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`modal modal-${size}`}>
         <div className="modal-header">
@@ -60,6 +70,7 @@ export function Modal({ open, onClose, title, subtitle, children, size = 'md' }:
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

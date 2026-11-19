@@ -1,93 +1,353 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Building2, Pencil, Plus, ShieldCheck, UserPlus, X } from 'lucide-react'
-import { Button, Chip, DepartmentIcon, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
+import { AlertTriangle, Building2, Check, FlaskConical, Hospital, KeyRound, LayoutGrid, Plus, RotateCcw, Save, ScanLine, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
-import { useHospital } from '../store/HospitalStore'
-import type { DepartmentId, RoleId, StaffMember } from '../types'
+import { formatCurrency } from '../lib/format'
+import { ALL_NAV, CORE_MODULES } from '../lib/nav'
+import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
+import type { Department, DepartmentId, ExternalProvider, FacilitySettings, InvestigationItem, Permission, RoleId, StaffMember } from '../types'
 
-type View = 'accounts' | 'departments'
-const SHIFTS: StaffMember['shift'][] = ['Day · 07:00–15:00', 'Evening · 15:00–23:00', 'Night · 23:00–07:00']
+type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
 
-/** Staff accounts and departments/units administration (administrator only). */
+const PERMISSION_LABELS: Record<Permission, string> = {
+  triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
+  refer: 'Refer to specialists', transfer: 'Transfer and admit', discharge: 'Discharge patients', cosign: 'Co-sign trainee notes', results: 'Report lab and imaging results',
+  administer: 'Give medicines', dispense: 'Verify and dispense medicines', beds: 'Manage beds', theatre: 'Run theatre lists', anaesthesia: 'Anaesthesia records',
+  services: 'Physio, nutrition and blood bank', billing: 'Billing and payments', manage: 'Facility administration',
+}
+const PERMISSION_GROUPS: Array<[string, Permission[]]> = [
+  ['Clinical', ['triage', 'register', 'vitals', 'notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
+  ['Services', ['results', 'administer', 'dispense', 'beds', 'theatre', 'anaesthesia', 'services']],
+  ['Office', ['billing', 'manage']],
+]
+const CURRENCIES: FacilitySettings['currency'][] = ['ETB', 'USD', 'EUR', 'GBP', 'KES']
+const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
 export default function Admin() {
-  const { state, can, createStaff, setStaffSuspended, setDepartmentServices } = useHospital()
-  const [view, setView] = useState<View>('accounts')
-  const [name, setName] = useState('')
-  const [roleId, setRoleId] = useState<RoleId>('nurse')
-  const [department, setDepartment] = useState<DepartmentId>('emergency')
-  const [specialty, setSpecialty] = useState('')
-  const [shift, setShift] = useState<StaffMember['shift']>(SHIFTS[0])
-  const [error, setError] = useState('')
-  const [unitDraft, setUnitDraft] = useState<Record<string, string>>({})
-
-  if (!can('manage')) return <Panel><p className="table-footnote">Only administrators can manage staff accounts.</p></Panel>
-
-  const create = () => {
-    if (name.trim().split(/\s+/).length < 2 || specialty.trim().length < 3) { setError('Enter the full name and specialty or unit.'); return }
-    createStaff({ name: name.trim(), roleId, role: roleProfiles[roleId].title, department, specialty: specialty.trim(), shift })
-    setName(''); setSpecialty(''); setError('')
-  }
+  const { state, can } = useHospital()
+  const [view, setView] = useState<View>('facility')
+  if (!can('manage')) return <Panel><p className="table-footnote">Only administrators can change facility settings.</p></Panel>
+  const pending = state.staff.filter((member) => member.status === 'Pending approval').length
 
   return (
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-      <PageHeader eyebrow="Administration" title="Staff accounts" description="Create accounts, suspend access and maintain each department’s units. Every change is written to the audit log." />
-      <Tabs<View> label="Administration" value={view} onChange={setView} options={[{ value: 'accounts', label: 'Accounts', count: state.staff.length }, { value: 'departments', label: 'Departments and units', count: state.departments.length }]} />
-
-      {view === 'accounts' && <>
-        <Panel>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Licence</th><th>Status</th><th aria-label="Actions" /></tr></thead>
-              <tbody>
-                {state.staff.map((member) => (
-                  <tr key={member.id}>
-                    <td><PersonCell name={member.name} detail={member.email} /></td>
-                    <td>{member.role}{member.roleId && <small>{roleProfiles[member.roleId].shortTitle} workspace</small>}</td>
-                    <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span><small>{member.specialty}</small></td>
-                    <td>{member.license === 'Not yet verified' ? <Chip tone="warning">Not yet verified</Chip> : <span className="mono">{member.license}</span>}</td>
-                    <td>{member.suspended ? <Chip tone="danger">Suspended</Chip> : <Chip tone="success">Active</Chip>}</td>
-                    <td className="row-actions"><Button size="sm" variant={member.suspended ? 'primary' : 'ghost'} onClick={() => setStaffSuspended(member.id, !member.suspended)}>{member.suspended ? 'Reactivate' : 'Suspend'}</Button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-        <Panel title="Create account">
-          <div className="form-grid form-grid-3" style={{ padding: '6px 18px 0' }}>
-            <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => { setName(event.target.value); setError('') }} /></label>
-            <label className="form-field"><span>Workspace role</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
-            <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>{state.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="form-field"><span>Specialty or unit <b>*</b></span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
-            <label className="form-field"><span>Shift</span><select value={shift} onChange={(event) => setShift(event.target.value as StaffMember['shift'])}>{SHIFTS.map((value) => <option key={value}>{value}</option>)}</select></label>
-          </div>
-          {error && <div className="inline-error" role="alert" style={{ margin: '10px 18px 0' }}><AlertTriangle size={16} />{error}</div>}
-          <p className="table-footnote" style={{ border: 0, background: 'none' }}><ShieldCheck size={13} /> New accounts start off duty with licence “Not yet verified” until credentials are checked.</p>
-          <div className="panel-actions" style={{ padding: '0 18px 16px' }}><Button icon={UserPlus} onClick={create}>Create account</Button></div>
-        </Panel>
-      </>}
-
-      {view === 'departments' && (
-        <Panel>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead><tr><th>Department</th><th>Units</th><th className="num">Active patients</th><th>Add a unit</th></tr></thead>
-              <tbody>
-                {state.departments.map((item) => (
-                  <tr key={item.id}>
-                    <td><span className="inline-icon"><DepartmentIcon id={item.id} size={15} /><b>{item.name}</b></span><small>{item.zone} · lead {item.lead}</small></td>
-                    <td className="wrap">{item.services.map((service) => <span key={service} className="chip unit-chip">{service}<button type="button" aria-label={`Remove ${service}`} onClick={() => setDepartmentServices(item.id, item.services.filter((value) => value !== service))}><X size={11} /></button></span>)}</td>
-                    <td className="num">{state.patients.filter((patient) => patient.department === item.id && patient.status !== 'discharged').length}</td>
-                    <td><div className="ddx-add" style={{ marginTop: 0 }}><input aria-label={`New unit for ${item.name}`} placeholder="Unit name" value={unitDraft[item.id] ?? ''} onChange={(event) => setUnitDraft({ ...unitDraft, [item.id]: event.target.value })} /><Button size="sm" variant="secondary" icon={Plus} disabled={!(unitDraft[item.id] ?? '').trim()} onClick={() => { setDepartmentServices(item.id, [...item.services, unitDraft[item.id].trim()]); setUnitDraft({ ...unitDraft, [item.id]: '' }) }}>Add</Button></div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="table-footnote"><Building2 size={13} /> Units appear on each department’s page. <Pencil size={13} /> Remove a unit with its ×.</p>
-        </Panel>
-      )}
+      <PageHeader eyebrow="Administration" title={`Set up ${state.settings.name}`} description="Customise the system for your hospital or clinic: profile, people and access, departments, investigations, referral partners and modules. Every change is recorded in the audit log." />
+      <Tabs<View> label="Administration" value={view} onChange={setView} options={[
+        { value: 'facility', label: 'Facility' },
+        { value: 'users', label: 'Users & access', count: pending || undefined },
+        { value: 'departments', label: 'Departments', count: state.departments.filter((item) => item.active !== false).length },
+        { value: 'investigations', label: 'Investigations', count: state.investigations.length },
+        { value: 'providers', label: 'Referral partners', count: state.providers.filter((item) => item.active).length },
+        { value: 'modules', label: 'Modules' },
+      ]} />
+      {view === 'facility' && <FacilityTab />}
+      {view === 'users' && <UsersTab />}
+      {view === 'departments' && <DepartmentsTab />}
+      {view === 'investigations' && <InvestigationsTab />}
+      {view === 'providers' && <ProvidersTab />}
+      {view === 'modules' && <ModulesTab />}
     </motion.div>
+  )
+}
+
+/* ---------------- Facility ---------------- */
+
+function FacilityTab() {
+  const { state, updateSettings } = useHospital()
+  const [form, setForm] = useState(state.settings)
+  const set = <K extends keyof FacilitySettings>(key: K, value: FacilitySettings[K]) => setForm({ ...form, [key]: value })
+  const dirty = JSON.stringify(form) !== JSON.stringify(state.settings)
+  return (
+    <Panel title="Facility profile" action={<Hospital size={17} className="muted-icon" />}>
+      <div className="form-grid form-grid-3 admin-form">
+        <label className="form-field"><span>Facility name <b>*</b></span><input value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
+        <label className="form-field"><span>Type</span><select value={form.type} onChange={(event) => set('type', event.target.value as FacilitySettings['type'])}>{['Hospital', 'Clinic', 'Health centre'].map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label className="form-field"><span>Currency</span><select value={form.currency} onChange={(event) => set('currency', event.target.value as FacilitySettings['currency'])}>{CURRENCIES.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label className="form-field"><span>City</span><input value={form.city} onChange={(event) => set('city', event.target.value)} /></label>
+        <label className="form-field"><span>Country</span><input value={form.country} onChange={(event) => set('country', event.target.value)} /></label>
+        <label className="form-field"><span>Tagline</span><input value={form.tagline} onChange={(event) => set('tagline', event.target.value)} /></label>
+        <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(event) => set('phone', event.target.value)} placeholder="+251 …" /></label>
+        <label className="form-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => set('email', event.target.value)} /></label>
+      </div>
+      <p className="table-footnote admin-note">The name appears in the sidebar, page titles and printed summaries. Prices across billing and pharmacy are shown in the chosen currency.</p>
+      <div className="panel-actions admin-actions"><Button variant="ghost" icon={RotateCcw} disabled={!dirty} onClick={() => setForm(state.settings)}>Undo changes</Button><Button icon={Save} disabled={!dirty || !form.name.trim()} onClick={() => updateSettings({ ...form, name: form.name.trim() })}>Save profile</Button></div>
+    </Panel>
+  )
+}
+
+/* ---------------- Users & access ---------------- */
+
+function UsersTab() {
+  const { state, approveStaff, setStaffSuspended, setStaffPermissions, createStaff } = useHospital()
+  const [editing, setEditing] = useState<StaffMember | null>(null)
+  const [adding, setAdding] = useState(false)
+  const pending = state.staff.filter((member) => member.status === 'Pending approval')
+  const accounts = state.staff.filter((member) => member.status !== 'Pending approval')
+  const accessLabel = (member: StaffMember) => {
+    if (member.suspended) return <Chip tone="danger">Suspended</Chip>
+    if (!member.roleId) return <Chip tone="neutral">Directory only</Chip>
+    return member.permissions ? <Chip tone="warning">Custom · {member.permissions.length} permissions</Chip> : <Chip tone="success">Standard {roleProfiles[member.roleId].shortTitle.toLowerCase()}</Chip>
+  }
+
+  return <>
+    <Panel title="Access requests" action={<Chip tone={pending.length ? 'warning' : 'neutral'}>{pending.length} waiting</Chip>}>
+      {pending.length === 0 && <p className="table-footnote admin-note">No one is waiting. New staff request access from the sign-in screen, or you can add them below.</p>}
+      <div className="card-grid admin-cards">
+        {pending.map((member) => (
+          <article key={member.id} className="work-card priority-urgent">
+            <header><PersonCell name={member.name} detail={member.email} /></header>
+            <p className="work-card-reason">Requests <b>{member.roleId ? roleProfiles[member.roleId].title : member.role}</b> in {departmentById(state.departments, member.department).name}. {member.specialty}.</p>
+            <footer><small>Licence: {member.license}</small><div><Button size="sm" variant="ghost" icon={X} onClick={() => setStaffSuspended(member.id, true)}>Decline</Button><Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setEditing(member)}>Set access</Button><Button size="sm" icon={UserCheck} onClick={() => approveStaff(member.id)}>Approve</Button></div></footer>
+          </article>
+        ))}
+      </div>
+    </Panel>
+
+    <Panel title="Accounts and access levels" action={<Button size="sm" icon={UserPlus} onClick={() => setAdding(true)}>Add user</Button>}>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>Name</th><th>Workspace</th><th>Department</th><th>Access</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {accounts.map((member) => (
+              <tr key={member.id}>
+                <td><PersonCell name={member.name} detail={member.email} /></td>
+                <td>{member.roleId ? roleProfiles[member.roleId].title : member.role}</td>
+                <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
+                <td>{accessLabel(member)}</td>
+                <td className="row-actions">
+                  {member.roleId && member.roleId !== 'administrator' && <Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setEditing(member)}>Access</Button>}
+                  {member.roleId !== 'administrator' && <Button size="sm" variant={member.suspended ? 'primary' : 'ghost'} onClick={() => setStaffSuspended(member.id, !member.suspended)}>{member.suspended ? 'Reactivate' : 'Suspend'}</Button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="table-footnote">Suspended and unapproved accounts cannot sign in. Administrators never have access to patient records.</p>
+    </Panel>
+
+    {editing && <AccessModal member={editing} onClose={() => setEditing(null)} onSave={(list) => { setStaffPermissions(editing.id, list); setEditing(null) }} />}
+    {adding && <AddUserModal onClose={() => setAdding(false)} onSave={(input) => { createStaff(input); setAdding(false) }} />}
+  </>
+}
+
+function AccessModal({ member, onClose, onSave }: { member: StaffMember; onClose: () => void; onSave: (permissions: Permission[]) => void }) {
+  const defaults = member.roleId ? ROLE_PERMISSIONS[member.roleId] : []
+  const [list, setList] = useState<Permission[]>(member.permissions ?? defaults)
+  const toggle = (permission: Permission) => setList((current) => current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission])
+  return (
+    <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.roleId ? roleProfiles[member.roleId].title : member.role} · start from the role’s standard access, then adjust`} size="md">
+      {PERMISSION_GROUPS.map(([group, permissions]) => (
+        <div key={group} className="perm-group">
+          <span className="detail-heading">{group}</span>
+          <div className="perm-grid">{permissions.filter((permission) => permission !== 'manage').map((permission) => (
+            <label key={permission} className={`perm ${list.includes(permission) ? 'on' : ''}`}><input type="checkbox" checked={list.includes(permission)} onChange={() => toggle(permission)} />{PERMISSION_LABELS[permission]}{defaults.includes(permission) && <small>standard</small>}</label>
+          ))}</div>
+        </div>
+      ))}
+      <div className="modal-footer"><Button variant="ghost" icon={RotateCcw} onClick={() => setList(defaults)}>Reset to standard</Button><div className="footer-actions"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Check} onClick={() => onSave(list)}>Save access</Button></div></div>
+    </Modal>
+  )
+}
+
+function AddUserModal({ onClose, onSave }: { onClose: () => void; onSave: (input: Omit<StaffMember, 'id' | 'onDuty' | 'pager' | 'email' | 'phone' | 'license'>) => void }) {
+  const { state } = useHospital()
+  const [name, setName] = useState('')
+  const [roleId, setRoleId] = useState<RoleId>('nurse')
+  const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
+  const [specialty, setSpecialty] = useState('')
+  const valid = name.trim().split(/\s+/).length >= 2
+  return (
+    <Modal open onClose={onClose} title="Add a user" subtitle="Accounts you add are approved straight away" size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="form-field"><span>Specialty or unit</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
+      </div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={UserPlus} disabled={!valid} onClick={() => onSave({ name: name.trim(), roleId, role: roleProfiles[roleId].title, department, specialty: specialty.trim() || roleProfiles[roleId].title, shift: 'Day · 07:00–15:00', status: 'Active' })}>Add user</Button></div>
+    </Modal>
+  )
+}
+
+/* ---------------- Departments ---------------- */
+
+const blankDepartment = (): Department => ({ id: '', name: '', shortName: '', lead: '', onCall: '', phone: '', capacity: 10, occupied: 0, targetWait: 30, averageWait: 0, color: '#2dd4bf', description: '', services: [], zone: '', active: true })
+
+function DepartmentsTab() {
+  const { state, saveDepartment, removeDepartment } = useHospital()
+  const [editing, setEditing] = useState<Department | null>(null)
+  const [confirm, setConfirm] = useState<Department | null>(null)
+  const patientsIn = (id: string) => state.patients.filter((patient) => patient.department === id && patient.status !== 'discharged').length
+  return <>
+    <Panel title="Departments and units" action={<Button size="sm" icon={Plus} onClick={() => setEditing(blankDepartment())}>Add department</Button>}>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>Department</th><th>Units</th><th className="num">Beds</th><th className="num">Active patients</th><th>Status</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {state.departments.map((item) => (
+              <tr key={item.id} className={item.active === false ? 'muted-row' : ''}>
+                <td><span className="inline-icon"><DepartmentIcon id={item.id} size={15} /><b>{item.name}</b></span><small>{[item.zone, item.lead && `lead ${item.lead}`].filter(Boolean).join(' · ')}</small></td>
+                <td className="wrap">{item.services.map((service) => <Chip key={service} tone="neutral">{service}</Chip>)}</td>
+                <td className="num">{item.capacity}</td>
+                <td className="num">{patientsIn(item.id)}</td>
+                <td>{item.active === false ? <Chip tone="neutral">Inactive</Chip> : <Chip tone="success">Active</Chip>}</td>
+                <td className="row-actions">
+                  <Button size="sm" variant="secondary" onClick={() => setEditing(item)}>Edit</Button>
+                  {item.active === false ? <Button size="sm" onClick={() => saveDepartment({ ...item, active: true })}>Reactivate</Button> : <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setConfirm(item)}>Remove</Button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="table-footnote">A department with patients, staff or wards is deactivated rather than deleted, so records stay intact.</p>
+    </Panel>
+    {editing && <DepartmentModal department={editing} onClose={() => setEditing(null)} onSave={(department) => { saveDepartment(department); setEditing(null) }} />}
+    {confirm && (
+      <Modal open onClose={() => setConfirm(null)} title={`Remove ${confirm.name}?`} subtitle="It disappears from menus, orders and sign-in choices" size="sm">
+        <div className="confirm-copy warning"><span><AlertTriangle size={22} /></span><p>{patientsIn(confirm.id) ? `${patientsIn(confirm.id)} patients are still active here, so it will be deactivated instead.` : 'If staff or wards still belong to it, it will be deactivated instead of deleted.'}</p></div>
+        <div className="modal-footer"><Button variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button><Button variant="danger" icon={Trash2} onClick={() => { removeDepartment(confirm.id); setConfirm(null) }}>Remove</Button></div>
+      </Modal>
+    )}
+  </>
+}
+
+function DepartmentModal({ department, onClose, onSave }: { department: Department; onClose: () => void; onSave: (department: Department) => void }) {
+  const { state } = useHospital()
+  const isNew = !department.id
+  const [form, setForm] = useState(department)
+  const [units, setUnits] = useState(department.services.join(', '))
+  const set = <K extends keyof Department>(key: K, value: Department[K]) => setForm({ ...form, [key]: value })
+  const id = isNew ? slug(form.name) : form.id
+  const clash = isNew && state.departments.some((item) => item.id === id)
+  const valid = form.name.trim().length > 2 && !clash && form.capacity > 0
+  return (
+    <Modal open onClose={onClose} title={isNew ? 'Add a department' : `Edit ${department.name}`} subtitle="Departments organise staff, beds, referrals and orders" size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field"><span>Name <b>*</b></span><input value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="e.g. Ophthalmology" /></label>
+        <label className="form-field"><span>Short name</span><input value={form.shortName} onChange={(event) => set('shortName', event.target.value)} placeholder="e.g. Eye" /></label>
+        <label className="form-field"><span>Clinical lead</span><input value={form.lead} onChange={(event) => set('lead', event.target.value)} /></label>
+        <label className="form-field"><span>Location</span><input value={form.zone} onChange={(event) => set('zone', event.target.value)} placeholder="e.g. Level 2 · East" /></label>
+        <label className="form-field"><span>Beds or spaces</span><input type="number" min={1} value={form.capacity} onChange={(event) => set('capacity', Number(event.target.value))} /></label>
+        <label className="form-field"><span>Extension</span><input value={form.phone} onChange={(event) => set('phone', event.target.value)} /></label>
+        <label className="form-field span-2"><span>Units <small className="muted-text">comma separated</small></span><input value={units} onChange={(event) => setUnits(event.target.value)} placeholder="Outpatient clinic, Procedure room" /></label>
+        <label className="form-field"><span>Colour</span><input type="color" value={form.color} onChange={(event) => set('color', event.target.value)} /></label>
+      </div>
+      {clash && <div className="inline-error" role="alert"><AlertTriangle size={16} />A department with this name already exists.</div>}
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} disabled={!valid} onClick={() => onSave({ ...form, id, name: form.name.trim(), shortName: form.shortName.trim() || form.name.trim(), description: form.description || form.name.trim(), services: units.split(',').map((unit) => unit.trim()).filter(Boolean) })}>{isNew ? 'Add department' : 'Save'}</Button></div>
+    </Modal>
+  )
+}
+
+/* ---------------- Investigations ---------------- */
+
+function InvestigationsTab() {
+  const { state, saveInvestigation, removeInvestigation } = useHospital()
+  const [kind, setKind] = useState<InvestigationItem['kind']>('Laboratory')
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+  const [inHouse, setInHouse] = useState(true)
+  const list = state.investigations.filter((item) => item.kind === kind)
+  const add = () => {
+    if (!name.trim()) return
+    saveInvestigation({ id: `${kind === 'Imaging' ? 'I' : 'L'}-${Date.now().toString(36)}`, name: name.trim(), kind, inHouse, price: Number(price) || 0, active: true })
+    setName(''); setPrice('')
+  }
+  return (
+    <Panel title="Investigation catalogue" action={<Tabs<InvestigationItem['kind']> label="Type" value={kind} onChange={setKind} options={[{ value: 'Laboratory', label: 'Laboratory' }, { value: 'Imaging', label: 'Imaging' }]} />}>
+      <p className="table-footnote admin-note">Only active items appear when clinicians order. Items not available here are sent to a referral partner.</p>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>{kind === 'Imaging' ? 'Study' : 'Test'}</th><th>Where it is done</th><th className="num">Price</th><th>Offered</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {list.map((item) => (
+              <tr key={item.id} className={item.active ? '' : 'muted-row'}>
+                <td><span className="inline-icon">{kind === 'Imaging' ? <ScanLine size={14} /> : <FlaskConical size={14} />}<b>{item.name}</b></span></td>
+                <td><div className="segmented"><button type="button" className={item.inHouse ? 'on' : ''} onClick={() => saveInvestigation({ ...item, inHouse: true })}>In-house</button><button type="button" className={item.inHouse ? '' : 'on'} onClick={() => saveInvestigation({ ...item, inHouse: false })}>Referral partner</button></div></td>
+                <td className="num"><input className="inline-number" type="number" min={0} step="0.01" defaultValue={item.price} onBlur={(event) => Number(event.target.value) !== item.price && saveInvestigation({ ...item, price: Number(event.target.value) || 0 })} aria-label={`Price of ${item.name}`} /><small>{formatCurrency(item.price)}</small></td>
+                <td><label className="switch"><input type="checkbox" checked={item.active} onChange={() => saveInvestigation({ ...item, active: !item.active })} /><span />{item.active ? 'Yes' : 'No'}</label></td>
+                <td className="row-actions"><button type="button" className="icon-button" aria-label={`Remove ${item.name}`} onClick={() => removeInvestigation(item.id)}><Trash2 size={15} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="ddx-add admin-add">
+        <input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') add() }} placeholder={`New ${kind === 'Imaging' ? 'imaging study' : 'laboratory test'}`} aria-label="Investigation name" />
+        <input type="number" min={0} value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" aria-label="Price" style={{ maxWidth: 110 }} />
+        <label className="remember-row"><input type="checkbox" checked={inHouse} onChange={(event) => setInHouse(event.target.checked)} />Done in-house</label>
+        <Button size="sm" icon={Plus} disabled={!name.trim()} onClick={add}>Add</Button>
+      </div>
+    </Panel>
+  )
+}
+
+/* ---------------- Referral partners ---------------- */
+
+function ProvidersTab() {
+  const { state, saveProvider, removeProvider } = useHospital()
+  const [editing, setEditing] = useState<ExternalProvider | null>(null)
+  return <>
+    <Panel title="External laboratories and imaging centres" action={<Button size="sm" icon={Plus} onClick={() => setEditing({ id: '', name: '', services: ['Laboratory'], notes: '', phone: '', address: '', active: true })}>Add partner</Button>}>
+      <p className="table-footnote admin-note">Clinicians can send any investigation to an active partner, for example when the test or scanner isn’t available in-house. Please confirm each partner’s contact details before use.</p>
+      <div className="card-grid admin-cards">
+        {state.providers.map((provider) => (
+          <article key={provider.id} className={`work-card ${provider.active ? '' : 'muted-row'}`}>
+            <header><b>{provider.name}</b>{provider.active ? <Chip tone="success">Active</Chip> : <Chip tone="neutral">Inactive</Chip>}</header>
+            <p className="work-card-reason">{provider.services.map((service) => <Chip key={service} tone={service === 'Imaging' ? 'warning' : 'accent'}>{service}</Chip>)} {provider.notes}</p>
+            <p className="record-hint">{provider.address || 'Address not set'} · {provider.phone || 'Phone not set'}</p>
+            <footer><small>{state.orders.filter((order) => order.externalProviderId === provider.id).length} orders sent</small><div><Button size="sm" variant="secondary" onClick={() => setEditing(provider)}>Edit</Button>{provider.active ? <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeProvider(provider.id)}>Remove</Button> : <Button size="sm" onClick={() => saveProvider({ ...provider, active: true })}>Reactivate</Button>}</div></footer>
+          </article>
+        ))}
+      </div>
+    </Panel>
+    {editing && <ProviderModal provider={editing} onClose={() => setEditing(null)} onSave={(provider) => { saveProvider(provider); setEditing(null) }} />}
+  </>
+}
+
+function ProviderModal({ provider, onClose, onSave }: { provider: ExternalProvider; onClose: () => void; onSave: (provider: ExternalProvider) => void }) {
+  const [form, setForm] = useState(provider)
+  const toggle = (service: 'Laboratory' | 'Imaging') => setForm({ ...form, services: form.services.includes(service) ? form.services.filter((item) => item !== service) : [...form.services, service] })
+  const valid = form.name.trim().length > 2 && form.services.length > 0
+  return (
+    <Modal open onClose={onClose} title={provider.id ? `Edit ${provider.name}` : 'Add a referral partner'} subtitle="Laboratory or imaging centre that receives referred investigations" size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field span-2"><span>Name <b>*</b></span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+        <div className="form-field span-2"><span>Services</span><div className="segmented">{(['Laboratory', 'Imaging'] as const).map((service) => <button key={service} type="button" className={form.services.includes(service) ? 'on' : ''} onClick={() => toggle(service)}>{service}</button>)}</div></div>
+        <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+251 …" /></label>
+        <label className="form-field"><span>Address</span><input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Sub-city, street" /></label>
+        <label className="form-field span-2"><span>Notes</span><input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Opening hours, sample pickup, turnaround" /></label>
+      </div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} disabled={!valid} onClick={() => onSave({ ...form, id: form.id || slug(form.name), name: form.name.trim() })}>Save partner</Button></div>
+    </Modal>
+  )
+}
+
+/* ---------------- Modules ---------------- */
+
+function ModulesTab() {
+  const { state, updateSettings } = useHospital()
+  const disabled = state.settings.disabledModules
+  const toggle = (path: string) => updateSettings({ disabledModules: disabled.includes(path) ? disabled.filter((item) => item !== path) : [...disabled, path] })
+  return (
+    <Panel title="Modules" action={<LayoutGrid size={17} className="muted-icon" />}>
+      <p className="table-footnote admin-note">Switch off anything your facility doesn’t use — for example a clinic without theatres or inpatient beds. Switched-off modules disappear for everyone.</p>
+      <div className="module-grid">
+        {ALL_NAV.filter((item) => !CORE_MODULES.includes(item.to)).map((item) => {
+          const Icon = item.icon
+          const on = !disabled.includes(item.to)
+          return (
+            <label key={item.to} className={`module-tile ${on ? 'on' : ''}`}>
+              <span className="module-icon"><Icon size={18} /></span>
+              <span><b>{item.label}</b><small>{item.page}</small></span>
+              <span className="switch"><input type="checkbox" checked={on} onChange={() => toggle(item.to)} aria-label={`${item.label} ${on ? 'on' : 'off'}`} /><span /></span>
+            </label>
+          )
+        })}
+      </div>
+      <p className="table-footnote"><Building2 size={13} /> Overview, roster and pagers, codes and audit, and administration are always on.</p>
+    </Panel>
   )
 }

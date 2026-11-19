@@ -13,7 +13,9 @@ type View = 'upcoming' | 'all'
 const toLocalInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 
 export default function TelehealthView() {
-  const { state, setAppointmentStatus, setSelectedPatientId } = useHospital()
+  const { state, profile, setAppointmentStatus, setSelectedPatientId } = useHospital()
+  const isClinician = ['physician', 'consultant', 'intern'].includes(profile?.id ?? '')
+  const [mineOnly, setMineOnly] = useState(isClinician && state.appointments.some((apt) => apt.clinician === profile?.name))
   const patients = usePatients()
   const now = useNow()
   const [view, setView] = useState<View>('upcoming')
@@ -21,7 +23,7 @@ export default function TelehealthView() {
   const [status, setStatus] = useState('all')
   const [scheduling, setScheduling] = useState(false)
 
-  const sorted = [...state.appointments].sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+  const sorted = state.appointments.filter((apt) => !mineOnly || apt.clinician === profile?.name).sort((a, b) => a.startsAt.localeCompare(b.startsAt))
   const live = sorted.filter((apt) => apt.status === 'In progress')
   const upcoming = sorted.filter((apt) => apt.status === 'Scheduled')
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
@@ -79,7 +81,10 @@ export default function TelehealthView() {
         <Metric label="Completed" value={sorted.filter((apt) => apt.status === 'Completed').length} detail={`${sorted.filter((apt) => apt.status === 'Cancelled').length} cancelled`} icon={CalendarCheck} tone="teal" />
       </div>
 
+      <div className="toolbar-row">
       <Tabs<View> label="Visit views" value={view} onChange={(next) => { setView(next); setQuery(''); setStatus('all') }} options={[{ value: 'upcoming', label: 'Live & upcoming', count: live.length + upcoming.length }, { value: 'all', label: 'All visits' }]} />
+        {isClinician && <div className="segmented"><button type="button" className={mineOnly ? 'on' : ''} onClick={() => setMineOnly(true)}>My visits</button><button type="button" className={mineOnly ? '' : 'on'} onClick={() => setMineOnly(false)}>All visits</button></div>}
+      </div>
 
       {view === 'upcoming' && (
         <>

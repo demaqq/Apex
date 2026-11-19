@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Activity, AlertTriangle, ArrowRightLeft, ClipboardList, FileText, FlaskConical, HeartPulse, LogOut, MessageSquareText, Network, Pill, ScanLine, Send, Stethoscope, UserRound, type LucideIcon } from 'lucide-react'
+import { ImageStrip } from './OrderImages'
+import { makeErxCode } from '../lib/erx'
 import { news2, newsTone, prescribingWarnings } from '../lib/clinical'
 import { formatDate, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
@@ -31,8 +33,6 @@ const EXAM_NORMALS: Array<[string, string]> = [
   ['Skin', 'Skin: no rash, warm and well perfused.'],
   ['ENT', 'ENT: tympanic membranes normal, throat unremarkable.'],
 ]
-const LAB_TESTS = ['Full blood count', 'U&E and creatinine', 'CRP', 'Liver function tests', 'High-sensitivity troponin I', 'Arterial blood gas', 'Blood cultures x2', 'Lactate', 'Coagulation screen', 'Glucose', 'Urinalysis', 'Group and save']
-const IMAGING = ['Chest X-ray', 'CT head without contrast', 'CT pulmonary angiogram', 'Ultrasound abdomen', 'MRI brain', 'X-ray limb', 'Echocardiogram', 'CT abdomen and pelvis']
 
 function eventStyle(event: TimelineEvent): { icon: LucideIcon; label: string; tone: string } {
   const title = event.title.toLowerCase()
@@ -40,7 +40,7 @@ function eventStyle(event: TimelineEvent): { icon: LucideIcon; label: string; to
   if (title.startsWith('examination')) return { icon: Stethoscope, label: 'Examination', tone: 'exam' }
   if (title.startsWith('plan')) return { icon: ClipboardList, label: 'Plan', tone: 'plan' }
   if (title.startsWith('prescription')) return { icon: Pill, label: 'Medication', tone: 'order' }
-  if (title.startsWith('observations')) return { icon: HeartPulse, label: 'Vitals', tone: 'vitals' }
+  if (title.includes('observations')) return { icon: HeartPulse, label: 'Vitals', tone: 'vitals' }
   if (title.startsWith('escalated')) return { icon: AlertTriangle, label: 'Escalation', tone: 'alert' }
   switch (event.type) {
     case 'arrival': return { icon: UserRound, label: 'Arrival', tone: 'system' }
@@ -67,7 +67,9 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
   const [onOxygen, setOnOxygen] = useState(false)
   const [medId, setMedId] = useState(state.formulary[0]?.id ?? '')
   const [rx, setRx] = useState({ dose: '', frequency: '', duration: '', quantity: '1' })
+  const [takeHome, setTakeHome] = useState(patient.encounterType === 'outpatient' || patient.status === 'discharged')
   const [error, setError] = useState('')
+  const [partner, setPartner] = useState('auto')
   const threadRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const orders = useMemo(() => new Map(state.orders.map((order) => [order.id, order])), [state.orders])
@@ -79,9 +81,18 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
   const vitalsComplete = Object.values(vitals).every(Boolean)
   const preview = vitalsComplete && patient.age >= 16 ? news2({ ...vitalNumbers, gcs: 15, pain: 0 } as Vitals, onOxygen) : null
   const closed = patient.status === 'discharged'
+  const orderKind = mode === 'imaging' ? 'Imaging' : 'Laboratory'
+  const catalogue = state.investigations.filter((item) => item.active && item.kind === orderKind)
+  const partners = state.providers.filter((provider) => provider.active && provider.services.includes(orderKind))
+  /** In-house when available (and no partner chosen), otherwise the chosen or first partner. */
+  const providerFor = (title: string) => {
+    const item = catalogue.find((entry) => entry.name === title)
+    if (partner !== 'auto') return partner
+    return item && !item.inHouse ? partners[0]?.id : undefined
+  }
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' }) }, [events.length])
-  useEffect(() => { setPicked([]); setError('') }, [mode])
+  useEffect(() => { setPicked([]); setError(''); setPartner('auto') }, [mode])
 
   const appendLine = (line: string) => {
     const el = inputRef.current
@@ -98,7 +109,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
       const typed = body.split(/\n|,/).map((item) => item.trim()).filter(Boolean)
       const items = mode === 'imaging' && picked.length ? picked.map((study) => (body ? `${study} — ${body}` : study)) : [...picked, ...typed]
       if (!items.length) { setError(mode === 'labs' ? 'Pick at least one test.' : 'Pick or type a study.'); return }
-      items.forEach((title) => addOrder(patient.id, title, mode === 'labs' ? 'Laboratory' : 'Imaging', mode === 'labs' ? 'laboratory' : 'radiology', priority))
+      items.forEach((title) => addOrder(patient.id, title, mode === 'labs' ? 'Laboratory' : 'Imaging', mode === 'labs' ? 'laboratory' : 'radiology', priority, providerFor(title.split(' — ')[0])))
     } else if (mode === 'vitals') {
       if (!vitalsComplete) { setError('Enter all six observations.'); return }
       recordObservations(patient.id, { ...vitalNumbers, gcs: patient.vitals.gcs || 15, pain: patient.vitals.pain || 0 } as Vitals, onOxygen, 'Alert')
@@ -106,8 +117,9 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
       setVitals({ hr: '', rr: '', spo2: '', bpSys: '', bpDia: '', temp: '' }); setOnOxygen(false)
     } else if (mode === 'medication') {
       if (!med || !rx.dose.trim() || !rx.frequency.trim() || !rx.duration.trim()) { setError('Choose a medicine and enter dose, frequency and duration.'); return }
-      createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority: priority === 'emergent' ? 'STAT' : priority === 'urgent' ? 'Urgent' : 'Routine', diagnosis: body || undefined, items: [{ medicationId: med.id, dosage: rx.dose.trim(), frequency: rx.frequency.trim(), duration: rx.duration.trim(), quantity: Math.max(1, Number(rx.quantity) || 1) }] })
-      addNote(patient.id, `${med.name} ${rx.dose.trim()} ${rx.frequency.trim()} for ${rx.duration.trim()}${body ? ` — ${body}` : ''}. Sent to pharmacy.`, 'Prescription')
+      const code = takeHome ? makeErxCode() : undefined
+      createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority: priority === 'emergent' ? 'STAT' : priority === 'urgent' ? 'Urgent' : 'Routine', diagnosis: body || undefined, items: [{ medicationId: med.id, dosage: rx.dose.trim(), frequency: rx.frequency.trim(), duration: rx.duration.trim(), quantity: Math.max(1, Number(rx.quantity) || 1) }], ...(code ? { eRx: { code, validUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(), phone: patient.phone } } : {}) })
+      addNote(patient.id, `${med.name} ${rx.dose.trim()} ${rx.frequency.trim()} for ${rx.duration.trim()}${body ? ` — ${body}` : ''}. ${code ? `e-Prescription ${code}: patient collects from the pharmacy.` : 'Sent to pharmacy.'}`, 'Prescription')
       setRx({ dose: '', frequency: '', duration: '', quantity: '1' })
     } else {
       if (body.length < 2) { setError('Write something to send.'); return }
@@ -139,7 +151,8 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
                 <div className="chat-meta"><span className="chat-kind"><Icon size={12} />{style.label}</span><b>{mine ? 'You' : event.author}</b><time>{formatTime(event.at)}</time></div>
                 <p className="chat-title">{event.title.replace(/^(History|Examination|Plan|Prescription)( \(awaiting co-signature\))?$/, (_, word, pending) => pending ? `${word} · awaiting co-signature` : '')}</p>
                 <p className="chat-text">{event.detail}</p>
-                {order && event.type === 'order' && <div className="chat-order"><OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}</div>}
+                {order && event.type === 'order' && <div className="chat-order">{order.externalProviderId && <Chip tone="warning">Referred · {state.providers.find((provider) => provider.id === order.externalProviderId)?.name}</Chip>}<OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}<ImageStrip order={order} compact /></div>}
+                {order && event.type === 'result' && event.title.startsWith('Images attached') && <ImageStrip order={order} compact />}
               </div>
             </motion.div>]
         })}
@@ -157,9 +170,10 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
               {mode === 'history' && HISTORY_PROMPTS.map((prompt) => <button key={prompt} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(prompt)}>+ {prompt.replace(': ', '')}</button>)}
               {mode === 'exam' && EXAM_NORMALS.map(([label, line]) => <button key={label} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(line)}>+ {label} normal</button>)}
               {(mode === 'labs' || mode === 'imaging') && <>
-                {(mode === 'labs' ? LAB_TESTS : IMAGING).map((item) => <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''}`} aria-pressed={picked.includes(item)} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}</button>)}
+                {catalogue.map(({ name: item, inHouse }) => <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''} ${inHouse ? '' : 'external'}`} aria-pressed={picked.includes(item)} title={inHouse ? 'Done in-house' : 'Referred to a partner'} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}{!inHouse && <span className="pick-tag">refer</span>}</button>)}
                 <span className="pick-sep" />
                 {(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} type="button" className={`pick priority ${priority === value ? `on ${value}` : ''}`} onClick={() => setPriority(value)}>{value}</button>)}
+                <label className="pick-select"><span>Send to</span><select value={partner} onChange={(event) => setPartner(event.target.value)}><option value="auto">In-house when available</option>{partners.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
               </>}
               {mode === 'vitals' && <div className="chat-vitals">
                 {([['hr', 'HR'], ['rr', 'RR'], ['spo2', 'SpO₂'], ['bpSys', 'SBP'], ['bpDia', 'DBP'], ['temp', 'Temp']] as Array<[keyof typeof vitals, string]>).map(([key, label]) => <label key={key}><span>{label}</span><input type="number" step={key === 'temp' ? 0.1 : 1} value={vitals[key]} onChange={(event) => setVitals({ ...vitals, [key]: event.target.value })} /></label>)}
@@ -173,6 +187,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
                 <label><span>Duration</span><input value={rx.duration} onChange={(event) => setRx({ ...rx, duration: event.target.value })} placeholder="5 days" /></label>
                 <label><span>Qty</span><input type="number" min={1} value={rx.quantity} onChange={(event) => setRx({ ...rx, quantity: event.target.value })} /></label>
                 {(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} type="button" className={`pick priority ${priority === value ? `on ${value}` : ''}`} onClick={() => setPriority(value)}>{value === 'emergent' ? 'STAT' : value}</button>)}
+                <button type="button" className={`pick ${takeHome ? 'on' : ''}`} aria-pressed={takeHome} onClick={() => setTakeHome(!takeHome)} title="Patient collects from the pharmacy with an e-prescription code">e-Rx · patient collects</button>
               </div>}
             </motion.div>
           </AnimatePresence>

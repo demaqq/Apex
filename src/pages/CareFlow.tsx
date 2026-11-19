@@ -4,7 +4,7 @@ import { Chip, DepartmentIcon, PageHeader, Panel } from '../components/ui'
 import { departmentById } from '../data'
 import { observationFlags } from '../lib/clinical'
 import { relativeTime } from '../lib/format'
-import { useNow } from '../lib/hooks'
+import { useNow, useRedact } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 
 /** Live map of how patients move through the hospital, with animated pathways. */
@@ -12,6 +12,7 @@ export default function CareFlow() {
   const { state, setSelectedPatientId } = useHospital()
   const navigate = useNavigate()
   const now = useNow()
+  const redact = useRedact()
   const open = (kind: string) => state.orders.filter((order) => order.kind === kind && order.status !== 'completed').length
   const inpatients = state.patients.filter((patient) => ['admitted', 'observation'].includes(patient.status))
   const abnormal = inpatients.filter((patient) => observationFlags(patient.vitals, patient.age).length).length
@@ -52,7 +53,7 @@ export default function CareFlow() {
           {state.activities.slice(0, 8).map((activity) => (
             <button key={activity.id} onClick={() => activity.patientId && setSelectedPatientId(activity.patientId)}>
               <span className="activity-department"><DepartmentIcon id={activity.department} size={17} /></span>
-              <div><p><b>{activity.actor}</b> {activity.action}</p><span>{relativeTime(activity.at, now)} · {departmentById(state.departments, activity.department).shortName}</span></div>
+              <div><p><b>{activity.actor}</b> {redact.text(activity.action)}</p><span>{relativeTime(activity.at, now)} · {departmentById(state.departments, activity.department).shortName}</span></div>
             </button>
           ))}
         </div>

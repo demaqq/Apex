@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createInitialState, departmentSeed, invoiceTotals, roleProfiles } from '../data'
-import { ORDER_STAGES, orderStage, patientNews2, statusForStage } from '../lib/clinical'
+import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
+import { setCurrency } from '../lib/format'
+import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
   ClinicalOrder,
@@ -21,13 +22,29 @@ import type {
   Appointment,
   BedState,
   Consciousness,
+  ObservationContext,
+  ObservationSet,
+  RoundNote,
+  RxCollection,
+  NoteReview,
+  OrderImage,
+  ChartKey,
+  ChartEntryInput,
   DischargeSummary,
   Evaluation,
   Invoice,
   StaffMember,
+  Department,
+  ExternalProvider,
+  FacilitySettings,
+  FormularyItem,
+  InvestigationItem,
+  StockMovement,
 } from '../types'
 
-const DATA_KEY = 'northstar-careos-data-v3'
+const DATA_KEY = 'northstar-careos-data-v5'
+
+const CHART_TITLES: Record<ChartKey, string> = { sam: 'SAM chart', labour: 'Partograph', anc: 'Antenatal chart', postpartum: 'Postpartum bleeding chart', fluids: 'Fluid balance', glucose: 'Glucose chart', neuro: 'Neuro observations', nihss: 'NIH Stroke Scale', seizures: 'Seizure chart' }
 const SESSION_KEY = 'northstar-careos-session'
 const DEPARTMENT_KEY = 'northstar-careos-department'
 const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
@@ -52,22 +69,29 @@ interface HospitalContextValue {
   retriage: (patientId: string, vitals: Vitals, esi: Patient['esi'], reason: string) => void
   addReferral: (patientId: string, to: DepartmentId, reason: string, priority: Priority) => void
   updateReferral: (id: string, status: ReferralStatus, recommendation?: string) => void
-  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority) => void
+  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => void
   updateOrder: (id: string, status: OrderStatus, result?: string) => void
   transferPatient: (patientId: string, to: DepartmentId, location: string) => void
   addNote: (patientId: string, note: string, title?: string) => void
   dischargePatient: (patientId: string) => void
   createPrescription: (input: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'prescriber'>) => void
   setPrescriptionStatus: (id: string, status: RxStatus) => void
+  collectPrescription: (id: string, collection: Omit<RxCollection, 'id' | 'at' | 'by'>) => boolean
+  sendErx: (id: string, phone: string) => void
   setInvoiceStatus: (id: string, status: InvoiceStatus) => void
   scheduleAppointment: (input: Omit<Appointment, 'id' | 'status'>) => void
   setAppointmentStatus: (id: string, status: AppointmentStatus) => void
   setStaffDuty: (id: string, onDuty: boolean) => void
   activateCode: (id: string, location: string) => void
   standDownCode: (id: string) => void
-  recordObservations: (patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness) => void
+  recordObservations: (patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context?: ObservationContext) => void
+  saveRound: (patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => void
+  reviewRound: (patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => void
+  addChartEntry: <K extends ChartKey>(patientId: string, chart: K, entry: ChartEntryInput<K>, summary: string) => void
   escalatePatient: (patientId: string) => void
   advanceOrder: (orderId: string, result?: string, toStage?: number) => void
+  attachImages: (orderId: string, images: OrderImage[]) => void
+  removeImage: (orderId: string, imageId: string) => void
   setBedState: (bedId: string, state: BedState) => void
   addHandover: (patientId: string, to: string, note: string) => void
   acknowledgeHandover: (id: string) => void
@@ -82,7 +106,9 @@ interface HospitalContextValue {
   cosignNote: (id: string) => void
   saveEvaluation: (patientId: string, evaluation: Omit<Evaluation, 'id' | 'at' | 'by'>) => void
   dischargeWithSummary: (patientId: string, summary: Omit<DischargeSummary, 'at' | 'by'>) => void
-  recordGrowth: (patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number }) => void
+  rejectSpecimen: (orderId: string, reason: string) => void
+  saveAssessment: (patientId: string, values: Record<string, string>, summary: string) => void
+  recordGrowth: (patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => void
   recordPayment: (invoiceId: string, method: NonNullable<Invoice['payments']>[number]['method'], amount: number) => void
   generateInvoice: (patientId: string) => void
   restock: (medicationId: string, amount: number) => void
@@ -90,12 +116,30 @@ interface HospitalContextValue {
   setStaffSuspended: (id: string, suspended: boolean) => void
   setDepartmentServices: (id: DepartmentId, services: string[]) => void
   myStaffId: string | null
+  /** Why the given role cannot sign in (pending approval or suspended), or null. */
+  signInBlock: (role: RoleId) => string | null
+  updateSettings: (changes: Partial<FacilitySettings>) => void
+  saveDepartment: (department: Department) => void
+  removeDepartment: (id: DepartmentId) => void
+  saveInvestigation: (item: InvestigationItem) => void
+  removeInvestigation: (id: string) => void
+  saveProvider: (provider: ExternalProvider) => void
+  removeProvider: (id: string) => void
+  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void
+  approveStaff: (id: string) => void
+  setStaffPermissions: (id: string, permissions: Permission[]) => void
+  saveFormularyItem: (item: FormularyItem) => void
+  receiveStock: (medicationId: string, input: { quantity: number; batch: string; expiry: string; supplier: string }) => void
+  writeOffStock: (medicationId: string, quantity: number, reason: string) => void
   resetDemo: () => void
   notify: (message: string, tone?: Toast['tone']) => void
   dismissToast: (id: number) => void
 }
 
 const HospitalContext = createContext<HospitalContextValue | null>(null)
+
+/** Administrators manage the facility, not patients, so record access is a no-op for them. */
+const noPatientAccess = () => {}
 
 /** Keeps saved records and adds any seed records (by id) that the saved copy predates. */
 function mergeById<T extends { id: string }>(saved: unknown, seed: T[]): T[] {
@@ -128,6 +172,10 @@ function loadState(): HospitalState {
       pages: mergeById(parsed.pages, seed.pages),
       theatreCases: mergeById(parsed.theatreCases, seed.theatreCases),
       cosignNotes: mergeById(parsed.cosignNotes, seed.cosignNotes),
+      settings: { ...defaultSettings(), ...(parsed.settings ?? {}) },
+      investigations: mergeById(parsed.investigations, seed.investigations),
+      providers: mergeById(parsed.providers, seed.providers),
+      stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
     }
   } catch {
     return seed
@@ -158,21 +206,23 @@ function loadSessionRole(): RoleId | null {
 
 function loadSessionDepartment(): DepartmentId | null {
   const value = readSession(DEPARTMENT_KEY)
-  return departmentSeed.some((department) => department.id === value) ? value as DepartmentId : null
+  return value ? value as DepartmentId : null
 }
 
 const makeId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 const nextNumber = (ids: string[], prefix: string, start: number) =>
   `${prefix}-${Math.max(start, ...ids.map((id) => Number(id.replace(`${prefix}-`, '')) || 0)) + 1}`
-const unitName = (id: DepartmentId) => departmentSeed.find((department) => department.id === id)?.shortName ?? id
+/** Current department list (kept in sync by the provider) so helpers see departments added by the administrator. */
+let liveDepartments = departmentSeed
+const unitName = (id: DepartmentId) => liveDepartments.find((department) => department.id === id)?.shortName ?? id
 
-const permissions: Record<RoleId, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
   physician: ['triage', 'refer', 'transfer', 'notes', 'discharge', 'cosign', 'prescribe', 'vitals', 'register'],
   nurse: ['triage', 'notes', 'vitals', 'administer', 'beds'],
   consultant: ['refer', 'notes', 'discharge', 'cosign', 'prescribe'],
   diagnostics: ['results', 'notes'],
   coordinator: ['transfer', 'notes', 'beds'],
-  administrator: ['triage', 'refer', 'transfer', 'results', 'notes', 'discharge', 'manage', 'beds', 'billing', 'register'],
+  administrator: ['manage'],
   intern: ['notes', 'vitals', 'prescribe', 'refer'],
   pharmacist: ['dispense', 'notes'],
   receptionist: ['register'],
@@ -196,6 +246,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const toastTimers = useRef(new Map<number, number>())
   const stateRef = useRef(state)
   stateRef.current = state
+  setCurrency(state.settings.currency)
+  liveDepartments = state.departments
 
   useEffect(() => {
     try { localStorage.setItem(DATA_KEY, JSON.stringify(state)) } catch { /* storage full or unavailable */ }
@@ -238,7 +290,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     setSelectedPatientId(null)
   }, [])
 
-  const can = useCallback((permission: Permission) => (currentRole ? permissions[currentRole].includes(permission) : false), [currentRole])
+  const can = useCallback((permission: Permission) => {
+    if (!currentRole) return false
+    const me = state.staff.find((member) => member.roleId === currentRole)
+    return (me?.permissions ?? ROLE_PERMISSIONS[currentRole]).includes(permission)
+  }, [currentRole, state.staff])
 
   const actorName = useCallback((fallback: string) => (currentRole ? roleProfiles[currentRole].name : fallback), [currentRole])
 
@@ -278,6 +334,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       riskFactors: input.riskFactors,
       resources: input.resources,
       vitals: input.vitals,
+      observations: [{ ...input.vitals, at: now, by: actor, onOxygen: false, consciousness: input.vitals.gcs < 15 ? 'New confusion' : 'Alert', context: 'Triage' }],
       department: 'emergency',
       encounterType: 'outpatient',
       location: input.esi === 1 ? 'Resus · allocation pending' : input.esi === 2 ? 'ED priority queue' : 'Waiting Room A',
@@ -325,22 +382,23 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(`Referral sent to ${unitName(to)}`)
   }, [actorName, commit, notify])
 
-  const addOrder = useCallback((patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority) => {
+  const addOrder = useCallback((patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
       const id = nextNumber(previous.orders.map((item) => item.id), 'OR', 8100)
+      const external = externalProviderId ? previous.providers.find((item) => item.id === externalProviderId)?.name : undefined
       return {
         next: {
           ...previous,
-          orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor }, ...previous.orders],
-          patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order sent to ${unitName(department)}. Priority: ${priority}.`, author: actor, department, orderId: id }),
+          orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor, externalProviderId }, ...previous.orders],
+          patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order ${external ? `referred to ${external}` : `sent to ${unitName(department)}`}. Priority: ${priority}.`, author: actor, department, orderId: id }),
         },
         actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
       }
     })
-    notify(`${kind} order sent to ${unitName(department)}`)
+    notify(externalProviderId ? `${kind} referred to ${stateRef.current.providers.find((item) => item.id === externalProviderId)?.name ?? 'external provider'}` : `${kind} order sent to ${unitName(department)}`)
   }, [actorName, commit, notify])
 
   const updateReferral = useCallback((referralId: string, status: ReferralStatus, recommendation?: string) => {
@@ -374,7 +432,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return {
         next: {
           ...previous,
-          orders: previous.orders.map((item) => item.id === orderId ? { ...item, status, stage: done ? ORDER_STAGES[item.kind].length - 1 : Math.max(1, orderStage(item)), result: result ?? item.result } : item),
+          orders: previous.orders.map((item) => item.id === orderId ? { ...item, status, stage: done ? stagesFor(item).length - 1 : Math.max(1, orderStage(item)), result: result ?? item.result } : item),
           patients: withTimeline(previous.patients, patient.id, { type: done ? 'result' : 'order', title: done ? `${order.title} resulted` : `${order.title} started`, detail: result || `Study is now in progress with ${actor}.`, author: actor, department: order.department, orderId: order.id }),
         },
         actor, action: `${done ? 'reported' : 'started'} ${order.title} for ${patient.name}`, department: order.department, patientId: patient.id,
@@ -463,9 +521,18 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const patient = previous.patients.find((item) => item.id === input.patientId)
       if (!patient) return null
       const id = nextNumber(previous.prescriptions.map((item) => item.id), 'RX', 3100)
-      return { next: { ...previous, prescriptions: [{ ...input, id, prescriber: actor, createdAt: new Date().toISOString(), status: 'Pending' }, ...previous.prescriptions] }, actor, action: `prescribed ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
+      const at = new Date().toISOString()
+      const lines = input.items.map((item) => `${previous.formulary.find((med) => med.id === item.medicationId)?.name ?? item.medicationId} ${item.dosage} ${item.frequency}`).join('; ')
+      return {
+        next: {
+          ...previous,
+          prescriptions: [{ ...input, id, prescriber: actor, createdAt: at, status: 'Pending' }, ...previous.prescriptions],
+          patients: input.eRx ? withTimeline(previous.patients, patient.id, { type: 'order', title: `e-Prescription ${input.eRx.code}`, detail: `${lines}. Patient collects from the pharmacy; valid until ${input.eRx.validUntil.slice(0, 10)}.`, author: actor, department: input.department }) : previous.patients,
+        },
+        actor, action: `${input.eRx ? 'e-prescribed' : 'prescribed'} ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id,
+      }
     })
-    notify('Prescription sent to pharmacy')
+    notify(input.eRx ? `e-Prescription ${input.eRx.code} created` : 'Prescription sent to pharmacy')
   }, [actorName, commit, notify])
 
   const setPrescriptionStatus = useCallback((id: string, status: RxStatus) => {
@@ -484,16 +551,62 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const patient = rx && previous.patients.find((item) => item.id === rx.patientId)
       if (!rx || !patient) return null
       let formulary = previous.formulary
+      let stockMovements = previous.stockMovements
       if (status === 'Dispensed') {
         formulary = formulary.map((med) => {
           const used = rx.items.filter((item) => item.medicationId === med.id).reduce((sum, item) => sum + item.quantity, 0)
           return used ? { ...med, stock: med.stock - used } : med
         })
+        stockMovements = [...rx.items.map((item): StockMovement => ({ id: makeId('SM'), medicationId: item.medicationId, at: new Date().toISOString(), by: actor, type: 'Dispensed', quantity: -item.quantity, note: `${id} · ${patient.mrn}` })), ...stockMovements].slice(0, 300)
       }
       const changes: Partial<Prescription> = { status, ...(status === 'Verified' ? { verifiedBy: actor } : status === 'Dispensed' ? { dispensedBy: actor } : status === 'Administered' ? { administrations: [...(rx.administrations ?? []), { at: new Date().toISOString(), by: actor }] } : {}) }
-      return { next: { ...previous, formulary, prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, ...changes } : item) }, actor, action: `${status.toLowerCase()} ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
+      return { next: { ...previous, formulary, stockMovements, prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, ...changes } : item) }, actor, action: `${status.toLowerCase()} ${id} for ${patient.name}`, department: 'pharmacy', patientId: patient.id }
     })
     notify(`${id} ${status.toLowerCase()}`)
+  }, [actorName, commit, notify])
+
+  const collectPrescription = useCallback((id: string, collection: Omit<RxCollection, 'id' | 'at' | 'by'>) => {
+    const actor = actorName('Pharmacy team')
+    const { prescriptions, formulary } = stateRef.current
+    const rx = prescriptions.find((item) => item.id === id)
+    if (!rx) return false
+    const short = collection.items.find((item) => (formulary.find((med) => med.id === item.medicationId)?.stock ?? 0) < item.quantity)
+    if (short) { notify(`Not enough ${formulary.find((med) => med.id === short.medicationId)?.name ?? 'stock'} to supply`, 'warning'); return false }
+    if (!collection.items.some((item) => item.quantity > 0)) { notify('Nothing to hand over', 'warning'); return false }
+    commit((previous) => {
+      const current = previous.prescriptions.find((item) => item.id === id)
+      const patient = current && previous.patients.find((item) => item.id === current.patientId)
+      if (!current || !patient) return null
+      const at = new Date().toISOString()
+      const record: RxCollection = { ...collection, id: makeId('COL'), at, by: actor }
+      const collections = [...(current.collections ?? []), record]
+      const owed = current.items.some((item) => collections.flatMap((c) => c.items).filter((c) => c.medicationId === item.medicationId).reduce((sum, c) => sum + c.quantity, 0) < item.quantity)
+      const status: RxStatus = owed ? 'Part collected' : 'Dispensed'
+      const given = collection.items.filter((item) => item.quantity > 0)
+      const names = given.map((item) => `${previous.formulary.find((med) => med.id === item.medicationId)?.name ?? item.medicationId} × ${item.quantity}`).join(', ')
+      return {
+        next: {
+          ...previous,
+          formulary: previous.formulary.map((med) => { const used = given.filter((item) => item.medicationId === med.id).reduce((sum, item) => sum + item.quantity, 0); return used ? { ...med, stock: med.stock - used } : med }),
+          stockMovements: [...given.map((item): StockMovement => ({ id: makeId('SM'), medicationId: item.medicationId, at, by: actor, type: 'Dispensed', quantity: -item.quantity, note: `${id} · ${patient.mrn} · collected` })), ...previous.stockMovements].slice(0, 300),
+          prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, collections, status, dispensedBy: actor } : item),
+          patients: withTimeline(previous.patients, patient.id, { type: 'note', title: `Medicines collected · ${current.eRx?.code ?? id}`, detail: `${names} handed to ${collection.collectedBy === 'Patient' ? 'the patient' : `${collection.collectorName || 'a relative or carer'}`}${owed ? '; balance still owed' : ''}.`, author: actor, department: 'pharmacy' }),
+        },
+        actor, action: `handed over ${id} to ${patient.name}${owed ? ' (part supply)' : ''}`, department: 'pharmacy', patientId: patient.id,
+      }
+    })
+    notify('Medicines handed over')
+    return true
+  }, [actorName, commit, notify])
+
+  const sendErx = useCallback((id: string, phone: string) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const rx = previous.prescriptions.find((item) => item.id === id)
+      if (!rx?.eRx) return null
+      return { next: { ...previous, prescriptions: previous.prescriptions.map((item) => item.id === id ? { ...item, eRx: { ...rx.eRx!, phone, sentAt: new Date().toISOString() } } : item) }, actor, action: `queued e-prescription ${rx.eRx.code} for ${phone}`, department: 'pharmacy', patientId: rx.patientId }
+    })
+    notify('Code saved for the patient’s phone. Sending texts needs an SMS gateway to be connected.', 'info')
   }, [actorName, commit, notify])
 
   const setInvoiceStatus = useCallback((id: string, status: InvoiceStatus) => {
@@ -566,16 +679,16 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     return state.staff.find((member) => member.roleId === currentRole)?.id ?? null
   }, [currentRole, state.staff])
 
-  const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness) => {
+  const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context: ObservationContext = 'Bedside') => {
     const actor = actorName('Nursing team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
-      const set = { ...vitals, at: new Date().toISOString(), by: actor, onOxygen, consciousness }
+      const set: ObservationSet = { ...vitals, at: new Date().toISOString(), by: actor, onOxygen, consciousness, context }
       const updated = { ...patient, vitals, observations: [set, ...(patient.observations ?? [])] }
       const score = patientNews2(updated)
       return {
-        next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `Observations recorded${score ? ` · NEWS2 ${score.score}` : ''}`, detail: `HR ${vitals.hr}, BP ${vitals.bpSys}/${vitals.bpDia}, RR ${vitals.rr}, SpO₂ ${vitals.spo2}%${onOxygen ? ' on oxygen' : ''}, T ${vitals.temp}°C, ${consciousness}.`, author: actor, department: patient.department }, { vitals, observations: set ? [set, ...(patient.observations ?? [])] : patient.observations }) },
+        next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${context} observations${score ? ` · NEWS2 ${score.score}` : ''}`, detail: `HR ${vitals.hr}, BP ${vitals.bpSys}/${vitals.bpDia}, RR ${vitals.rr}, SpO₂ ${vitals.spo2}%${onOxygen ? ' on oxygen' : ''}, T ${vitals.temp}°C, ${consciousness}.`, author: actor, department: patient.department }, { vitals, observations: set ? [set, ...(patient.observations ?? [])] : patient.observations }) },
         actor, action: `recorded observations for ${patient.name}${score ? ` (NEWS2 ${score.score})` : ''}`, department: patient.department, patientId,
       }
     })
@@ -596,16 +709,44 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Escalated — the medical team has been alerted', 'warning')
   }, [actorName, commit, notify])
 
+  const attachImages = useCallback((orderId: string, images: OrderImage[]) => {
+    const actor = actorName('Radiology')
+    commit((previous) => {
+      const order = previous.orders.find((item) => item.id === orderId)
+      const patient = order && previous.patients.find((item) => item.id === order.patientId)
+      if (!order || !patient || !images.length) return null
+      const stamped = images.map((image) => ({ ...image, by: actor }))
+      return {
+        next: {
+          ...previous,
+          orders: previous.orders.map((item) => item.id === orderId ? { ...item, images: [...(item.images ?? []), ...stamped] } : item),
+          patients: withTimeline(previous.patients, patient.id, { type: 'result', title: `Images attached · ${order.title}`, detail: `${images.length} image${images.length > 1 ? 's' : ''}${images[0].caption ? `: ${images.map((image) => image.caption).filter(Boolean).join('; ')}` : ''}.`, author: actor, department: order.department, orderId }),
+        },
+        actor, action: `attached ${images.length} image${images.length > 1 ? 's' : ''} to ${order.title} for ${patient.name}`, department: order.department, patientId: patient.id,
+      }
+    })
+    notify(`${images.length} image${images.length > 1 ? 's' : ''} attached`)
+  }, [actorName, commit, notify])
+
+  const removeImage = useCallback((orderId: string, imageId: string) => {
+    const actor = actorName('Radiology')
+    commit((previous) => {
+      const order = previous.orders.find((item) => item.id === orderId)
+      if (!order) return null
+      return { next: { ...previous, orders: previous.orders.map((item) => item.id === orderId ? { ...item, images: (item.images ?? []).filter((image) => image.id !== imageId) } : item) }, actor, action: `removed an image from ${order.title}`, department: order.department, patientId: order.patientId }
+    })
+  }, [actorName, commit])
+
   const advanceOrder = useCallback((orderId: string, result?: string, toStage?: number) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
       const order = previous.orders.find((item) => item.id === orderId)
       const patient = order && previous.patients.find((item) => item.id === order.patientId)
       if (!order || !patient) return null
-      const stages = ORDER_STAGES[order.kind]
+      const stages = stagesFor(order)
       const next = Math.min(toStage ?? orderStage(order) + 1, stages.length - 1)
-      const status = statusForStage(order.kind, next)
-      const specimen = order.kind === 'Laboratory' && next === 1 ? { id: `SP-${Math.floor(1000 + Math.random() * 9000)}`, type: /gas/i.test(order.title) ? 'Arterial blood' : /culture/i.test(order.title) ? 'Blood culture bottles' : 'Venous blood', collectedBy: actor, collectedAt: new Date().toISOString() } : order.specimen
+      const status = statusForStage(order, next)
+      const specimen = order.kind === 'Laboratory' && !order.externalProviderId && next === 1 ? { id: `SP-${Math.floor(1000 + Math.random() * 9000)}`, type: /gas/i.test(order.title) ? 'Arterial blood' : /culture/i.test(order.title) ? 'Blood culture bottles' : 'Venous blood', collectedBy: actor, collectedAt: new Date().toISOString() } : order.specimen
       return {
         next: {
           ...previous,
@@ -672,7 +813,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient || patient.status !== 'awaiting-triage') return null
-      const set = { ...input.vitals, at: new Date().toISOString(), by: actor, onOxygen: false, consciousness: (input.vitals.gcs < 15 ? 'New confusion' : 'Alert') as Consciousness }
+      const set = { ...input.vitals, at: new Date().toISOString(), by: actor, onOxygen: false, consciousness: (input.vitals.gcs < 15 ? 'New confusion' : 'Alert') as Consciousness, context: 'Triage' as const }
       return {
         next: {
           ...previous,
@@ -749,7 +890,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const patient = note && previous.patients.find((item) => item.id === note.patientId)
       if (!note || !patient || note.status === 'Co-signed') return null
       return {
-        next: { ...previous, cosignNotes: previous.cosignNotes.map((item) => item.id === id ? { ...item, status: 'Co-signed', cosignedBy: actor } : item), patients: withTimeline(previous.patients, patient.id, { type: 'note', title: `Note by ${note.author} co-signed`, detail: note.text, author: actor, department: patient.department }) },
+        next: { ...previous, cosignNotes: previous.cosignNotes.map((item) => item.id === id ? { ...item, status: 'Co-signed', cosignedBy: actor } : item), patients: withTimeline(previous.patients, patient.id, { type: 'note', title: `Note by ${note.author} co-signed`, detail: note.text, author: actor, department: patient.department }, patient.rounds?.some((round) => round.id === note.evaluationId) ? { rounds: patient.rounds.map((round) => round.id === note.evaluationId ? { ...round, cosign: 'Co-signed' as const } : round) } : {}) },
         actor, action: `co-signed a note by ${note.author} for ${patient.name}`, department: patient.department, patientId: patient.id,
       }
     })
@@ -796,7 +937,101 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Discharge summary signed and patient discharged')
   }, [actorName, commit, notify])
 
-  const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number }) => {
+  const rejectSpecimen = useCallback((orderId: string, reason: string) => {
+    const actor = actorName('Laboratory')
+    commit((previous) => {
+      const order = previous.orders.find((item) => item.id === orderId)
+      const patient = order && previous.patients.find((item) => item.id === order.patientId)
+      if (!order || !patient) return null
+      return {
+        next: {
+          ...previous,
+          orders: previous.orders.map((item) => item.id === orderId ? { ...item, stage: 0, status: 'ordered' as const, specimen: undefined } : item),
+          patients: withTimeline(previous.patients, patient.id, { type: 'order', title: `${order.title}: sample rejected`, detail: `${reason}. A new sample is needed.`, author: actor, department: order.department, orderId }),
+        },
+        actor, action: `rejected the sample for ${order.title} (${reason}) for ${patient.name}`, department: order.department, patientId: patient.id,
+      }
+    })
+    notify('Sample rejected — the ward has been asked to recollect', 'warning')
+  }, [actorName, commit, notify])
+
+  const addChartEntry = useCallback(<K extends ChartKey>(patientId: string, chart: K, input: ChartEntryInput<K>, summary: string) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const entry = { ...input, id: makeId('CH'), at: input.at ?? new Date().toISOString(), by: actor }
+      const list = [...(patient.charts?.[chart] ?? []), entry].sort((a, b) => a.at.localeCompare(b.at))
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${CHART_TITLES[chart]} charted`, detail: summary, author: actor, department: patient.department }, { charts: { ...patient.charts, [chart]: list } }) }, actor, action: `updated the ${CHART_TITLES[chart].toLowerCase()} for ${patient.name}`, department: patient.department, patientId }
+    })
+    notify(`${CHART_TITLES[chart]} updated`)
+  }, [actorName, commit, notify])
+
+  const saveRound = useCallback((patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => {
+    const actor = actorName('Clinical team')
+    const kind = round.kind ?? 'Ward round'
+    const nurseReview = kind === 'Junior nurse assessment' || kind === 'Intern nurse assessment'
+    const doctorReview = currentRole === 'intern'
+    const pending = doctorReview || nurseReview
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const at = new Date().toISOString()
+      const id = makeId('RN')
+      const entry: RoundNote = { ...round, kind, id, at, by: actor, ...(pending ? { cosign: 'Pending review' as const, reviewer: doctorReview ? 'Senior doctor' as const : 'Senior nurse' as const } : {}) }
+      // Vitals taken on the round also go on the observation chart.
+      let changes: Partial<Patient> = { rounds: [entry, ...(patient.rounds ?? [])] }
+      if (round.vitals) {
+        const { onOxygen, consciousness, ...vitals } = round.vitals
+        const set: ObservationSet = { ...vitals, at, by: actor, onOxygen, consciousness, context: kind === 'Bedside assessment' ? 'Bedside' : 'Ward round' }
+        changes = { ...changes, vitals, observations: [set, ...(patient.observations ?? [])] }
+      }
+      const summary = `${round.assessment} Plan: ${round.plan}`
+      return {
+        next: {
+          ...previous,
+          patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${kind} · ${round.status}${pending ? ' (awaiting co-signature)' : ''}`, detail: summary, author: actor, department: patient.department }, changes),
+          cosignNotes: doctorReview ? [{ id: makeId('CN'), patientId, author: actor, at, text: `${kind}. ${summary}`, status: 'Pending review', evaluationId: id }, ...previous.cosignNotes] : previous.cosignNotes,
+        },
+        actor, action: `documented a ${kind.toLowerCase()} for ${patient.name}`, department: patient.department, patientId,
+      }
+    })
+    notify(doctorReview ? 'Saved — sent to a senior doctor for co-signature' : nurseReview ? 'Saved — waiting for a senior nurse to review' : 'Saved to the record')
+  }, [actorName, commit, currentRole, notify])
+
+  const reviewRound = useCallback((patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => {
+    const actor = actorName('Senior clinician')
+    const role = currentRole === 'consultant' ? 'Consultant' : currentRole === 'nurse' ? 'Senior nurse' : 'Senior doctor'
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      const round = patient?.rounds?.find((item) => item.id === roundId)
+      if (!patient || !round) return null
+      const review: NoteReview = { at: new Date().toISOString(), by: actor, role, outcome, comment }
+      const rounds = (patient.rounds ?? []).map((item) => item.id === roundId ? { ...item, cosign: item.cosign ? 'Co-signed' as const : undefined, reviews: [...(item.reviews ?? []), review] } : item)
+      return {
+        next: {
+          ...previous,
+          cosignNotes: previous.cosignNotes.map((note) => note.evaluationId === roundId && note.status === 'Pending review' ? { ...note, status: 'Co-signed' as const, cosignedBy: actor } : note),
+          patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${role} review · ${round.kind ?? 'Ward round'} by ${round.by}`, detail: `${outcome}${comment ? `: ${comment}` : '.'}`, author: actor, department: patient.department }, { rounds }),
+        },
+        actor, action: `reviewed a ${(round.kind ?? 'ward round').toLowerCase()} for ${patient.name}`, department: patient.department, patientId,
+      }
+    })
+    notify('Review added')
+  }, [actorName, commit, currentRole, notify])
+
+  const saveAssessment = useCallback((patientId: string, values: Record<string, string>, summary: string) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const entry = { id: makeId('SA'), at: new Date().toISOString(), by: actor, values }
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Specialty assessment', detail: summary, author: actor, department: patient.department }, { assessments: [entry, ...(patient.assessments ?? [])] }) }, actor, action: `recorded a specialty assessment for ${patient.name}`, department: patient.department, patientId }
+    })
+    notify('Assessment saved')
+  }, [actorName, commit, notify])
+
+  const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -829,7 +1064,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const tariff: Record<string, number> = { Laboratory: 85, Imaging: 420, Medication: 35, Procedure: 650, Physiotherapy: 110, Nutrition: 70, 'Blood bank': 480 }
       const items = [
         { id: makeId('b'), description: 'Consultation', code: '99284', category: 'Consultation', quantity: 1, unitPrice: 320 },
-        ...previous.orders.filter((order) => order.patientId === patientId).map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}`, code: order.id, category: order.kind, quantity: 1, unitPrice: tariff[order.kind] ?? 100 })),
+        ...previous.orders.filter((order) => order.patientId === patientId).map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}${order.externalProviderId ? ' (referred)' : ''}`, code: order.id, category: order.kind, quantity: 1, unitPrice: previous.investigations.find((item) => item.name === order.title.split(' — ')[0])?.price ?? tariff[order.kind] ?? 100 })),
         ...(['admitted', 'observation'].includes(patient.status) ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: '99231', category: 'Room & nursing', quantity: 1, unitPrice: 850 }] : []),
         ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: 4200 })),
       ]
@@ -847,7 +1082,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => {
       const med = previous.formulary.find((item) => item.id === medicationId)
       if (!med) return null
-      return { next: { ...previous, formulary: previous.formulary.map((item) => item.id === medicationId ? { ...item, stock: item.stock + amount } : item) }, actor, action: `restocked ${med.name} (+${amount} ${med.unit})`, department: 'pharmacy' }
+      return { next: { ...previous, formulary: previous.formulary.map((item) => item.id === medicationId ? { ...item, stock: item.stock + amount } : item), stockMovements: [{ id: makeId('SM'), medicationId, at: new Date().toISOString(), by: actor, type: 'Received' as const, quantity: amount, note: 'Quick restock' }, ...previous.stockMovements].slice(0, 300) }, actor, action: `restocked ${med.name} (+${amount} ${med.unit})`, department: 'pharmacy' }
     })
     notify('Stock updated')
   }, [actorName, commit, notify])
@@ -879,6 +1114,146 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Department units updated')
   }, [actorName, commit, notify])
 
+  const signInBlock = useCallback((role: RoleId) => {
+    const member = stateRef.current.staff.find((item) => item.roleId === role)
+    if (member?.suspended) return `${member.name}'s account is suspended. Ask the administrator to reactivate it.`
+    if (member?.status === 'Pending approval') return `${member.name}'s account is waiting for administrator approval.`
+    return null
+  }, [])
+
+  const updateSettings = useCallback((changes: Partial<FacilitySettings>) => {
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, ...changes } }, actor, action: `updated facility settings (${Object.keys(changes).join(', ')})`, department: 'emergency' }))
+    notify('Settings saved')
+  }, [actorName, commit, notify])
+
+  const saveDepartment = useCallback((department: Department) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const exists = previous.departments.some((item) => item.id === department.id)
+      return { next: { ...previous, departments: exists ? previous.departments.map((item) => item.id === department.id ? department : item) : [...previous.departments, department] }, actor, action: `${exists ? 'updated' : 'added'} the ${department.name} department`, department: department.id }
+    })
+    notify('Department saved')
+  }, [actorName, commit, notify])
+
+  const removeDepartment = useCallback((id: DepartmentId) => {
+    const actor = actorName('Administrator')
+    const current = stateRef.current
+    const inUse = current.patients.some((patient) => patient.department === id && patient.status !== 'discharged') || current.staff.some((member) => member.department === id) || current.wards.some((ward) => ward.department === id)
+    commit((previous) => {
+      const department = previous.departments.find((item) => item.id === id)
+      if (!department) return null
+      return inUse
+        ? { next: { ...previous, departments: previous.departments.map((item) => item.id === id ? { ...item, active: false } : item) }, actor, action: `deactivated the ${department.name} department`, department: id }
+        : { next: { ...previous, departments: previous.departments.filter((item) => item.id !== id) }, actor, action: `removed the ${department.name} department`, department: id }
+    })
+    notify(inUse ? 'Department has patients, staff or wards, so it was deactivated instead of removed' : 'Department removed', inUse ? 'warning' : 'info')
+  }, [actorName, commit, notify])
+
+  const saveInvestigation = useCallback((item: InvestigationItem) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const exists = previous.investigations.some((candidate) => candidate.id === item.id)
+      return { next: { ...previous, investigations: exists ? previous.investigations.map((candidate) => candidate.id === item.id ? item : candidate) : [...previous.investigations, item] }, actor, action: `${exists ? 'updated' : 'added'} investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
+    })
+  }, [actorName, commit])
+
+  const removeInvestigation = useCallback((id: string) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const item = previous.investigations.find((candidate) => candidate.id === id)
+      if (!item) return null
+      return { next: { ...previous, investigations: previous.investigations.filter((candidate) => candidate.id !== id) }, actor, action: `removed investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
+    })
+    notify('Investigation removed', 'info')
+  }, [actorName, commit, notify])
+
+  const saveProvider = useCallback((provider: ExternalProvider) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const exists = previous.providers.some((item) => item.id === provider.id)
+      return { next: { ...previous, providers: exists ? previous.providers.map((item) => item.id === provider.id ? provider : item) : [...previous.providers, provider] }, actor, action: `${exists ? 'updated' : 'added'} external provider ${provider.name}`, department: 'laboratory' }
+    })
+    notify('Provider saved')
+  }, [actorName, commit, notify])
+
+  const removeProvider = useCallback((id: string) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const provider = previous.providers.find((item) => item.id === id)
+      if (!provider) return null
+      const used = previous.orders.some((order) => order.externalProviderId === id)
+      return used
+        ? { next: { ...previous, providers: previous.providers.map((item) => item.id === id ? { ...item, active: false } : item) }, actor, action: `deactivated external provider ${provider.name}`, department: 'laboratory' }
+        : { next: { ...previous, providers: previous.providers.filter((item) => item.id !== id) }, actor, action: `removed external provider ${provider.name}`, department: 'laboratory' }
+    })
+    notify('Provider updated', 'info')
+  }, [actorName, commit, notify])
+
+  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => {
+    commit((previous) => {
+      const id = nextNumber(previous.staff.map((item) => item.id), 'ST', 0).replace(/ST-(\d)$/, 'ST-0$1')
+      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: roleProfiles[input.roleId].title, department: input.department, specialty: input.specialty.trim() || roleProfiles[input.roleId].title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
+      return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${roleProfiles[input.roleId].title.toLowerCase()} account`, department: input.department }
+    })
+    notify('Request sent — an administrator will review it', 'info')
+  }, [commit, notify])
+
+  const approveStaff = useCallback((id: string) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const member = previous.staff.find((item) => item.id === id)
+      if (!member) return null
+      return { next: { ...previous, staff: previous.staff.map((item) => item.id === id ? { ...item, status: 'Active', pager: item.pager === '—' ? `PG-${String(4100 + previous.staff.length)}` : item.pager } : item) }, actor, action: `approved the account of ${member.name}`, department: member.department }
+    })
+    notify('Account approved')
+  }, [actorName, commit, notify])
+
+  const setStaffPermissions = useCallback((id: string, list: Permission[]) => {
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const member = previous.staff.find((item) => item.id === id)
+      if (!member) return null
+      return { next: { ...previous, staff: previous.staff.map((item) => item.id === id ? { ...item, permissions: list } : item) }, actor, action: `changed the access of ${member.name}`, department: member.department }
+    })
+  }, [actorName, commit])
+
+  const saveFormularyItem = useCallback((item: FormularyItem) => {
+    const actor = actorName('Pharmacy team')
+    commit((previous) => {
+      const exists = previous.formulary.some((candidate) => candidate.id === item.id)
+      return { next: { ...previous, formulary: exists ? previous.formulary.map((candidate) => candidate.id === item.id ? item : candidate) : [...previous.formulary, item] }, actor, action: `${exists ? 'updated' : 'added'} ${item.name} in the formulary`, department: 'pharmacy' }
+    })
+    notify('Medicine saved')
+  }, [actorName, commit, notify])
+
+  const receiveStock = useCallback((medicationId: string, input: { quantity: number; batch: string; expiry: string; supplier: string }) => {
+    const actor = actorName('Pharmacy team')
+    commit((previous) => {
+      const med = previous.formulary.find((item) => item.id === medicationId)
+      if (!med || input.quantity <= 0) return null
+      return {
+        next: { ...previous, formulary: previous.formulary.map((item) => item.id === medicationId ? { ...item, stock: item.stock + input.quantity, batch: input.batch || item.batch, expiry: input.expiry || item.expiry, supplier: input.supplier || item.supplier } : item), stockMovements: [{ id: makeId('SM'), medicationId, at: new Date().toISOString(), by: actor, type: 'Received' as const, quantity: input.quantity, note: [input.batch && `Batch ${input.batch}`, input.expiry && `exp ${input.expiry}`, input.supplier].filter(Boolean).join(' · ') }, ...previous.stockMovements].slice(0, 300) },
+        actor, action: `received ${input.quantity} ${med.unit} of ${med.name}`, department: 'pharmacy',
+      }
+    })
+    notify('Stock received')
+  }, [actorName, commit, notify])
+
+  const writeOffStock = useCallback((medicationId: string, quantity: number, reason: string) => {
+    const actor = actorName('Pharmacy team')
+    commit((previous) => {
+      const med = previous.formulary.find((item) => item.id === medicationId)
+      if (!med || quantity <= 0) return null
+      const amount = Math.min(quantity, med.stock)
+      return {
+        next: { ...previous, formulary: previous.formulary.map((item) => item.id === medicationId ? { ...item, stock: item.stock - amount } : item), stockMovements: [{ id: makeId('SM'), medicationId, at: new Date().toISOString(), by: actor, type: 'Written off' as const, quantity: -amount, note: reason }, ...previous.stockMovements].slice(0, 300) },
+        actor, action: `wrote off ${amount} ${med.unit} of ${med.name} (${reason})`, department: 'pharmacy',
+      }
+    })
+    notify('Stock written off', 'info')
+  }, [actorName, commit, notify])
+
   const resetDemo = useCallback(() => {
     setState(createInitialState())
     setSelectedPatientId(null)
@@ -890,24 +1265,25 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const base = roleProfiles[currentRole]
     const departmentId = currentDepartment ?? base.department
     if (departmentId === base.department) return base
-    const department = departmentSeed.find((item) => item.id === departmentId)
+    const department = state.departments.find((item) => item.id === departmentId)
     if (!department) return base
     const specialtyProfile = { ...base, department: departmentId }
     if (currentRole === 'physician') return { ...specialtyProfile, title: `${department.shortName} Physician`, workspace: `${department.shortName} clinical command`, headline: `Your ${department.shortName.toLowerCase()} patients, first.`, description: `Specialty-specific inpatient and outpatient review, diagnostics and referrals for ${department.name}.` }
     if (currentRole === 'nurse') return { ...specialtyProfile, title: `${department.shortName} Nurse`, workspace: `${department.shortName} nursing workspace`, headline: `Safe, coordinated ${department.shortName.toLowerCase()} care.`, description: `A focused nursing census with inpatient observations, outpatient flow and shared handoffs across ${department.name}.` }
     if (currentRole === 'diagnostics') return { ...specialtyProfile, title: `${department.name} Specialist`, workspace: `${department.shortName} worklist`, headline: departmentId === 'laboratory' ? 'Return critical results, faster.' : base.headline, description: departmentId === 'laboratory' ? 'Prioritised specimens, analytical progress and verified results returned directly to the clinical episode.' : base.description }
     return specialtyProfile
-  }, [currentRole, currentDepartment])
+  }, [currentRole, currentDepartment, state.departments])
 
   const value = useMemo<HospitalContextValue>(() => ({
     state, currentRole, profile, selectedPatientId, toasts,
-    login, logout, can, setSelectedPatientId,
+    login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : setSelectedPatientId,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
-    createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
-    recordObservations, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
+    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
+    recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
+    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }
