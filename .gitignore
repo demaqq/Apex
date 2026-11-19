@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# local reference artifacts
+hms new.zip
+hms-extracted/
+tsconfig.tsbuildinfo

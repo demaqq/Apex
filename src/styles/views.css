@@ -1,0 +1,615 @@
+/* ============================================================
+   Operational views: Pharmacy, Lab & Imaging, Billing,
+   Telehealth, Staff & Schedule, Audit & Emergency Codes.
+   These screens were built with class names that had no styles;
+   the rules below align them with the dark clinical design system.
+   ============================================================ */
+
+/* ---------- Page headers ---------- */
+.page-header .eyebrow { margin-top: 0; font-size: 10px; line-height: 1.5; }
+.page-header > div > p:not(.eyebrow) { margin-top: 7px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* ---------- Shared metric markup (legacy .metric-body pattern) ---------- */
+.metric > .metric-icon { margin-bottom: 10px; }
+.metric-body { display: flex; flex-direction: column; }
+.metric-label { color: var(--muted); font-size: 10px; font-weight: 500; }
+.metric-value { margin-top: 6px; font-family: 'Manrope', sans-serif; font-size: 29px; font-weight: 700; letter-spacing: -.04em; line-height: 1; color: #f1f5f9; }
+.metric-green { --metric-color: #22c55e; }
+.metric-track span { display: block; height: 100%; background: var(--metric-color); border-radius: 3px; }
+
+/* ---------- Tab bars ---------- */
+.pharmacy-tabs,
+.lab-imaging-tabs,
+.telehealth-tabs,
+.audit-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 16px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  overflow-x: auto;
+}
+.pharmacy-tabs button,
+.lab-imaging-tabs button,
+.telehealth-tabs button,
+.audit-tabs button {
+  min-height: 31px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+.pharmacy-tabs button:hover,
+.lab-imaging-tabs button:hover,
+.telehealth-tabs button:hover,
+.audit-tabs button:hover { color: var(--ink); }
+.pharmacy-tabs button.active,
+.lab-imaging-tabs button.active,
+.telehealth-tabs button.active,
+.audit-tabs button.active {
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-weight: 600;
+}
+
+/* ---------- Toolbars ---------- */
+.formulary-toolbar,
+.prescriptions-toolbar,
+.lab-toolbar,
+.imaging-toolbar,
+.invoices-toolbar,
+.schedule-toolbar,
+.staff-toolbar,
+.audit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.formulary-toolbar > label:not([class*='search']),
+.lab-toolbar > label:not([class*='search']),
+.imaging-toolbar > label:not([class*='search']),
+.invoices-toolbar > label:not([class*='search']),
+.schedule-toolbar > label:not([class*='search']),
+.staff-toolbar > label:not([class*='search']),
+.audit-toolbar > label:not([class*='search']) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--muted);
+}
+.formulary-toolbar select,
+.lab-toolbar select,
+.imaging-toolbar select,
+.invoices-toolbar select,
+.schedule-toolbar select,
+.staff-toolbar select,
+.audit-toolbar select {
+  max-width: 190px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 10px;
+}
+
+/* ---------- Search fields ---------- */
+.formulary-search,
+.prescriptions-search,
+.lab-search,
+.imaging-search,
+.invoices-search,
+.schedule-search,
+.staff-search,
+.audit-search {
+  flex: 1 1 240px;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #111827;
+  color: var(--muted);
+}
+.formulary-search input,
+.prescriptions-search input,
+.lab-search input,
+.imaging-search input,
+.invoices-search input,
+.schedule-search input,
+.staff-search input,
+.audit-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 10px;
+}
+.formulary-search button,
+.prescriptions-search button,
+.lab-search button,
+.imaging-search button,
+.invoices-search button,
+.schedule-search button,
+.staff-search button,
+.audit-search button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+/* ---------- Data tables ---------- */
+.formulary-table-wrap,
+.lab-table-wrap,
+.imaging-table-wrap,
+.invoices-table-wrap,
+.schedule-table-wrap,
+.staff-table-wrap,
+.audit-table-wrap { overflow-x: auto; }
+
+.formulary-table,
+.lab-table,
+.imaging-table,
+.invoices-table,
+.schedule-table,
+.staff-table,
+.audit-table,
+.invoice-items table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.formulary-table th,
+.lab-table th,
+.imaging-table th,
+.invoices-table th,
+.schedule-table th,
+.staff-table th,
+.audit-table th,
+.invoice-items th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #111827;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.formulary-table td,
+.lab-table td,
+.imaging-table td,
+.invoices-table td,
+.schedule-table td,
+.staff-table td,
+.audit-table td,
+.invoice-items td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+  vertical-align: middle;
+}
+.formulary-table tbody tr:hover,
+.lab-table tbody tr:hover,
+.imaging-table tbody tr:hover,
+.invoices-table tbody tr:hover,
+.schedule-table tbody tr:hover,
+.staff-table tbody tr:hover,
+.audit-table tbody tr:hover,
+.invoice-items tbody tr:hover { background: #111827; }
+.formulary-table td b,
+.lab-table td b,
+.imaging-table td b,
+.invoices-table td b,
+.schedule-table td b,
+.staff-table td b,
+.audit-table td b,
+.invoice-items td b { color: var(--ink); font-weight: 600; }
+.audit-details {
+  max-width: 360px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.audit-footer,
+.lab-footer,
+.invoices-footer,
+.schedule-footer,
+.staff-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line-soft);
+  background: #111827;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+/* ---------- Pharmacy: prescriptions ---------- */
+.prescription-list { display: grid; gap: 10px; padding: 14px 15px; }
+.prescription-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  border-radius: 9px;
+  background: #111827;
+}
+.prescription-card.stat { border-left-color: #ef4444; }
+.prescription-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.prescription-header > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.prescription-header b { font-size: 11px; }
+.rx-priority {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.prescription-card.stat .rx-priority { background: rgba(239, 68, 68, .15); color: #f87171; }
+.prescription-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.rx-patient,
+.dispensing-card > div:nth-child(2) {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 10px;
+}
+.rx-patient > span,
+.dispensing-card > div:nth-child(2) > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rx-patient b,
+.dispensing-card > div:nth-child(2) b { font-size: 10px; }
+.rx-patient small,
+.dispensing-card > div:nth-child(2) small { color: var(--muted); font-size: 8px; }
+.rx-doctor { color: var(--muted); font-size: 9px; }
+.rx-items { display: flex; flex-wrap: wrap; gap: 5px; }
+.rx-item {
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--paper);
+  color: #cbd5e1;
+  font-size: 9px;
+}
+.rx-actions { display: flex; gap: 8px; }
+
+/* ---------- Pharmacy: dispensing ---------- */
+.dispensing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 11px;
+  padding: 15px;
+}
+.dispensing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #111827;
+}
+.dispensing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dispensing-header b { font-size: 11px; }
+.dispensing-items { display: flex; flex-wrap: wrap; gap: 5px; }
+.dispensing-actions { display: flex; gap: 7px; margin-top: auto; padding-top: 4px; }
+
+.new-rx-form { display: grid; gap: 13px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.muted { color: var(--muted); }
+
+/* ---------- Lab & Imaging ---------- */
+.lab-panel,
+.imaging-panel { min-height: 380px; }
+.lab-table td .status-badge,
+.imaging-table td .status-badge { margin-right: 4px; }
+
+/* ---------- Billing ---------- */
+.invoice-detail { display: grid; gap: 14px; }
+.invoice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.invoice-header b { font-size: 14px; }
+.invoice-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 18px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.invoice-meta b,
+.appointment-meta b { color: var(--ink); }
+.invoice-items { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+.invoice-items table { min-width: 520px; }
+.invoice-items th:first-child,
+.invoice-items td:first-child { padding-left: 12px; }
+.invoice-totals {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #111827;
+}
+.invoice-totals > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.invoice-totals > div b { color: var(--ink); font-size: 10px; }
+.invoice-totals .total-row {
+  margin-top: 3px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.invoice-totals .total-row b { color: var(--teal); font-size: 15px; font-family: 'Manrope', sans-serif; }
+.invoice-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- Telehealth ---------- */
+.active-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+  gap: 11px;
+  padding: 15px;
+}
+.active-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #111827;
+}
+.active-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.active-header > div { display: flex; align-items: center; gap: 8px; }
+.active-header > div > span { display: flex; flex-direction: column; gap: 2px; }
+.active-header b { font-size: 10px; }
+.active-header small { color: var(--muted); font-size: 8px; }
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(239, 68, 68, .15);
+  color: #f87171;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.live-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.active-doctor { color: var(--muted); font-size: 9px; }
+.active-reason { color: #cbd5e1; font-size: 10px; line-height: 1.5; }
+.active-actions { display: flex; gap: 7px; margin-top: auto; padding-top: 4px; }
+
+.appointment-detail { display: grid; gap: 14px; }
+.appointment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.appointment-header > div { display: flex; flex-direction: column; gap: 2px; }
+.appointment-header b { font-size: 13px; }
+.appointment-header small { color: var(--muted); font-size: 9px; }
+.appointment-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.appointment-reason h4 { color: var(--muted); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+.appointment-reason p { color: #cbd5e1; font-size: 10px; line-height: 1.6; }
+.appointment-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- Staff ---------- */
+.staff-detail { display: grid; gap: 14px; }
+.staff-header { display: flex; align-items: center; gap: 12px; }
+.staff-header h3 { font-size: 15px; }
+.staff-header p { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.staff-header .status-badge { margin-top: 7px; }
+.staff-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.staff-meta b { color: var(--ink); }
+
+/* ---------- Audit & emergency codes ---------- */
+.audit-event-detail { display: grid; gap: 10px; }
+.event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.event-header > span { color: var(--muted); font-size: 9px; }
+.event-field { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.event-field b { color: var(--ink); }
+.emergency-codes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+  gap: 11px;
+  padding: 15px;
+}
+.emergency-code-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--code, var(--teal));
+  border-radius: 9px;
+  background: #111827;
+}
+.code-blue { --code: #3b82f6; }
+.code-red { --code: #ef4444; }
+.code-trauma { --code: #f97316; }
+.code-stroke { --code: #8b5cf6; }
+.code-stemi { --code: #e11d48; }
+.code-amber { --code: #f59e0b; }
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.code-badge {
+  color: var(--code);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .07em;
+}
+.emergency-code-card > p { color: #cbd5e1; font-size: 10px; }
+.code-meta { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 9px; }
+.code-respond { align-self: flex-start; margin-top: auto; }
+
+/* ---------- Additional status tones used by these views ---------- */
+.status-active,
+.status-overdue,
+.status-cancelled { color: #ef4444; background: rgba(239, 68, 68, .15); }
+.status-standby,
+.status-off-duty { color: #94a3b8; background: rgba(100, 116, 139, .18); }
+.status-on-duty,
+.status-paid { color: #14b8a6; background: rgba(20, 184, 166, .15); }
+.status-scheduled,
+.status-partially-paid { color: #f59e0b; background: rgba(245, 158, 11, .15); }
+
+/* ---------- Category pills (Badge primitive) ---------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+.tag-sm { padding: 2px 7px; font-size: 8px; }
+.tag-md { padding: 3px 8px; font-size: 9px; }
+.tag-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.tag-default,
+.tag-neutral { color: #cbd5e1; background: rgba(148, 163, 184, .16); }
+.tag-info { color: #93c5fd; background: rgba(59, 130, 246, .16); }
+.tag-success { color: #86efac; background: rgba(34, 197, 94, .14); }
+.tag-warning { color: #fcd34d; background: rgba(245, 158, 11, .15); }
+.tag-danger { color: #fca5a5; background: rgba(239, 68, 68, .15); }
+
+/* ---------- Responsive layout for metrics and detail grids ---------- */
+@media (max-width: 1180px) {
+  .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .metrics-grid { grid-template-columns: 1fr; }
+  .invoice-meta,
+  .appointment-meta,
+  .staff-meta { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .prescription-body { grid-template-columns: 1fr; }
+  .formulary-toolbar > label:not([class*='search']),
+  .lab-toolbar > label:not([class*='search']),
+  .imaging-toolbar > label:not([class*='search']),
+  .invoices-toolbar > label:not([class*='search']),
+  .schedule-toolbar > label:not([class*='search']),
+  .staff-toolbar > label:not([class*='search']),
+  .audit-toolbar > label:not([class*='search']) { flex: 1 1 100%; }
+  .formulary-toolbar select,
+  .lab-toolbar select,
+  .imaging-toolbar select,
+  .invoices-toolbar select,
+  .schedule-toolbar select,
+  .staff-toolbar select,
+  .audit-toolbar select { max-width: none; flex: 1; }
+}

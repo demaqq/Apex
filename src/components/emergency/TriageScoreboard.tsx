@@ -290,6 +290,8 @@ export const TriageScoreboard: React.FC<TriageScoreboardProps> = ({
           oxygenSaturation: spo2,
           temperature: temp,
           painScale: pain,
+          painLevel: pain,
+          gcs: 15,
           recordedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
         },
         complaint: chiefComplaint,
