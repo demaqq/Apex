@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, Baby, Brain, Zap, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
+import { Activity, Baby, QrCode, Brain, Zap, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
 import { isChild, isObstetric, isUnderFive } from '../lib/charts'
 import { AntenatalChart, ContractionChart, FluidChart, GlucoseChart, PaediatricChart, PartographChart, PostpartumChart, SamChart } from './SpecialtyCharts'
 import { ImageStrip } from './OrderImages'
+import { EPrescribeModal, ErxSlip } from './EPrescription'
 import { RoundsView } from './RoundAssessment'
 import { NeuroChart, NihssChart, SeizureChart } from './NeuroCharts'
 import { patientNews2, stagesFor, orderStage, THEATRE_STAGES } from '../lib/clinical'
@@ -11,7 +12,7 @@ import { useHospital } from '../store/HospitalStore'
 import type { ObservationContext, ObservationSet, Patient } from '../types'
 import { OBSERVATION_CONTEXTS } from '../types'
 import { ObservationsPanel } from './RecordPanels'
-import { Chip } from './ui'
+import { Button, Chip, Modal } from './ui'
 
 type CoreView = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
 type SpecialtyView = 'paediatric' | 'sam' | 'anc' | 'partograph' | 'contractions' | 'postpartum' | 'fluids' | 'glucose' | 'neuro' | 'nihss' | 'seizures'
@@ -227,6 +228,46 @@ function VitalsView({ patient }: { patient: Patient }) {
 /* ---------------- Medication administration chart ---------------- */
 
 function MedicationChart({ patient }: { patient: Patient }) {
+  const { can } = useHospital()
+  const [prescribing, setPrescribing] = useState(false)
+  const canPrescribe = can('prescribe')
+  return (
+    <>
+      {canPrescribe && patient.status !== 'discharged' && <div className="chart-toolbar"><Button size="sm" icon={QrCode} onClick={() => setPrescribing(true)}>e-Prescribe</Button><span className="record-hint">Ward supply or a take-home e-prescription the patient collects with a code.</span></div>}
+      <ErxList patient={patient} />
+      <MedicationAdministration patient={patient} />
+      <EPrescribeModal open={prescribing} onClose={() => setPrescribing(false)} patientId={patient.id} takeHomeDefault={patient.encounterType === 'outpatient'} />
+    </>
+  )
+}
+
+function ErxList({ patient }: { patient: Patient }) {
+  const { state } = useHospital()
+  const [slip, setSlip] = useState<string | null>(null)
+  const list = state.prescriptions.filter((rx) => rx.patientId === patient.id && rx.eRx).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  if (!list.length) return null
+  const shown = slip ? state.prescriptions.find((rx) => rx.id === slip) : undefined
+  return (
+    <section className="drawer-section">
+      <div className="section-label"><QrCode size={15} />e-Prescriptions<span>{list.length}</span></div>
+      <ol className="history-list">{list.map((rx) => (
+        <li key={rx.id}>
+          <time>{formatDateTime(rx.createdAt)}</time>
+          <div>
+            <b className="mono">{rx.eRx!.code}</b>
+            <small>{rx.items.map((item) => `${state.formulary.find((m) => m.id === item.medicationId)?.name ?? item.medicationId} ${item.dosage} ${item.frequency}`).join(' · ')}</small>
+            {(rx.collections ?? []).map((c) => <small key={c.id}>Collected {formatDateTime(c.at)} by {c.collectedBy === 'Patient' ? 'the patient' : c.collectorName} · {c.by}</small>)}
+            <button type="button" className="link-button" onClick={() => setSlip(rx.id)}>Show slip and QR</button>
+          </div>
+          <Chip tone={rx.status === 'Dispensed' ? 'success' : rx.status === 'Cancelled' ? 'danger' : 'warning'}>{rx.status === 'Dispensed' ? 'Collected' : rx.status}</Chip>
+        </li>
+      ))}</ol>
+      {shown && <Modal open onClose={() => setSlip(null)} title="e-Prescription slip" subtitle={patient.name} size="md"><ErxSlip rx={shown} /></Modal>}
+    </section>
+  )
+}
+
+function MedicationAdministration({ patient }: { patient: Patient }) {
   const { state } = useHospital()
   const prescriptions = state.prescriptions.filter((rx) => rx.patientId === patient.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   if (!prescriptions.length) return <section className="drawer-section"><div className="drawer-empty"><Pill size={25} /><p>No medicines prescribed on this episode.</p></div></section>

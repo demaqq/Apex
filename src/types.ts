@@ -38,7 +38,10 @@ export interface ObservationSet extends Vitals {
   context?: ObservationContext
 }
 
-export type RoundKind = 'Ward round' | 'Resident round' | 'Consultant round' | 'Bedside assessment'
+export type RoundKind = 'Ward round' | 'Intern assessment' | 'Resident round' | 'Consultant review' | 'Consultant round'
+  | 'Bedside assessment' | 'Nurse round' | 'Senior nurse assessment' | 'Junior nurse assessment' | 'Intern nurse assessment'
+
+export interface NoteReview { at: string; by: string; role: string; outcome: 'Agreed' | 'Amended'; comment: string }
 
 /** A ward round or bedside assessment: history, vitals, examination, results, assessment and plan. */
 export interface RoundNote {
@@ -58,8 +61,11 @@ export interface RoundNote {
   assessment: string
   plan: string
   status: 'Improving' | 'Stable' | 'Deteriorating'
-  /** Resident notes wait for a senior's co-signature. */
+  /** Intern and junior notes wait for a senior's co-signature. */
   cosign?: 'Pending review' | 'Co-signed'
+  /** Who has to review it: a senior doctor or a senior nurse. */
+  reviewer?: 'Senior doctor' | 'Senior nurse'
+  reviews?: NoteReview[]
 }
 
 export interface Evaluation {
@@ -405,7 +411,27 @@ export interface StockMovement {
 }
 
 export type RxPriority = 'Routine' | 'Urgent' | 'STAT'
-export type RxStatus = 'Pending' | 'Verified' | 'Dispensed' | 'Administered' | 'Cancelled'
+export type RxStatus = 'Pending' | 'Verified' | 'Ready for collection' | 'Part collected' | 'Dispensed' | 'Administered' | 'Cancelled'
+
+/** A take-home e-prescription the patient collects at the pharmacy with a code. */
+export interface ERx {
+  code: string
+  validUntil: string
+  instructions?: string
+  phone?: string
+  sentAt?: string
+}
+
+export interface RxCollection {
+  id: string
+  at: string
+  by: string
+  collectedBy: 'Patient' | 'Relative or carer'
+  collectorName?: string
+  idChecked: boolean
+  counselled: boolean
+  items: Array<{ medicationId: string; quantity: number }>
+}
 
 export interface PrescriptionItem {
   medicationId: string
@@ -428,6 +454,8 @@ export interface Prescription {
   verifiedBy?: string
   dispensedBy?: string
   administrations?: Array<{ at: string; by: string }>
+  eRx?: ERx
+  collections?: RxCollection[]
 }
 
 /* ---------- Billing ---------- */

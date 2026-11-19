@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Activity, AlertTriangle, ArrowRightLeft, ClipboardList, FileText, FlaskConical, HeartPulse, LogOut, MessageSquareText, Network, Pill, ScanLine, Send, Stethoscope, UserRound, type LucideIcon } from 'lucide-react'
 import { ImageStrip } from './OrderImages'
+import { makeErxCode } from '../lib/erx'
 import { news2, newsTone, prescribingWarnings } from '../lib/clinical'
 import { formatDate, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
@@ -66,6 +67,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
   const [onOxygen, setOnOxygen] = useState(false)
   const [medId, setMedId] = useState(state.formulary[0]?.id ?? '')
   const [rx, setRx] = useState({ dose: '', frequency: '', duration: '', quantity: '1' })
+  const [takeHome, setTakeHome] = useState(patient.encounterType === 'outpatient' || patient.status === 'discharged')
   const [error, setError] = useState('')
   const [partner, setPartner] = useState('auto')
   const threadRef = useRef<HTMLDivElement>(null)
@@ -115,8 +117,9 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
       setVitals({ hr: '', rr: '', spo2: '', bpSys: '', bpDia: '', temp: '' }); setOnOxygen(false)
     } else if (mode === 'medication') {
       if (!med || !rx.dose.trim() || !rx.frequency.trim() || !rx.duration.trim()) { setError('Choose a medicine and enter dose, frequency and duration.'); return }
-      createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority: priority === 'emergent' ? 'STAT' : priority === 'urgent' ? 'Urgent' : 'Routine', diagnosis: body || undefined, items: [{ medicationId: med.id, dosage: rx.dose.trim(), frequency: rx.frequency.trim(), duration: rx.duration.trim(), quantity: Math.max(1, Number(rx.quantity) || 1) }] })
-      addNote(patient.id, `${med.name} ${rx.dose.trim()} ${rx.frequency.trim()} for ${rx.duration.trim()}${body ? ` — ${body}` : ''}. Sent to pharmacy.`, 'Prescription')
+      const code = takeHome ? makeErxCode() : undefined
+      createPrescription({ patientId: patient.id, department: profile?.department ?? patient.department, priority: priority === 'emergent' ? 'STAT' : priority === 'urgent' ? 'Urgent' : 'Routine', diagnosis: body || undefined, items: [{ medicationId: med.id, dosage: rx.dose.trim(), frequency: rx.frequency.trim(), duration: rx.duration.trim(), quantity: Math.max(1, Number(rx.quantity) || 1) }], ...(code ? { eRx: { code, validUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(), phone: patient.phone } } : {}) })
+      addNote(patient.id, `${med.name} ${rx.dose.trim()} ${rx.frequency.trim()} for ${rx.duration.trim()}${body ? ` — ${body}` : ''}. ${code ? `e-Prescription ${code}: patient collects from the pharmacy.` : 'Sent to pharmacy.'}`, 'Prescription')
       setRx({ dose: '', frequency: '', duration: '', quantity: '1' })
     } else {
       if (body.length < 2) { setError('Write something to send.'); return }
@@ -184,6 +187,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
                 <label><span>Duration</span><input value={rx.duration} onChange={(event) => setRx({ ...rx, duration: event.target.value })} placeholder="5 days" /></label>
                 <label><span>Qty</span><input type="number" min={1} value={rx.quantity} onChange={(event) => setRx({ ...rx, quantity: event.target.value })} /></label>
                 {(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} type="button" className={`pick priority ${priority === value ? `on ${value}` : ''}`} onClick={() => setPriority(value)}>{value === 'emergent' ? 'STAT' : value}</button>)}
+                <button type="button" className={`pick ${takeHome ? 'on' : ''}`} aria-pressed={takeHome} onClick={() => setTakeHome(!takeHome)} title="Patient collects from the pharmacy with an e-prescription code">e-Rx · patient collects</button>
               </div>}
             </motion.div>
           </AnimatePresence>
