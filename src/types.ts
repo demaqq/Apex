@@ -1,20 +1,10 @@
 export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
 
-export type DepartmentId =
-  | 'emergency'
-  | 'cardiology'
-  | 'neurology'
-  | 'radiology'
-  | 'laboratory'
-  | 'icu'
-  | 'surgery'
-  | 'ward'
-  | 'pharmacy'
-  | 'pediatrics'
-  | 'obgyn'
-  | 'internal-medicine'
-  | 'ent'
-  | 'dermatology'
+/** Built-in department ids; administrators can add more, so any string is allowed. */
+export type CoreDepartmentId =
+  | 'emergency' | 'cardiology' | 'neurology' | 'radiology' | 'laboratory' | 'icu' | 'surgery' | 'ward'
+  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology'
+export type DepartmentId = CoreDepartmentId | (string & {})
 
 export type PatientStatus = 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
 export type Priority = 'routine' | 'urgent' | 'emergent'
@@ -126,6 +116,8 @@ export interface Department {
   description: string
   services: string[]
   zone: string
+  /** Deactivated departments are hidden from new work but kept for history. */
+  active?: boolean
 }
 
 export interface Referral {
@@ -153,6 +145,8 @@ export interface ClinicalOrder {
   /** Index into ORDER_STAGES[kind]; status is derived from it. */
   stage?: number
   specimen?: { id: string; type: string; collectedBy: string; collectedAt: string }
+  /** Set when the test or study is performed by an outside provider. */
+  externalProviderId?: string
   department: DepartmentId
   priority: Priority
   status: OrderStatus
@@ -218,6 +212,19 @@ export interface FormularyItem {
   pricePerUnit: number
   route: string
   controlled?: boolean
+  batch?: string
+  expiry?: string
+  supplier?: string
+}
+
+export interface StockMovement {
+  id: string
+  medicationId: string
+  at: string
+  by: string
+  type: 'Received' | 'Dispensed' | 'Adjusted' | 'Written off'
+  quantity: number
+  note?: string
 }
 
 export type RxPriority = 'Routine' | 'Urgent' | 'STAT'
@@ -307,6 +314,45 @@ export interface StaffMember {
   license: string
   roleId?: RoleId
   suspended?: boolean
+  /** Accounts start as requests and only work once an administrator approves them. */
+  status?: 'Pending approval' | 'Active'
+  /** Access granted by the administrator; falls back to the role's defaults. */
+  permissions?: Permission[]
+}
+
+/* ---------- Administration ---------- */
+
+export interface FacilitySettings {
+  name: string
+  type: 'Hospital' | 'Clinic' | 'Health centre'
+  tagline: string
+  city: string
+  country: string
+  phone: string
+  email: string
+  currency: 'ETB' | 'USD' | 'EUR' | 'GBP' | 'KES'
+  /** Paths of modules switched off for this facility. */
+  disabledModules: string[]
+}
+
+export interface InvestigationItem {
+  id: string
+  name: string
+  kind: 'Laboratory' | 'Imaging'
+  /** Available in this facility; otherwise it must be referred to an external provider. */
+  inHouse: boolean
+  price: number
+  active: boolean
+}
+
+export interface ExternalProvider {
+  id: string
+  name: string
+  services: Array<'Laboratory' | 'Imaging'>
+  notes: string
+  phone: string
+  address: string
+  active: boolean
 }
 
 /* ---------- Wards, beds, handover, pagers ---------- */
@@ -414,4 +460,8 @@ export interface HospitalState {
   pages: Page[]
   theatreCases: TheatreCase[]
   cosignNotes: CosignNote[]
+  settings: FacilitySettings
+  investigations: InvestigationItem[]
+  providers: ExternalProvider[]
+  stockMovements: StockMovement[]
 }

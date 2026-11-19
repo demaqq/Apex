@@ -4,13 +4,14 @@ import { Chip, EsiBadge, Metric, PageHeader, Panel, PersonCell } from '../compon
 import { esiLabels } from '../data'
 import { ESI_TARGET_MINUTES, patientNews2 } from '../lib/clinical'
 import { minutesSince } from '../lib/format'
-import { useNow } from '../lib/hooks'
+import { useNow, useRedact } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 
 /** Hospital-wide operations view with the ED scoreboard against ESI target times. */
 export default function OpsCenter() {
   const { state, setSelectedPatientId } = useHospital()
   const now = useNow()
+  const redact = useRedact()
   const active = state.patients.filter((patient) => patient.status !== 'discharged')
   const inpatients = active.filter((patient) => ['admitted', 'observation'].includes(patient.status))
   const occupied = state.beds.filter((bed) => bed.patientId).length
@@ -58,8 +59,8 @@ export default function OpsCenter() {
                 const target = triaged ? ESI_TARGET_MINUTES[patient.esi] : null
                 const over = target !== null && waited > target
                 return (
-                  <tr key={patient.id} className="clickable-row" onClick={() => setSelectedPatientId(patient.id)}>
-                    <td><PersonCell name={patient.name} detail={patient.mrn} /></td>
+                  <tr key={patient.id} className={redact.hide ? '' : 'clickable-row'} onClick={() => setSelectedPatientId(patient.id)}>
+                    <td>{redact.hide ? <span className="mono">{patient.mrn}</span> : <PersonCell name={patient.name} detail={patient.mrn} />}</td>
                     <td>{triaged ? <EsiBadge level={patient.esi} compact /> : <Chip tone="warning">Not triaged</Chip>}</td>
                     <td>{triaged ? `Ready for doctor · ${patient.location}` : 'Awaiting triage'}</td>
                     <td className="num mono">{waited} min</td>

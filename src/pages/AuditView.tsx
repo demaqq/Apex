@@ -4,7 +4,7 @@ import { AlertTriangle, BellOff, Download, History, Megaphone, ShieldCheck, Sire
 import { Button, DepartmentIcon, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, SearchField, Tabs } from '../components/ui'
 import { departmentById } from '../data'
 import { downloadCsv, formatDateTime, relativeTime, today } from '../lib/format'
-import { matches, useNow, usePatients } from '../lib/hooks'
+import { matches, useNow, usePatients, useRedact } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 import type { EmergencyCode } from '../types'
 
@@ -14,6 +14,7 @@ export default function AuditView() {
   const { state, can, activateCode, standDownCode, setSelectedPatientId } = useHospital()
   const patients = usePatients()
   const now = useNow()
+  const redact = useRedact()
   const activeCodes = state.codes.filter((code) => code.active)
   const [view, setView] = useState<View>(activeCodes.length ? 'codes' : 'audit')
   const [query, setQuery] = useState('')
@@ -29,7 +30,7 @@ export default function AuditView() {
 
   const exportLog = () => downloadCsv(`audit-log-${today()}.csv`, [
     ['Time', 'User', 'Action', 'Department', 'Patient MRN'],
-    ...state.activities.map((item) => [item.at, item.actor, item.action, departmentById(state.departments, item.department).name, patients.get(item.patientId ?? '')?.mrn]),
+    ...state.activities.map((item) => [item.at, item.actor, redact.text(item.action), departmentById(state.departments, item.department).name, patients.get(item.patientId ?? '')?.mrn]),
   ])
 
   return (
@@ -83,9 +84,9 @@ export default function AuditView() {
                     <tr key={item.id}>
                       <td><b>{formatDateTime(item.at)}</b><small>{relativeTime(item.at, now)}</small></td>
                       <td>{item.actor}</td>
-                      <td className="wrap">{item.action}</td>
+                      <td className="wrap">{redact.text(item.action)}</td>
                       <td><span className="inline-icon"><DepartmentIcon id={item.department} size={14} />{departmentById(state.departments, item.department).shortName}</span></td>
-                      <td>{patient ? <button type="button" className="link-button" onClick={() => setSelectedPatientId(patient.id)}>{patient.mrn}</button> : <span className="muted-text">—</span>}</td>
+                      <td>{patient ? redact.hide ? <span className="mono">{patient.mrn}</span> : <button type="button" className="link-button" onClick={() => setSelectedPatientId(patient.id)}>{patient.mrn}</button> : <span className="muted-text">—</span>}</td>
                     </tr>
                   )
                 })}

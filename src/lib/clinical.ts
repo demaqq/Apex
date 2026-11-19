@@ -69,20 +69,28 @@ export const ORDER_STAGES: Record<OrderKind, string[]> = {
   'Blood bank': ['Requested', 'Sample received', 'Crossmatched', 'Issued', 'Transfused'],
 }
 
+export const EXTERNAL_STAGES = ['Referred', 'Sample sent or booked', 'Result received']
+
+/** Stages for an order: investigations sent to a referral partner follow a shorter pipeline. */
+export function stagesFor(order: Pick<ClinicalOrder, 'kind' | 'externalProviderId'>) {
+  return order.externalProviderId ? EXTERNAL_STAGES : ORDER_STAGES[order.kind]
+}
+
 export function orderStage(order: ClinicalOrder) {
-  const stages = ORDER_STAGES[order.kind]
+  const stages = stagesFor(order)
   if (order.stage !== undefined) return Math.min(order.stage, stages.length - 1)
   return order.status === 'completed' ? stages.length - 1 : order.status === 'in-progress' ? 1 : 0
 }
 
-export function statusForStage(kind: OrderKind, stage: number): OrderStatus {
-  const last = ORDER_STAGES[kind].length - 1
+export function statusForStage(order: Pick<ClinicalOrder, 'kind' | 'externalProviderId'>, stage: number): OrderStatus {
+  const last = stagesFor(order).length - 1
   return stage >= last ? 'completed' : stage === 0 ? 'ordered' : 'in-progress'
 }
 
 /** True when the next step needs a written result (the final reporting step). */
 export const needsResult = (order: ClinicalOrder) => {
   const next = orderStage(order) + 1
+  if (order.externalProviderId) return next === EXTERNAL_STAGES.length - 1
   const stages = ORDER_STAGES[order.kind]
   return ['Laboratory', 'Imaging'].includes(order.kind) && next === stages.length - (order.kind === 'Laboratory' ? 2 : 1)
 }
@@ -189,8 +197,10 @@ export const ESI_TARGET_MINUTES: Record<number, number> = { 1: 0, 2: 10, 3: 30, 
 
 export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   const stage = orderStage(order)
-  const last = ORDER_STAGES[order.kind].length - 1
-  if (stage >= last || role === 'administrator') return stage < last
+  const last = stagesFor(order).length - 1
+  if (stage >= last || role === 'administrator') return false
+  // Referred investigations are tracked by the ward team and laboratory/radiology staff.
+  if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'receptionist'].includes(role)
   switch (order.kind) {
     case 'Laboratory': return role === 'diagnostics' || (stage === 0 && role === 'nurse')
     case 'Imaging': return role === 'diagnostics'

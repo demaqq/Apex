@@ -18,7 +18,7 @@ export function Avatar({ name, size = 'md', accent, className = '', style, ...pr
   )
 }
 
-export function Brand({ compact = false, light = false }: { compact?: boolean; light?: boolean }) {
+export function Brand({ compact = false, light = false, name = 'Northstar', tagline = 'CareOS · Unified care platform' }: { compact?: boolean; light?: boolean; name?: string; tagline?: string }) {
   return (
     <div className="brand">
       <span className={`brand-mark ${light ? 'brand-mark-light' : ''}`} aria-hidden="true">
@@ -26,8 +26,8 @@ export function Brand({ compact = false, light = false }: { compact?: boolean; l
       </span>
       {!compact && (
         <span className="brand-copy">
-          <strong>Northstar</strong>
-          <span>CareOS · Unified care platform</span>
+          <strong>{name}</strong>
+          <span>{tagline}</span>
         </span>
       )}
     </div>

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Clock3, Download, Eye, FileCheck2, FlaskConical, Play, Plus, ScanLine, Siren } from 'lucide-react'
 import { OrderModal, ResultModal } from '../components/ClinicalModals'
 import { Button, DetailGrid, EmptyState, FilterSelect, Metric, Modal, OrderStepper, PageHeader, Panel, PersonCell, SearchField, Tabs } from '../components/ui'
-import { ORDER_STAGES, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
+import { stagesFor, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { downloadCsv, formatDateTime, formatWait, relativeTime, today } from '../lib/format'
 import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
@@ -30,7 +30,7 @@ export default function LabImagingView() {
   const filtered = ofKind
     .filter((order) => {
       const patient = patients.get(order.patientId)
-      const statusOk = status === 'all' || (status === 'active' ? order.status !== 'completed' : order.status === status)
+      const statusOk = status === 'all' || (status === 'active' ? order.status !== 'completed' : status === 'referred' ? Boolean(order.externalProviderId) : order.status === status)
       return statusOk && matches(query, order.id, order.title, patient?.name, patient?.mrn, order.createdBy)
     })
     .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.createdAt.localeCompare(b.createdAt))
@@ -43,7 +43,7 @@ export default function LabImagingView() {
 
   const actionFor = (order: ClinicalOrder) => {
     const stage = orderStage(order)
-    const stages = ORDER_STAGES[order.kind]
+    const stages = stagesFor(order)
     const result = order.result ? <Button size="sm" variant="ghost" icon={Eye} onClick={() => setViewing(order)}>Result</Button> : null
     if (!currentRole || !canAdvanceOrder(order, currentRole)) return result ?? <span className="muted-text">{stage === stages.length - 1 ? 'Complete' : `Awaiting ${view === 'Imaging' ? 'radiology' : 'laboratory'}`}</span>
     return <>{needsResult(order)
@@ -79,7 +79,7 @@ export default function LabImagingView() {
       <Panel>
         <div className="table-toolbar">
           <SearchField value={query} onChange={setQuery} placeholder={`Search ${view === 'Imaging' ? 'studies' : 'tests'}, patients or clinicians…`} />
-          <FilterSelect label="All statuses" value={status} onChange={setStatus} options={[{ value: 'active', label: 'Open orders' }, { value: 'ordered', label: 'Ordered' }, { value: 'in-progress', label: 'In progress' }, { value: 'completed', label: 'Complete' }]} />
+          <FilterSelect label="All statuses" value={status} onChange={setStatus} options={[{ value: 'active', label: 'Open orders' }, { value: 'referred', label: 'Referred out' }, { value: 'ordered', label: 'Ordered' }, { value: 'in-progress', label: 'In progress' }, { value: 'completed', label: 'Complete' }]} />
         </div>
         <div className="table-wrap">
           <table className="data-table">
@@ -89,7 +89,7 @@ export default function LabImagingView() {
                 const patient = patients.get(order.patientId)
                 return (
                   <tr key={order.id}>
-                    <td className="wrap"><b>{order.title}</b><small>{order.id}</small></td>
+                    <td className="wrap"><b>{order.title}</b><small>{order.id}{order.externalProviderId ? ` · referred to ${state.providers.find((provider) => provider.id === order.externalProviderId)?.name ?? 'partner'}` : ''}</small></td>
                     <td>{patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}</td>
                     <td><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></td>
                     <td><OrderStepper order={order} />{order.specimen && <small className="mono">{order.specimen.id} · {order.specimen.type}</small>}</td>
@@ -109,7 +109,7 @@ export default function LabImagingView() {
       {viewing && (
         <Modal open onClose={() => setViewing(null)} title={viewing.title} subtitle={`${viewing.id} · ${patients.get(viewing.patientId)?.name ?? ''}`} size="md">
           <DetailGrid items={[['Patient', patients.get(viewing.patientId)?.name], ['MRN', patients.get(viewing.patientId)?.mrn], ['Priority', viewing.priority], ['Requested', `${formatDateTime(viewing.createdAt)} · ${viewing.createdBy}`]]} />
-          <h3 className="detail-heading">{orderStage(viewing) === ORDER_STAGES[viewing.kind].length - 1 ? 'Verified result' : 'Result (awaiting verification)'}</h3>
+          <h3 className="detail-heading">{orderStage(viewing) === stagesFor(viewing).length - 1 ? 'Verified result' : 'Result (awaiting verification)'}</h3>
           <p className="result-text">{viewing.result ?? 'No result text recorded.'}</p>
           <div className="modal-footer"><span /><Button variant="secondary" onClick={() => setViewing(null)}>Close</Button></div>
         </Modal>

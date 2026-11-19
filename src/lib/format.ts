@@ -24,12 +24,11 @@ export function relativeTime(iso: string, now = Date.now()) {
 const timeFormat = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
 const dateFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 const dateTimeFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-const currencyFormat = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
 export const formatTime = (iso: string) => timeFormat.format(new Date(iso))
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso))
 export const formatDateTime = (iso: string) => dateTimeFormat.format(new Date(iso))
-export const formatCurrency = (value: number) => currencyFormat.format(value)
+export const formatCurrency = (value: number) => currencyFormat2.format(value)
 
 export function getEncounterType(patient: Patient): 'inpatient' | 'outpatient' {
   if (patient.encounterType) return patient.encounterType
@@ -110,4 +109,13 @@ export function downloadPatientSummary(patient: Patient, departmentName: string)
     `Exported ${new Date().toLocaleString('en-GB')}`,
   ].join('\n')
   downloadFile(`${patient.mrn}-episode-summary.txt`, content, 'text/plain;charset=utf-8')
+}
+
+let currencyFormat2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+let currentCurrency = 'USD'
+/** Sets the facility currency used by formatCurrency (called by the store from settings). */
+export function setCurrency(code: string) {
+  if (code === currentCurrency) return
+  currentCurrency = code
+  try { currencyFormat2 = new Intl.NumberFormat(code === 'ETB' ? 'en-ET' : 'en-US', { style: 'currency', currency: code }) } catch { /* keep previous */ }
 }

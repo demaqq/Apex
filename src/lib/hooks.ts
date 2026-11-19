@@ -68,3 +68,20 @@ export function beep(count = 3) {
     }
   } catch { /* audio unavailable */ }
 }
+
+/**
+ * Administrators don't see patient identities: replaces patient names with
+ * their MRN in free text (activity, audit) and returns a display label.
+ */
+export function useRedact() {
+  const { state, currentRole } = useHospital()
+  return useMemo(() => {
+    const hide = currentRole === 'administrator'
+    const patients = state.patients
+    return {
+      hide,
+      text: (value: string) => hide ? patients.reduce((out, patient) => out.split(patient.name).join(patient.mrn), value) : value,
+      name: (patient: Patient) => hide ? `Patient ${patient.mrn}` : patient.name,
+    }
+  }, [state.patients, currentRole])
+}

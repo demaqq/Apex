@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Apple, ArrowRight, Droplets, Dumbbell, Plus } from 'lucide-react'
 import { OrderModal } from '../components/ClinicalModals'
 import { Button, Chip, EmptyState, Metric, OrderStepper, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
-import { ORDER_STAGES, SERVICE_KINDS, canAdvanceOrder, orderStage } from '../lib/clinical'
+import { stagesFor, SERVICE_KINDS, canAdvanceOrder, orderStage } from '../lib/clinical'
 import { relativeTime } from '../lib/format'
 import { useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
@@ -44,7 +44,7 @@ export default function Services() {
                     <td className="wrap"><b>{order.title}</b><small>{order.createdBy} · {relativeTime(order.createdAt, now)}</small></td>
                     <td><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></td>
                     <td><OrderStepper order={order} /></td>
-                    <td className="row-actions">{currentRole && canAdvanceOrder(order, currentRole) ? <Button size="sm" variant="secondary" icon={ArrowRight} onClick={() => advanceOrder(order.id)}>Mark {ORDER_STAGES[order.kind][stage + 1].toLowerCase()}</Button> : order.status === 'completed' ? <Chip tone="success">Complete</Chip> : <span className="muted-text">{kind === 'Blood bank' && stage === 3 ? 'Ward to transfuse' : 'With the service'}</span>}</td>
+                    <td className="row-actions">{currentRole && canAdvanceOrder(order, currentRole) ? <Button size="sm" variant="secondary" icon={ArrowRight} onClick={() => advanceOrder(order.id)}>Mark {stagesFor(order)[stage + 1].toLowerCase()}</Button> : order.status === 'completed' ? <Chip tone="success">Complete</Chip> : <span className="muted-text">{kind === 'Blood bank' && stage === 3 ? 'Ward to transfuse' : 'With the service'}</span>}</td>
                   </tr>
                 )
               })}

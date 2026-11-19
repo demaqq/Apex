@@ -1,4 +1,7 @@
 import type {
+  ExternalProvider,
+  FacilitySettings,
+  InvestigationItem,
   Appointment,
   Bed,
   CosignNote,
@@ -282,10 +285,10 @@ const orderSeed = (): ClinicalOrder[] => [
 const formularySeed = (): FormularyItem[] => [
   { id: 'med-1', name: 'Paracetamol', genericName: 'Acetaminophen', generic: 'paracetamol', contraindications: ['Severe liver impairment'], category: 'Analgesic', dosageForm: 'Tablet', strength: '500 mg', stock: 5000, unit: 'tablet', reorderLevel: 1000, pricePerUnit: 0.05, route: 'PO' },
   { id: 'med-2', name: 'Ibuprofen', genericName: 'Ibuprofen', generic: 'ibuprofen', contraindications: ['Active gastrointestinal bleeding', 'Severe renal impairment', 'Third trimester of pregnancy'], category: 'Analgesic', dosageForm: 'Tablet', strength: '400 mg', stock: 1100, unit: 'tablet', reorderLevel: 500, pricePerUnit: 0.08, route: 'PO' },
-  { id: 'med-3', name: 'Morphine', genericName: 'Morphine sulfate', generic: 'morphine', contraindications: ['Respiratory depression', 'Acute severe asthma'], category: 'Analgesic', dosageForm: 'Injection', strength: '10 mg/mL', stock: 46, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 2.5, route: 'IV', controlled: true },
+  { id: 'med-3', name: 'Morphine', genericName: 'Morphine sulfate', generic: 'morphine', contraindications: ['Respiratory depression', 'Acute severe asthma'], category: 'Analgesic', dosageForm: 'Injection', strength: '10 mg/mL', stock: 46, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 2.5, route: 'IV', controlled: true, batch: 'MO-2291', expiry: '2027-01-31', supplier: 'EPSS' },
   { id: 'med-4', name: 'Ceftriaxone', genericName: 'Ceftriaxone sodium', generic: 'ceftriaxone', contraindications: ['Neonates receiving calcium-containing infusions'], category: 'Antibiotic', dosageForm: 'Injection', strength: '1 g', stock: 500, unit: 'vial', reorderLevel: 100, pricePerUnit: 4.2, route: 'IV' },
   { id: 'med-5', name: 'Metoprolol', genericName: 'Metoprolol tartrate', generic: 'metoprolol', contraindications: ['Severe bradycardia', 'Cardiogenic shock'], category: 'Cardiovascular', dosageForm: 'Tablet', strength: '25 mg', stock: 1000, unit: 'tablet', reorderLevel: 200, pricePerUnit: 0.15, route: 'PO' },
-  { id: 'med-6', name: 'Insulin glargine', genericName: 'Insulin glargine', generic: 'insulin', contraindications: ['Hypoglycaemia'], category: 'Antidiabetic', dosageForm: 'Pen', strength: '100 units/mL', stock: 52, unit: 'pen', reorderLevel: 30, pricePerUnit: 45, route: 'SC' },
+  { id: 'med-6', name: 'Insulin glargine', genericName: 'Insulin glargine', generic: 'insulin', contraindications: ['Hypoglycaemia'], category: 'Antidiabetic', dosageForm: 'Pen', strength: '100 units/mL', stock: 52, unit: 'pen', reorderLevel: 30, pricePerUnit: 45, route: 'SC', batch: 'IG-1840', expiry: '2026-12-15', supplier: 'Sanofi distributor' },
   { id: 'med-7', name: 'Salbutamol', genericName: 'Salbutamol sulfate', generic: 'salbutamol', contraindications: [], category: 'Respiratory', dosageForm: 'Inhaler', strength: '100 mcg/dose', stock: 800, unit: 'inhaler', reorderLevel: 150, pricePerUnit: 12, route: 'Inhaled' },
   { id: 'med-8', name: 'Midazolam', genericName: 'Midazolam', generic: 'midazolam', contraindications: ['Severe respiratory insufficiency'], category: 'Sedative', dosageForm: 'Injection', strength: '5 mg/mL', stock: 100, unit: 'ampoule', reorderLevel: 25, pricePerUnit: 3.2, route: 'IV', controlled: true },
   { id: 'med-9', name: 'Adrenaline', genericName: 'Epinephrine', generic: 'adrenaline', contraindications: [], category: 'Emergency', dosageForm: 'Injection', strength: '1 mg/mL (1:1000)', stock: 200, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 1.8, route: 'IM / IV' },
@@ -297,7 +300,7 @@ const formularySeed = (): FormularyItem[] => [
   { id: 'med-16', name: 'Furosemide', genericName: 'Furosemide', generic: 'furosemide', contraindications: ['Anuria'], category: 'Cardiovascular', dosageForm: 'Injection', strength: '40 mg ampoule', stock: 150, unit: 'ampoule', reorderLevel: 50, pricePerUnit: 0.9, route: 'IV' },
   { id: 'med-17', name: 'Omeprazole', genericName: 'Omeprazole', generic: 'omeprazole', contraindications: [], category: 'Gastrointestinal', dosageForm: 'Capsule', strength: '20 mg', stock: 700, unit: 'capsule', reorderLevel: 250, pricePerUnit: 0.1, route: 'PO' },
   { id: 'med-18', name: 'Diazepam', genericName: 'Diazepam', generic: 'diazepam', contraindications: ['Severe respiratory insufficiency', 'Sleep apnoea'], category: 'Sedative', dosageForm: 'Injection', strength: '10 mg/2 mL', stock: 45, unit: 'ampoule', reorderLevel: 20, pricePerUnit: 1.4, route: 'IV', controlled: true },
-  { id: 'med-12', name: 'Amoxicillin', genericName: 'Amoxicillin', generic: 'amoxicillin', contraindications: ['Penicillin allergy'], category: 'Antibiotic', dosageForm: 'Oral suspension', strength: '250 mg/5 mL', stock: 64, unit: 'bottle', reorderLevel: 40, pricePerUnit: 3.1, route: 'PO' },
+  { id: 'med-12', name: 'Amoxicillin', genericName: 'Amoxicillin', generic: 'amoxicillin', contraindications: ['Penicillin allergy'], category: 'Antibiotic', dosageForm: 'Oral suspension', strength: '250 mg/5 mL', stock: 64, unit: 'bottle', reorderLevel: 40, pricePerUnit: 3.1, route: 'PO', batch: 'AM-0932', expiry: '2026-11-30', supplier: 'EPSS' },
 ]
 
 const prescriptionSeed = (): Prescription[] => [
@@ -356,6 +359,7 @@ const staffSeed = (): StaffMember[] => [
 ]
 
 const extraStaff = (): StaffMember[] => [
+  { id: 'ST-18', name: 'Dr. Selam Bekele', role: 'Medical officer', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: false, pager: 'MED-021', email: 'selam.bekele@northstar.example', phone: 'x2690', license: 'Not yet verified', status: 'Pending approval', roleId: 'physician' },
   { id: 'ST-12', roleId: 'intern', name: 'Dr. Leo Park', role: 'Foundation doctor', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-014', email: 'leo.park@northstar.example', phone: 'x2684', license: 'MD-501877' },
   { id: 'ST-13', roleId: 'receptionist', name: 'Grace Mwangi', role: 'Front desk coordinator', department: 'emergency', specialty: 'Registration', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'REG-001', email: 'grace.mwangi@northstar.example', phone: 'x2001', license: '—' },
   { id: 'ST-14', roleId: 'theatre', name: 'Dr. Ines Duarte', role: 'Anaesthetist', department: 'surgery', specialty: 'Anaesthesia', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'ANA-001', email: 'ines.duarte@northstar.example', phone: 'x2471', license: 'MD-377901' },
@@ -410,6 +414,57 @@ const theatreSeed = (): TheatreCase[] => [
   { id: 'TC-03', patientId: 'p1005', procedure: 'Wound review under sedation', surgeon: 'Mr. Robert Hale · General surgery', room: 'Theatre 3', time: '14:00', stage: 0, checklist: [false, false, false, false, false, false] },
 ]
 
+export const defaultSettings = (): FacilitySettings => ({
+  name: 'Northstar General',
+  type: 'Hospital',
+  tagline: 'Unified care platform',
+  city: 'Addis Ababa',
+  country: 'Ethiopia',
+  phone: '',
+  email: '',
+  currency: 'USD',
+  disabledModules: [],
+})
+
+const inv = (id: string, name: string, kind: InvestigationItem['kind'], inHouse: boolean, price: number): InvestigationItem => ({ id, name, kind, inHouse, price, active: true })
+
+const investigationSeed = (): InvestigationItem[] => [
+  inv('L01', 'Full blood count', 'Laboratory', true, 12),
+  inv('L02', 'U&E and creatinine', 'Laboratory', true, 15),
+  inv('L03', 'CRP', 'Laboratory', true, 10),
+  inv('L04', 'Liver function tests', 'Laboratory', true, 18),
+  inv('L05', 'High-sensitivity troponin I', 'Laboratory', true, 35),
+  inv('L06', 'Arterial blood gas', 'Laboratory', true, 25),
+  inv('L07', 'Blood cultures x2', 'Laboratory', true, 40),
+  inv('L08', 'Lactate', 'Laboratory', true, 12),
+  inv('L09', 'Coagulation screen', 'Laboratory', true, 20),
+  inv('L10', 'Glucose', 'Laboratory', true, 4),
+  inv('L11', 'Urinalysis', 'Laboratory', true, 5),
+  inv('L12', 'Group and save', 'Laboratory', true, 15),
+  inv('L13', 'HbA1c', 'Laboratory', false, 22),
+  inv('L14', 'Thyroid function tests', 'Laboratory', false, 30),
+  inv('L15', 'Viral load (HIV)', 'Laboratory', false, 60),
+  inv('L16', 'Histopathology', 'Laboratory', false, 85),
+  inv('I01', 'Chest X-ray', 'Imaging', true, 30),
+  inv('I02', 'X-ray limb', 'Imaging', true, 30),
+  inv('I03', 'Ultrasound abdomen', 'Imaging', true, 45),
+  inv('I04', 'Echocardiogram', 'Imaging', true, 80),
+  inv('I05', 'CT head without contrast', 'Imaging', true, 150),
+  inv('I06', 'CT pulmonary angiogram', 'Imaging', false, 220),
+  inv('I07', 'CT abdomen and pelvis', 'Imaging', false, 240),
+  inv('I08', 'MRI brain', 'Imaging', false, 320),
+  inv('I09', 'MRI spine', 'Imaging', false, 340),
+  inv('I10', 'Mammography', 'Imaging', false, 90),
+]
+
+/** Diagnostic providers in Addis Ababa. Contact details are left for the administrator to fill in. */
+const providerSeed = (): ExternalProvider[] => [
+  { id: 'arsho', name: 'Arsho Advanced Medical Laboratories', services: ['Laboratory'], notes: 'Private medical laboratory', phone: '', address: '', active: true },
+  { id: 'icl', name: 'International Clinical Laboratories (ICL)', services: ['Laboratory'], notes: 'Private medical laboratory', phone: '', address: '', active: true },
+  { id: 'wudassie', name: 'Wudassie Diagnostic Center', services: ['Imaging', 'Laboratory'], notes: 'Diagnostic imaging centre', phone: '', address: '', active: true },
+  { id: 'icmc', name: 'ICMC General Hospital', services: ['Imaging', 'Laboratory'], notes: 'Referral hospital with diagnostic services', phone: '', address: '', active: true },
+]
+
 export function createInitialState(): HospitalState {
   const wards = wardSeed()
   const patients = patientSeed().map((patient) => {
@@ -452,6 +507,10 @@ export function createInitialState(): HospitalState {
       { id: 'PG-01', from: 'Sarah Okafor, RN', toStaffId: 'ST-01', message: 'Daniel Kim (ED Bed 04): SpO₂ 92% on oxygen after third nebuliser. Please review.', urgent: true, at: ago(6) },
     ] as Page[],
     theatreCases: theatreSeed(),
+    settings: defaultSettings(),
+    investigations: investigationSeed(),
+    providers: providerSeed(),
+    stockMovements: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },
     ] as CosignNote[],

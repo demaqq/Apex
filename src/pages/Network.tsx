@@ -8,12 +8,17 @@ import { downloadCsv, relativeTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { DepartmentId, Patient, Referral } from '../types'
 
-const positions: Record<DepartmentId, { x: number; y: number }> = {
+const fixedPositions: Record<string, { x: number; y: number }> = {
   emergency: { x: 405, y: 300 }, cardiology: { x: 160, y: 130 }, neurology: { x: 410, y: 80 }, radiology: { x: 685, y: 120 },
   laboratory: { x: 825, y: 280 }, icu: { x: 145, y: 330 }, surgery: { x: 240, y: 505 }, ward: { x: 510, y: 520 },
   pharmacy: { x: 770, y: 495 }, pediatrics: { x: 670, y: 335 }, obgyn: { x: 65, y: 510 },
   'internal-medicine': { x: 410, y: 445 }, ent: { x: 875, y: 90 }, dermatology: { x: 885, y: 490 },
 }
+
+/** Departments added by an administrator get a spot along the bottom of the map. */
+const positions = new Proxy(fixedPositions, {
+  get: (target, key: string) => target[key] ?? { x: 90 + ((Array.from(key).reduce((sum, ch) => sum + ch.charCodeAt(0), 0) * 97) % 780), y: 545 },
+}) as Record<DepartmentId, { x: number; y: number }>
 
 export default function Network() {
   const { state, profile, can, setSelectedPatientId, updateReferral, notify } = useHospital()

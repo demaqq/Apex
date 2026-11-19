@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { AlertTriangle, BellRing, Check, HandHeart } from 'lucide-react'
 import { Button, Chip, EmptyState, NewsChip, PageHeader, Panel } from '../components/ui'
 import { departmentById } from '../data'
-import { ORDER_STAGES, orderStage, patientAlerts, patientNews2 } from '../lib/clinical'
+import { stagesFor, orderStage, patientAlerts, patientNews2 } from '../lib/clinical'
 import { relativeTime } from '../lib/format'
 import { useNow } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
@@ -42,7 +42,7 @@ export default function Handover() {
               <p><b>S</b>{patient.complaint}.</p>
               <p><b>B</b>{patient.history.split('.')[0]}. {patient.allergies.some((allergy) => !/no known|not yet/i.test(allergy)) ? `Allergies: ${patient.allergies.join(', ')}.` : 'No known allergies.'}</p>
               <p><b>A</b>{v.hr ? `HR ${v.hr}, BP ${v.bpSys}/${v.bpDia}, RR ${v.rr}, SpO₂ ${v.spo2}%, T ${v.temp}°C.` : 'Observations not yet recorded.'}{alerts.length ? ` Risks: ${alerts.map((alert) => alert.text.split(':')[0]).join('; ')}.` : ''}</p>
-              <p><b>R</b>{open.length ? open.map((order) => `${order.title} (${ORDER_STAGES[order.kind][orderStage(order)].toLowerCase()})`).join('; ') : 'Nothing pending.'}</p>
+              <p><b>R</b>{open.length ? open.map((order) => `${order.title} (${stagesFor(order)[orderStage(order)].toLowerCase()})`).join('; ') : 'Nothing pending.'}</p>
               {score && score.score >= 5 && !patient.escalation && <footer><span /><Button size="sm" variant="danger" icon={BellRing} onClick={() => escalatePatient(patient.id)}>Escalate to doctor</Button></footer>}
             </article>
           )
