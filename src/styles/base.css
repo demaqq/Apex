@@ -35,20 +35,20 @@
 
 /* ---------- Black (dark) ---------- */
 :root, .sidebar, .login-page, .always-dark {
-  --canvas: color-mix(in oklab, var(--a-tint) 12%, #050b0d);
-  --paper: color-mix(in oklab, var(--a-tint) 18%, #0a1114);
-  --sunken: color-mix(in oklab, var(--a-tint) 14%, #070d10);
-  --chip: color-mix(in oklab, var(--a-tint) 24%, #0e1a1e);
-  --navy: color-mix(in oklab, var(--a-tint) 8%, #030809);
+  --canvas: color-mix(in oklab, var(--a-tint) 17%, #0a1316);
+  --paper: color-mix(in oklab, var(--a-tint) 24%, #111b1f);
+  --sunken: color-mix(in oklab, var(--a-tint) 19%, #0d161a);
+  --chip: color-mix(in oklab, var(--a-tint) 30%, #152328);
+  --navy: color-mix(in oklab, var(--a-tint) 12%, #060d0f);
   --ink: #f1f5f9;
   --text: color-mix(in oklab, var(--a-tint) 6%, #d0d9db);
   --muted: color-mix(in oklab, var(--a-tint) 14%, #8c9ea2);
   --faint: color-mix(in oklab, var(--a-tint) 14%, #6a7f83);
-  --line: color-mix(in oklab, var(--a-tint) 24%, #0e1a1d);
-  --line-soft: color-mix(in oklab, var(--a-tint) 30%, #13232a);
+  --line: color-mix(in oklab, var(--a-tint) 28%, #16242a);
+  --line-soft: color-mix(in oklab, var(--a-tint) 34%, #1b2d34);
   --teal: var(--a-d);
   --teal-dark: var(--a-d2);
-  --teal-soft: color-mix(in oklab, var(--a-d) 16%, #0a1114);
+  --teal-soft: color-mix(in oklab, var(--a-d) 18%, #111b1f);
   --accent-soft: color-mix(in srgb, var(--a-d) 14%, transparent);
   --accent-text: var(--a-dt);
   --on-accent: var(--a-don);
@@ -66,8 +66,8 @@
   --warn-text: #fcd34d;
   --ok-text: #86efac;
   --info-text: #93c5fd;
-  --paper: color-mix(in oklab, var(--a-tint) 14%, #070d10);
-  --canvas: color-mix(in oklab, var(--a-tint) 8%, #030809);
+  --paper: color-mix(in oklab, var(--a-tint) 20%, #0c1519);
+  --canvas: color-mix(in oklab, var(--a-tint) 13%, #070e11);
 }
 
 /* ---------- White (light green glass) ---------- */
