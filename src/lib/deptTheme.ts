@@ -1,6 +1,6 @@
 import type { Department, DepartmentId } from '../types'
 
-export type Ambient = 'orbs' | 'bubbles' | 'waves' | 'ribbons' | 'ecg' | 'neural' | 'scan' | 'molecules'
+export type Ambient = 'orbs' | 'bubbles' | 'waves' | 'ribbons' | 'ecg' | 'neural' | 'scan' | 'molecules' | 'ripples' | 'pulse' | 'cells' | 'iris' | 'siren' | 'crosses'
 
 export interface DeptTheme {
   name: string
@@ -21,11 +21,15 @@ export const DEPT_THEMES: Partial<Record<DepartmentId, DeptTheme>> = {
   oncology: { name: 'Lavender', ambient: 'ribbons', d: ['#a78bfa', '#8b5cf6', '#c4b5fd', '#2e1065'], l: ['#7c3aed', '#6d28d9'], tint: '#7c3aed', second: '#f0abfc' },
   cardiology: { name: 'Heart red', ambient: 'ecg', d: ['#fb7185', '#f43f5e', '#fda4af', '#4c0519'], l: ['#e11d48', '#be123c'], tint: '#e11d48', second: '#fb923c' },
   neurology: { name: 'Indigo', ambient: 'neural', d: ['#818cf8', '#6366f1', '#a5b4fc', '#1e1b4b'], l: ['#4f46e5', '#4338ca'], tint: '#6366f1', second: '#22d3ee' },
-  emergency: { name: 'Ember', ambient: 'ecg', d: ['#fb923c', '#f97316', '#fdba74', '#431407'], l: ['#c2410c', '#9a3412'], tint: '#ea580c', second: '#ef4444' },
+  emergency: { name: 'Ember', ambient: 'siren', d: ['#fb923c', '#f97316', '#fdba74', '#431407'], l: ['#c2410c', '#9a3412'], tint: '#ea580c', second: '#ef4444' },
   icu: { name: 'Monitor cyan', ambient: 'ecg', d: ['#22d3ee', '#06b6d4', '#67e8f9', '#083344'], l: ['#0e7490', '#155e75'], tint: '#0891b2', second: '#f43f5e' },
-  surgery: { name: 'Theatre blue', ambient: 'orbs', d: ['#60a5fa', '#3b82f6', '#93c5fd', '#172554'], l: ['#1d4ed8', '#1e40af'], tint: '#2563eb', second: '#2dd4bf' },
+  surgery: { name: 'Theatre blue', ambient: 'crosses', d: ['#60a5fa', '#3b82f6', '#93c5fd', '#172554'], l: ['#1d4ed8', '#1e40af'], tint: '#2563eb', second: '#2dd4bf' },
   radiology: { name: 'X-ray slate', ambient: 'scan', d: ['#93c5fd', '#60a5fa', '#bfdbfe', '#172554'], l: ['#2563eb', '#1d4ed8'], tint: '#475569', second: '#38bdf8' },
   laboratory: { name: 'Lab lime', ambient: 'molecules', d: ['#a3e635', '#84cc16', '#bef264', '#1a2e05'], l: ['#4d7c0f', '#3f6212'], tint: '#65a30d', second: '#2dd4bf' },
+  ent: { name: 'Gold sound', ambient: 'ripples', d: ['#fbbf24', '#f59e0b', '#fcd34d', '#422006'], l: ['#a16207', '#854d0e'], tint: '#ca8a04', second: '#fb923c' },
+  'internal-medicine': { name: 'Forest green', ambient: 'pulse', d: ['#4ade80', '#22c55e', '#86efac', '#052e16'], l: ['#15803d', '#166534'], tint: '#16a34a', second: '#38bdf8' },
+  dermatology: { name: 'Orchid', ambient: 'cells', d: ['#e879f9', '#d946ef', '#f0abfc', '#4a044e'], l: ['#a21caf', '#86198f'], tint: '#c026d3', second: '#fda4af' },
+  ophthalmology: { name: 'Silver lens', ambient: 'iris', d: ['#cbd5e1', '#94a3b8', '#e2e8f0', '#0f172a'], l: ['#475569', '#334155'], tint: '#64748b', second: '#22d3ee' },
   pharmacy: { name: 'Emerald', ambient: 'molecules', d: ['#34d399', '#10b981', '#6ee7b7', '#022c22'], l: ['#047857', '#065f46'], tint: '#059669', second: '#a3e635' },
 }
 
@@ -34,7 +38,7 @@ export function themeFor(id: DepartmentId | undefined, department?: Department):
   if (!id) return DEFAULT
   const known = DEPT_THEMES[id]
   if (known) return known
-  if (department?.color && !['ward', 'internal-medicine', 'ent', 'dermatology'].includes(id)) {
+  if (department?.color && id !== 'ward') {
     const c = department.color
     return { name: department.name, ambient: 'orbs', d: [`color-mix(in oklab, ${c} 70%, white)`, c, `color-mix(in oklab, ${c} 50%, white)`, `color-mix(in oklab, ${c} 25%, black)`], l: [`color-mix(in oklab, ${c} 70%, black)`, `color-mix(in oklab, ${c} 55%, black)`], tint: c, second: DEFAULT.second }
   }

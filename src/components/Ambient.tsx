@@ -49,6 +49,28 @@ export const Ambient = memo(function Ambient({ kind }: { kind: AmbientKind }) {
         </svg>
       )}
 
+      {kind === 'ripples' && [0, 1, 2].map((n) => (
+        <div key={n} className={`ripple-set r${n}`}>{[0, 1, 2, 3].map((r) => <span key={r} style={v({ '--delay': `${r * 1.6}s` })} />)}</div>
+      ))}
+
+      {kind === 'pulse' && <><span className="pulse-ring p1" /><span className="pulse-ring p2" /><span className="pulse-ring p3" /></>}
+
+      {kind === 'cells' && items.map((c) => <i key={c.i} className={`cell ${c.alt ? 'alt' : ''}`} style={v({ left: `${c.x}%`, top: `${c.y}%`, '--size': `${30 + c.s * 70}px`, '--dur': `${8 + c.d * 10}s`, '--delay': `${-c.d * 10}s`, '--r': `${c.s * 360}deg` })} />)}
+
+      {kind === 'iris' && (
+        <svg className="iris" viewBox="-100 -100 200 200">
+          {[90, 74, 58, 44].map((r, i) => <circle key={r} r={r} className={`iris-ring i${i}`} />)}
+          <g className="iris-fibres">{Array.from({ length: 36 }, (_, i) => <line key={i} x1="0" y1="-22" x2="0" y2="-56" transform={`rotate(${i * 10})`} />)}</g>
+          <circle r="20" className="iris-pupil" />
+        </svg>
+      )}
+
+      {kind === 'siren' && <><span className="siren red" /><span className="siren blue" /></>}
+
+      {kind === 'crosses' && items.slice(0, 14).map((c) => (
+        <svg key={c.i} className={`cross ${c.alt ? 'alt' : ''}`} viewBox="0 0 24 24" style={v({ left: `${c.x}%`, top: `${c.y}%`, '--size': `${14 + c.s * 22}px`, '--dur': `${12 + c.d * 14}s`, '--delay': `${-c.d * 14}s` })}><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" /></svg>
+      ))}
+
       {kind === 'scan' && <><span className="scan-grid" /><span className="scan-bar" /></>}
 
       {kind === 'molecules' && items.slice(0, 14).map((m) => (

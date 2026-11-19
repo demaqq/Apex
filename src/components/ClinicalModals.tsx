@@ -5,6 +5,7 @@ import { stagesFor } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, DepartmentId, Patient, Priority, Referral, Vitals } from '../types'
 import { Button, EsiBadge, Modal } from './ui'
+import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 
 const defaultVitals: Vitals = { hr: 80, rr: 16, spo2: 98, bpSys: 120, bpDia: 75, temp: 36.8, gcs: 15, pain: 2 }
 
@@ -219,7 +220,7 @@ export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient
 }
 
 const locationNames: Record<DepartmentId, string> = {
-  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05'
+  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05', ophthalmology: 'Eye clinic · Room 2'
 }
 
 export function TransferModal({ patient, open, onClose }: { patient: Patient; open: boolean; onClose: () => void }) {
@@ -241,8 +242,9 @@ export function TransferModal({ patient, open, onClose }: { patient: Patient; op
   </Modal>
 }
 
-export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; open: boolean; onClose: () => void }) {
-  const { state, advanceOrder } = useHospital()
+export function ResultModal({ order: initial, open, onClose }: { order: ClinicalOrder; open: boolean; onClose: () => void }) {
+  const { state, advanceOrder, currentRole } = useHospital()
+  const order = state.orders.find((item) => item.id === initial.id) ?? initial
   const patient = state.patients.find((item) => item.id === order.patientId)
   const [result, setResult] = useState(order.result ?? '')
   const [error, setError] = useState('')
@@ -250,6 +252,8 @@ export function ResultModal({ order, open, onClose }: { order: ClinicalOrder; op
   return <Modal open={open} onClose={onClose} title="Release diagnostic result" subtitle={`${order.id} · ${order.title}`} size="md">
     <div className="context-banner"><FileCheck2 size={21} /><div><b>{patient?.name} · {patient?.mrn}</b><span>{order.priority} priority · Ordered by {order.createdBy}</span></div></div>
     <label className="form-field"><span>Verified findings / report <b>*</b></span><textarea autoFocus rows={7} value={result} onChange={(event) => { setResult(event.target.value); setError('') }} placeholder="Enter the verified result, key values and any comparison or clinical caveat…" /></label>
+    {order.kind === 'Imaging' && <div className="report-images"><div><b>Images</b><span>{order.images?.length ? `${order.images.length} attached — clinicians see them with the report` : 'Attach key images so the requesting team can see them with the report.'}</span></div>{canAttachImages(order, currentRole) && <AttachImagesButton order={order} />}</div>}
+    {order.kind === 'Imaging' && <ImageStrip order={order} />}
     <div className="handoff-note"><Info size={17} /><span>{order.kind === 'Laboratory' ? 'The result goes to “Awaiting verification” until a senior scientist or pathologist verifies it.' : 'Releasing this report makes it visible in the patient chart and the ordering clinician’s dashboard.'}</span></div>
     {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
     <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (result.trim().length < 8) { setError('Enter a verified result before releasing.'); return } advanceOrder(order.id, result, order.kind === 'Laboratory' && !order.externalProviderId ? 3 : stagesFor(order).length - 1); onClose() }}>Verify & release<FileCheck2 size={17} /></Button></div>

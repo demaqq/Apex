@@ -8,6 +8,7 @@ import { downloadCsv, formatDateTime, formatWait, relativeTime, today } from '..
 import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder } from '../types'
+import { AttachImagesButton, canAttachImages, ImageStrip } from '../components/OrderImages'
 
 type View = 'Laboratory' | 'Imaging'
 const PRIORITY_RANK = { emergent: 0, urgent: 1, routine: 2 }
@@ -109,12 +110,12 @@ export default function LabImagingView() {
                 const patient = patients.get(order.patientId)
                 return (
                   <tr key={order.id}>
-                    <td className="wrap"><b>{order.title}</b>{view === 'Imaging' && patient && imagingWarnings(order.title, patient.id).map((warning) => <Chip key={warning} tone="danger">{warning}</Chip>)}<small>{order.id}{order.externalProviderId ? ` · referred to ${state.providers.find((provider) => provider.id === order.externalProviderId)?.name ?? 'partner'}` : ''}</small></td>
+                    <td className="wrap"><b>{order.title}</b>{view === 'Imaging' && patient && imagingWarnings(order.title, patient.id).map((warning) => <Chip key={warning} tone="danger">{warning}</Chip>)}<small>{order.id}{order.externalProviderId ? ` · referred to ${state.providers.find((provider) => provider.id === order.externalProviderId)?.name ?? 'partner'}` : ''}</small>{view === 'Imaging' && <ImageStrip order={order} compact />}</td>
                     <td>{patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}</td>
                     <td><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></td>
                     <td><OrderStepper order={order} />{order.specimen && <small className="mono">{order.specimen.id} · {order.specimen.type}</small>}</td>
                     <td>{relativeTime(order.createdAt, now)}<small>{order.createdBy}</small></td>
-                    <td className="row-actions">{actionFor(order)}</td>
+                    <td className="row-actions">{actionFor(order)}{view === 'Imaging' && canAttachImages(order, currentRole) && <AttachImagesButton order={order} label="Images" />}</td>
                   </tr>
                 )
               })}

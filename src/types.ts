@@ -3,7 +3,7 @@ export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coo
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
   | 'emergency' | 'cardiology' | 'neurology' | 'radiology' | 'laboratory' | 'icu' | 'surgery' | 'ward'
-  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology'
+  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology' | 'ophthalmology'
 export type DepartmentId = CoreDepartmentId | (string & {})
 
 export type PatientStatus = 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
@@ -38,16 +38,28 @@ export interface ObservationSet extends Vitals {
   context?: ObservationContext
 }
 
-/** A daily ward-round progress note (SOAP). */
+export type RoundKind = 'Ward round' | 'Resident round' | 'Consultant round' | 'Bedside assessment'
+
+/** A ward round or bedside assessment: history, vitals, examination, results, assessment and plan. */
 export interface RoundNote {
   id: string
   at: string
   by: string
+  kind?: RoundKind
+  /** Overnight events and what the patient reports. */
   subjective: string
+  symptoms?: string[]
+  vitals?: Vitals & { onOxygen: boolean; consciousness: Consciousness }
+  exam?: Array<{ system: string; normal: boolean; findings: string }>
+  /** Summary line of the examination (also used by older notes). */
   examination: string
+  nursing?: Record<string, string>
+  resultsReviewed?: string[]
   assessment: string
   plan: string
   status: 'Improving' | 'Stable' | 'Deteriorating'
+  /** Resident notes wait for a senior's co-signature. */
+  cosign?: 'Pending review' | 'Co-signed'
 }
 
 export interface Evaluation {
@@ -302,6 +314,22 @@ export interface ClinicalOrder {
   createdAt: string
   createdBy: string
   result?: string
+  /** Images attached by radiology (or outside films), newest last. Full-size copies live in IndexedDB. */
+  images?: OrderImage[]
+}
+
+export interface OrderImage {
+  id: string
+  name: string
+  at: string
+  by: string
+  caption?: string
+  width: number
+  height: number
+  /** Small JPEG data URL for lists. */
+  thumb: string
+  /** Full image when IndexedDB is unavailable. */
+  full?: string
 }
 
 export interface Activity {

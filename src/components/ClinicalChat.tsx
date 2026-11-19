@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Activity, AlertTriangle, ArrowRightLeft, ClipboardList, FileText, FlaskConical, HeartPulse, LogOut, MessageSquareText, Network, Pill, ScanLine, Send, Stethoscope, UserRound, type LucideIcon } from 'lucide-react'
+import { ImageStrip } from './OrderImages'
 import { news2, newsTone, prescribingWarnings } from '../lib/clinical'
 import { formatDate, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
@@ -147,7 +148,8 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
                 <div className="chat-meta"><span className="chat-kind"><Icon size={12} />{style.label}</span><b>{mine ? 'You' : event.author}</b><time>{formatTime(event.at)}</time></div>
                 <p className="chat-title">{event.title.replace(/^(History|Examination|Plan|Prescription)( \(awaiting co-signature\))?$/, (_, word, pending) => pending ? `${word} · awaiting co-signature` : '')}</p>
                 <p className="chat-text">{event.detail}</p>
-                {order && event.type === 'order' && <div className="chat-order">{order.externalProviderId && <Chip tone="warning">Referred · {state.providers.find((provider) => provider.id === order.externalProviderId)?.name}</Chip>}<OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}</div>}
+                {order && event.type === 'order' && <div className="chat-order">{order.externalProviderId && <Chip tone="warning">Referred · {state.providers.find((provider) => provider.id === order.externalProviderId)?.name}</Chip>}<OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}<ImageStrip order={order} compact /></div>}
+                {order && event.type === 'result' && event.title.startsWith('Images attached') && <ImageStrip order={order} compact />}
               </div>
             </motion.div>]
         })}

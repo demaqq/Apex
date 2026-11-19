@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, Baby, Brain, Zap, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
+import { Activity, Baby, Brain, Zap, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
 import { isChild, isObstetric, isUnderFive } from '../lib/charts'
 import { AntenatalChart, ContractionChart, FluidChart, GlucoseChart, PaediatricChart, PartographChart, PostpartumChart, SamChart } from './SpecialtyCharts'
+import { ImageStrip } from './OrderImages'
+import { RoundsView } from './RoundAssessment'
 import { NeuroChart, NihssChart, SeizureChart } from './NeuroCharts'
 import { patientNews2, stagesFor, orderStage, THEATRE_STAGES } from '../lib/clinical'
 import { formatDate, formatDateTime, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
-import type { ObservationContext, ObservationSet, Patient, RoundNote } from '../types'
+import type { ObservationContext, ObservationSet, Patient } from '../types'
 import { OBSERVATION_CONTEXTS } from '../types'
 import { ObservationsPanel } from './RecordPanels'
-import { Button, Chip } from './ui'
+import { Chip } from './ui'
 
 type CoreView = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
 type SpecialtyView = 'paediatric' | 'sam' | 'anc' | 'partograph' | 'contractions' | 'postpartum' | 'fluids' | 'glucose' | 'neuro' | 'nihss' | 'seizures'
@@ -19,7 +21,7 @@ const VIEWS: Array<[CoreView, string, typeof HeartPulse]> = [
   ['medications', 'Medications', Pill],
   ['procedures', 'Procedures', Scissors],
   ['investigations', 'Investigations', FlaskConical],
-  ['rounds', 'Daily rounds', NotebookPen],
+  ['rounds', 'Rounds & bedside', NotebookPen],
 ]
 
 /** Specialty charts that apply to this patient, most relevant first. */
@@ -339,7 +341,7 @@ function InvestigationChart({ patient }: { patient: Patient }) {
                   <div>
                     <b>{order.kind === 'Imaging' ? <ScanLine size={13} /> : <FlaskConical size={13} />} {order.title}</b>
                     <small>{order.createdBy} · {provider ? `Referred to ${provider.name}` : 'In-house'} · <span className="mono">{order.id}</span></small>
-                    {order.result ? <p className="result-line">{order.result}</p> : <p className="muted-text">Awaiting result</p>}
+                    {order.result ? <p className="result-line">{order.result}</p> : <p className="muted-text">Awaiting result</p>}<ImageStrip order={order} />
                   </div>
                   <Chip tone={order.status === 'completed' ? 'success' : order.priority === 'emergent' ? 'danger' : 'warning'}>{stagesFor(order)[orderStage(order)]}</Chip>
                 </li>
@@ -349,71 +351,5 @@ function InvestigationChart({ patient }: { patient: Patient }) {
         </div>
       ))}
     </section>
-  )
-}
-
-/* ---------------- Daily ward rounds ---------------- */
-
-const blankRound = { subjective: '', examination: '', assessment: '', plan: '', status: 'Stable' as RoundNote['status'] }
-
-function RoundsView({ patient }: { patient: Patient }) {
-  const { profile, saveRound } = useHospital()
-  const [form, setForm] = useState(blankRound)
-  const [error, setError] = useState('')
-  const rounds = patient.rounds ?? []
-  const canRound = ['physician', 'consultant', 'intern'].includes(profile?.id ?? '') && patient.status !== 'discharged'
-  const today = hospitalDay(patient, new Date().toISOString())
-  const seenToday = rounds.some((item) => hospitalDay(patient, item.at) === today)
-  const obsFor = (at: string) => (patient.observations ?? []).find((set) => set.context === 'Ward round' && hospitalDay(patient, set.at) === hospitalDay(patient, at))
-
-  const save = () => {
-    if (!form.assessment.trim() || !form.plan.trim()) { setError('Add an assessment and a plan.'); return }
-    saveRound(patient.id, { ...form, subjective: form.subjective.trim(), examination: form.examination.trim(), assessment: form.assessment.trim(), plan: form.plan.trim() })
-    setForm(blankRound); setError('')
-  }
-
-  return (
-    <>
-      {canRound && (
-        <section className="drawer-section">
-          <div className="section-label"><NotebookPen size={15} />Today's round · Day {today}{seenToday ? <span>Already reviewed today</span> : <span className="warn-text">Not yet reviewed today</span>}</div>
-          <div className="form-grid form-grid-2">
-            <label className="form-field"><span>Patient reports</span><textarea rows={2} value={form.subjective} onChange={(e) => setForm({ ...form, subjective: e.target.value })} placeholder="How the patient feels, overnight events" /></label>
-            <label className="form-field"><span>Examination</span><textarea rows={2} value={form.examination} onChange={(e) => setForm({ ...form, examination: e.target.value })} placeholder="Key findings today" /></label>
-            <label className="form-field"><span>Assessment <b>*</b></span><textarea rows={2} value={form.assessment} onChange={(e) => { setForm({ ...form, assessment: e.target.value }); setError('') }} placeholder="Working diagnosis and progress" /></label>
-            <label className="form-field"><span>Plan <b>*</b></span><textarea rows={2} value={form.plan} onChange={(e) => { setForm({ ...form, plan: e.target.value }); setError('') }} placeholder="Changes today, tests, discharge planning" /></label>
-            <div className="form-field span-2"><span>Progress</span>
-              <div className="priority-control">
-                {(['Improving', 'Stable', 'Deteriorating'] as const).map((value) => <button type="button" key={value} aria-pressed={form.status === value} className={form.status === value ? `active ${value === 'Deteriorating' ? 'emergent' : value === 'Stable' ? 'urgent' : 'routine'}` : ''} onClick={() => setForm({ ...form, status: value })}>{value}</button>)}
-              </div>
-            </div>
-          </div>
-          {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
-          <div className="panel-actions"><Button icon={NotebookPen} onClick={save}>Save round</Button></div>
-        </section>
-      )}
-      <section className="drawer-section">
-        <div className="section-label"><ClipboardList size={15} />Round history<span>{rounds.length} reviews</span></div>
-        {rounds.length === 0 ? <div className="drawer-empty"><NotebookPen size={25} /><p>No ward rounds documented yet.</p></div> : (
-          <ol className="round-list">
-            {rounds.map((item) => {
-              const set = obsFor(item.at)
-              return (
-                <li key={item.id}>
-                  <header><b>Day {hospitalDay(patient, item.at)}</b><span className="round-meta">{formatDateTime(item.at)} · {item.by}</span><Chip tone={item.status === 'Deteriorating' ? 'danger' : item.status === 'Improving' ? 'success' : 'accent'}>{item.status}</Chip></header>
-                  {set && <p className="round-obs"><HeartPulse size={13} />HR {set.hr} · BP {set.bpSys}/{set.bpDia} · RR {set.rr} · SpO₂ {set.spo2}%{set.onOxygen ? ' on O₂' : ''} · T {set.temp}°C</p>}
-                  <dl>
-                    {item.subjective && <><dt>Reports</dt><dd>{item.subjective}</dd></>}
-                    {item.examination && <><dt>Exam</dt><dd>{item.examination}</dd></>}
-                    <dt>Assessment</dt><dd>{item.assessment}</dd>
-                    <dt>Plan</dt><dd>{item.plan}</dd>
-                  </dl>
-                </li>
-              )
-            })}
-          </ol>
-        )}
-      </section>
-    </>
   )
 }
