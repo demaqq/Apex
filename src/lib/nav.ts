@@ -1,4 +1,4 @@
-import { Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
+import { DoorOpen, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
 import type { RoleId } from '../types'
 
 export interface NavItem {
@@ -23,7 +23,8 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
   { label: 'Clinical', items: [
     { to: '/dashboard', label: 'Overview', page: 'Overview', icon: LayoutDashboard, roles: CLASSIC, key: 'g' },
     { to: '/specialty', label: 'Department dashboard', page: 'Department dashboard', icon: Stethoscope, roles: ['physician', 'consultant', 'intern', 'nurse'], key: 'y', specialty: true },
-    { to: '/front-desk', label: 'Front desk', page: 'Front desk', icon: UserPlus, roles: ['receptionist', 'physician', 'nurse'], key: 'n' },
+    { to: '/front-desk', label: 'Reception', page: 'Reception & billing', icon: UserPlus, roles: ['receptionist', 'physician', 'nurse', 'billing', 'coordinator'], key: 'n' },
+    { to: '/opd', label: 'OPD clinics', page: 'Outpatient clinics (OPD)', icon: DoorOpen, roles: ['physician', 'consultant', 'intern', 'nurse', 'receptionist', 'coordinator'], key: 'u' },
     { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant', 'receptionist'], key: 't' },
     { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'theatre', 'allied'], key: 'p' },
     { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },

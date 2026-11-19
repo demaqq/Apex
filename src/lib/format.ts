@@ -36,6 +36,7 @@ export function getEncounterType(patient: Patient): 'inpatient' | 'outpatient' {
 }
 
 export const statusLabels: Record<PatientStatus, string> = {
+  'awaiting-payment': 'At reception — billing',
   'awaiting-triage': 'Awaiting triage',
   waiting: 'Waiting',
   'in-treatment': 'In treatment',

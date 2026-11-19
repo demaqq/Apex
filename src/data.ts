@@ -8,6 +8,7 @@ import type {
   Handover,
   ObservationSet,
   RoundNote,
+  Visit,
   LabourEntry,
   SamEntry,
   AncVisit,
@@ -263,6 +264,8 @@ const patientSeed = (): Patient[] => [
   { id: 'p1019', mrn: 'NS-008455', name: 'Meron Haile', age: 26, sex: 'Female', pronouns: 'she/her', encounterType: 'inpatient', complaint: 'Spontaneous labour at 39+2 weeks, G2P1', history: 'Previous normal vaginal birth. Membranes ruptured 2 hours ago, clear liquor. Augmented with oxytocin for slow progress.', allergies: ['No known allergies'], arrival: ago(390), esi: 3, riskFactors: ['Pregnancy', 'Labour'], resources: 2, vitals: v({ hr: 94, rr: 18, spo2: 99, bpSys: 122, bpDia: 78, temp: 37.0, pain: 7 }), department: 'obgyn', location: 'Labour ward · Room 2', status: 'admitted', assignedTo: 'Dr. Hannah Reid', timeline: [ { id: uid('ev'), at: ago(390), type: 'arrival', title: 'Admitted in labour', detail: 'Regular contractions since early morning; cervix 4 cm on admission.', author: 'Alicia Moore, RM', department: 'obgyn' } ] },
   { id: 'p1020', mrn: 'NS-008461', name: 'Almaz Gebre', age: 54, sex: 'Female', pronouns: 'she/her', encounterType: 'inpatient', complaint: 'Cycle 4 of AC chemotherapy for breast cancer, nausea and fatigue', history: 'Stage IIIA left breast cancer, neoadjuvant doxorubicin and cyclophosphamide. Day 10 after cycle 3 she needed antibiotics for a febrile episode. Admitted for cycle 4 with antiemetic optimisation.', allergies: ['No known allergies'], arrival: ago(26 * 60), esi: 3, riskFactors: ['Chemotherapy', 'Breast cancer'], resources: 2, vitals: v({ hr: 92, rr: 16, spo2: 98, bpSys: 116, bpDia: 72, temp: 37.1, pain: 3 }), department: 'oncology', location: 'Oncology unit · Bed 02', status: 'admitted', assignedTo: 'Dr. Mahlet Assefa', timeline: [ { id: uid('ev'), at: ago(26 * 60), type: 'arrival', title: 'Admitted for chemotherapy', detail: 'Pre-chemotherapy bloods sent; ECOG 1.', author: 'Oncology day unit', department: 'oncology' } ] },
   { id: 'p1021', mrn: 'NS-008468', name: 'Bekele Worku', age: 63, sex: 'Male', pronouns: 'he/him', encounterType: 'outpatient', complaint: 'Glaucoma follow-up with blurred vision in the left eye', history: 'Primary open-angle glaucoma on timolol drops for 4 years. Reports missed doses for two weeks after running out. No pain or redness.', allergies: ['No known allergies'], arrival: ago(40), esi: 4, riskFactors: ['Glaucoma'], resources: 1, vitals: v({ hr: 76, rr: 14, spo2: 98, bpSys: 138, bpDia: 84, temp: 36.6, pain: 0 }), department: 'ophthalmology', location: 'Eye clinic · Room 3', status: 'waiting', assignedTo: 'Dr. Yonas Tesfaye', timeline: [ { id: uid('ev'), at: ago(40), type: 'arrival', title: 'Eye clinic arrival', detail: 'Visual acuity and pressures checked by the clinic nurse.', author: 'Eye clinic', department: 'ophthalmology' } ] },
+  { id: 'p1022', mrn: 'NS-008473', name: 'Tigist Alemu', age: 34, sex: 'Female', pronouns: 'she/her', encounterType: 'outpatient', complaint: 'Blood tests and chest X-ray requested by her health centre', history: 'Referred from Kirkos health centre with a lab request slip.', allergies: ['Not yet recorded'], arrival: ago(6), esi: 5, riskFactors: [], resources: 1, vitals: { hr: 0, rr: 0, spo2: 0, bpSys: 0, bpDia: 0, temp: 0, gcs: 15, pain: 0 }, department: 'laboratory', location: 'Reception · cashier', status: 'awaiting-payment', assignedTo: 'Unassigned', timeline: [ { id: uid('ev'), at: ago(6), type: 'arrival', title: 'Checked in at reception · Lab or imaging only', detail: 'LABO-01 · Laboratory. Self-pay. Waiting for payment.', author: 'Reception', department: 'laboratory' } ] },
+  { id: 'p1023', mrn: 'NS-008476', name: 'Dawit Bekele', age: 45, sex: 'Male', pronouns: 'he/him', encounterType: 'outpatient', complaint: 'Headaches and high blood pressure reading at work', history: 'Awaiting triage assessment.', allergies: ['Not yet recorded'], arrival: ago(9), esi: 3, riskFactors: [], resources: 0, vitals: { hr: 0, rr: 0, spo2: 0, bpSys: 0, bpDia: 0, temp: 0, gcs: 15, pain: 0 }, department: 'internal-medicine', location: 'Triage waiting area', status: 'awaiting-triage', assignedTo: 'Unassigned', timeline: [ { id: uid('ev'), at: ago(9), type: 'arrival', title: 'Checked in at reception · Outpatient clinic (OPD)', detail: 'INTE-01 · Internal Medicine. Self-pay. Paid in cash.', author: 'Reception', department: 'internal-medicine' } ] },
 ]
 
 const referralSeed = (): Referral[] => [
@@ -277,6 +280,9 @@ const referralSeed = (): Referral[] => [
 ]
 
 const orderSeed = (): ClinicalOrder[] => [
+  { id: 'OR-7980', patientId: 'p1022', title: 'Full blood count', kind: 'Laboratory', department: 'laboratory', priority: 'routine', status: 'ordered', createdAt: ago(6), createdBy: 'Reception', billing: 'Unpaid' },
+  { id: 'OR-7981', patientId: 'p1022', title: 'Chest X-ray', kind: 'Imaging', department: 'radiology', priority: 'routine', status: 'ordered', createdAt: ago(6), createdBy: 'Reception', billing: 'Unpaid' },
+  { id: 'OR-7982', patientId: 'p1021', title: 'Glucose', kind: 'Laboratory', department: 'laboratory', priority: 'routine', status: 'ordered', createdAt: ago(20), createdBy: 'Dr. Yonas Tesfaye', billing: 'Unpaid' },
   { id: 'OR-7990', patientId: 'p1010', title: 'Arterial blood gas', kind: 'Laboratory', department: 'laboratory', priority: 'emergent', status: 'completed', createdAt: ago(3 * 1440 + 230), createdBy: 'Dr. Maya Chen', result: 'pH 7.33, pCO₂ 7.1 kPa, pO₂ 7.4 kPa on air, HCO₃ 29. Compensated type 2 respiratory failure.' },
   { id: 'OR-7991', patientId: 'p1010', title: 'Chest X-ray', kind: 'Imaging', department: 'radiology', priority: 'urgent', status: 'completed', createdAt: ago(3 * 1440 + 220), createdBy: 'Dr. Maya Chen', result: 'Hyperinflated lungs. No consolidation, effusion or pneumothorax.' },
   { id: 'OR-7992', patientId: 'p1010', title: 'Full blood count and CRP', kind: 'Laboratory', department: 'laboratory', priority: 'routine', status: 'completed', createdAt: ago(1440 + 180), createdBy: 'Dr. Peter Hall', result: 'WCC 11.2, Hb 142, CRP 38 (down from 96).' },
@@ -507,6 +513,19 @@ const samDays: Array<[number, SamEntry['phase'], number, SamEntry['oedema'], num
   [1, 'Rehabilitation', 8.2, '0', 11.1, 36.6, 'RUTF', 6, 'Pass', []],
 ]
 
+const vs = (id: string, type: Visit['type'], department: string, queueNo: string, minutes: number, payer: Visit['payer'], billing: Visit['billing'], opd?: Visit['opd'], room?: string): Visit => ({ id, type, department, queueNo, checkedInAt: ago(minutes), payer, billing, opd, room, ...(billing === 'Paid' || billing === 'Covered' ? { receipt: `RC-${id.slice(2)}` } : {}) })
+
+const visitSeed: Record<string, Visit> = {
+  p1006: vs('V-1006', 'OPD', 'pediatrics', 'PAED-01', 32, 'Self-pay', 'Paid', 'Waiting'),
+  p1015: vs('V-1015', 'OPD', 'ent', 'ENT-01', 30, 'CBHI', 'Covered', 'Waiting'),
+  p1016: vs('V-1016', 'OPD', 'dermatology', 'DERM-01', 60, 'Private insurance', 'Paid', 'With doctor', 'Room 1'),
+  p1017: vs('V-1017', 'OPD', 'obgyn', 'OBGY-01', 22, 'Health insurance (EHIS)', 'Covered', 'Waiting'),
+  p1021: vs('V-1021', 'OPD', 'ophthalmology', 'EYE-01', 45, 'Self-pay', 'Paid', 'Waiting'),
+  p1011: vs('V-1011', 'Emergency', 'emergency', 'EMER-01', 40, 'Self-pay', 'Deferred'),
+  p1022: vs('V-1022', 'Investigation', 'laboratory', 'LABO-01', 6, 'Self-pay', 'Unpaid'),
+  p1023: vs('V-1023', 'OPD', 'internal-medicine', 'INTE-01', 9, 'Self-pay', 'Paid'),
+}
+
 const chartSeed = (): Record<string, PatientCharts> => ({
   p1003: {
     neuro: [
@@ -639,7 +658,8 @@ export function createInitialState(): HospitalState {
     patients: patients.map((patient) => {
       // Keep only the eight vital-sign fields on the patient's current vitals.
       const { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain } = patient.vitals
-      return { ...patient, vitals: { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain } }
+      const visit = visitSeed[patient.id]
+      return { ...patient, vitals: { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain }, ...(visit ? { visit } : {}), ...(patient.id === 'p1016' ? { insurance: 'Private insurance' } : {}) }
     }),
     departments: departmentSeed.map((department) => ({ ...department, services: [...department.services] })),
     referrals: referralSeed(),

@@ -31,6 +31,7 @@ const BedBoard = lazy(() => import('./pages/BedBoard'))
 const Handover = lazy(() => import('./pages/Handover'))
 const MedRound = lazy(() => import('./pages/MedRound'))
 const FrontDesk = lazy(() => import('./pages/FrontDesk'))
+const OpdView = lazy(() => import('./pages/OpdView'))
 const Theatres = lazy(() => import('./pages/Theatres'))
 const Services = lazy(() => import('./pages/Services'))
 const Review = lazy(() => import('./pages/Review'))
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/handover" element={<Handover />} />
             <Route path="/med-round" element={<MedRound />} />
             <Route path="/front-desk" element={<FrontDesk />} />
+            <Route path="/opd" element={<OpdView />} />
             <Route path="/theatres" element={<Theatres />} />
             <Route path="/services" element={<Services />} />
             <Route path="/review" element={<Review />} />

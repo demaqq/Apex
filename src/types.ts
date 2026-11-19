@@ -6,7 +6,7 @@ export type CoreDepartmentId =
   | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology' | 'ophthalmology'
 export type DepartmentId = CoreDepartmentId | (string & {})
 
-export type PatientStatus = 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
+export type PatientStatus = 'awaiting-payment' | 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
 export type Priority = 'routine' | 'urgent' | 'emergent'
 export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
@@ -234,6 +234,29 @@ export type ChartKey = keyof PatientCharts
 export type ChartEntry<K extends ChartKey> = NonNullable<PatientCharts[K]>[number]
 export type ChartEntryInput<K extends ChartKey> = Omit<ChartEntry<K>, 'id' | 'at' | 'by'> & { at?: string }
 
+export type VisitType = 'OPD' | 'Emergency' | 'Admission' | 'Investigation'
+export type Payer = 'Self-pay' | 'CBHI' | 'Health insurance (EHIS)' | 'Private insurance' | 'Employer / credit' | 'Fee waiver'
+export type BillingState = 'Paid' | 'Covered' | 'Waived' | 'Deferred' | 'Unpaid'
+
+/** The current visit, opened at reception: what the patient came for, who pays and where they queue. */
+export interface Visit {
+  id: string
+  type: VisitType
+  department: DepartmentId
+  queueNo: string
+  checkedInAt: string
+  payer: Payer
+  payerRef?: string
+  billing: BillingState
+  invoiceId?: string
+  receipt?: string
+  waiverReason?: string
+  /** OPD progress after triage. */
+  opd?: 'Waiting' | 'With doctor' | 'Seen'
+  room?: string
+  outcome?: string
+}
+
 export interface Patient {
   id: string
   mrn: string
@@ -264,6 +287,7 @@ export interface Patient {
   growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }>
   /** Time-series specialty charts (oldest first). */
   charts?: PatientCharts
+  visit?: Visit
   evaluations?: Evaluation[]
   /** Daily ward-round notes, newest first. */
   rounds?: RoundNote[]
@@ -324,6 +348,8 @@ export interface ClinicalOrder {
   createdAt: string
   createdBy: string
   result?: string
+  /** Outpatient orders must be paid at reception before the test is done. */
+  billing?: BillingState
   /** Images attached by radiology (or outside films), newest last. Full-size copies live in IndexedDB. */
   images?: OrderImage[]
 }
@@ -544,6 +570,19 @@ export interface FacilitySettings {
   currency: 'ETB' | 'USD' | 'EUR' | 'GBP' | 'KES'
   /** Paths of modules switched off for this facility. */
   disabledModules: string[]
+  /** Reception tariff. */
+  fees?: ReceptionFees
+  /** Consultation rooms per department OPD (default 3). */
+  opdRooms?: Record<string, number>
+}
+
+export interface ReceptionFees {
+  cardNew: number
+  cardReturn: number
+  opd: number
+  specialistOpd: number
+  emergency: number
+  admissionDeposit: number
 }
 
 export interface InvestigationItem {

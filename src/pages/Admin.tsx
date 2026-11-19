@@ -6,8 +6,9 @@ import { departmentById, roleProfiles } from '../data'
 import { formatCurrency } from '../lib/format'
 import { ALL_NAV, CORE_MODULES } from '../lib/nav'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
+import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
-import type { Department, DepartmentId, ExternalProvider, FacilitySettings, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import type { Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
 type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
 
@@ -74,6 +75,18 @@ function FacilityTab() {
         <label className="form-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => set('email', event.target.value)} /></label>
       </div>
       <p className="table-footnote admin-note">The name appears in the sidebar, page titles and printed summaries. Prices across billing and pharmacy are shown in the chosen currency.</p>
+      <span className="detail-heading admin-sub">Reception fees</span>
+      <div className="form-grid form-grid-3 admin-form">
+        {([['cardNew', 'New patient card'], ['cardReturn', 'Returning patient card'], ['opd', 'OPD consultation'], ['specialistOpd', 'Specialist OPD consultation'], ['emergency', 'Emergency assessment'], ['admissionDeposit', 'Admission deposit']] as Array<[keyof ReceptionFees, string]>).map(([key, label]) => (
+          <label key={key} className="form-field"><span>{label} <small className="muted-text">{form.currency}</small></span><input type="number" min={0} step="0.5" value={(form.fees ?? DEFAULT_FEES)[key]} onChange={(event) => set('fees', { ...(form.fees ?? DEFAULT_FEES), [key]: Math.max(0, Number(event.target.value)) })} /></label>
+        ))}
+      </div>
+      <span className="detail-heading admin-sub">OPD consultation rooms</span>
+      <div className="form-grid form-grid-4 admin-form">
+        {opdDepartments(state.departments).map((dept) => (
+          <label key={dept.id} className="form-field"><span>{dept.name}</span><input type="number" min={1} max={20} value={form.opdRooms?.[dept.id] ?? 3} onChange={(event) => set('opdRooms', { ...(form.opdRooms ?? {}), [dept.id]: Math.min(20, Math.max(1, Math.floor(Number(event.target.value) || 1))) })} /></label>
+        ))}
+      </div>
       <div className="panel-actions admin-actions"><Button variant="ghost" icon={RotateCcw} disabled={!dirty} onClick={() => setForm(state.settings)}>Undo changes</Button><Button icon={Save} disabled={!dirty || !form.name.trim()} onClick={() => updateSettings({ ...form, name: form.name.trim() })}>Save profile</Button></div>
     </Panel>
   )

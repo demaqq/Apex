@@ -201,6 +201,8 @@ export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   const stage = orderStage(order)
   const last = stagesFor(order).length - 1
   if (stage >= last || role === 'administrator') return false
+  // Outpatient tests start only once paid at reception.
+  if (order.billing === 'Unpaid' && stage === 0) return false
   // Referred investigations are tracked by the ward team and laboratory/radiology staff.
   if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'receptionist'].includes(role)
   switch (order.kind) {

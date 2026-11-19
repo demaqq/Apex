@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { positionById, positionPrivileges } from '../lib/positions'
+import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
 import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
@@ -26,6 +27,10 @@ import type {
   ObservationContext,
   ObservationSet,
   RoundNote,
+  Visit,
+  VisitType,
+  Payer,
+  BillingState,
   PositionId,
   PositionAssignment,
   RxCollection,
@@ -44,6 +49,25 @@ import type {
   InvestigationItem,
   StockMovement,
 } from '../types'
+
+export interface CheckInInput {
+  patientId?: string
+  name?: string
+  age?: number
+  sex?: Patient['sex']
+  phone?: string
+  complaint: string
+  type: VisitType
+  department: DepartmentId
+  tests?: string[]
+  payer: Payer
+  payerRef?: string
+  payment: 'Paid' | 'Unpaid' | 'Waived' | 'Deferred'
+  method?: 'Cash' | 'Card' | 'Mobile money'
+  waiverReason?: string
+}
+
+export type OpdOutcome = { kind: 'Home' | 'Follow-up' | 'Admit'; note: string; date?: string } | { kind: 'Refer'; department: DepartmentId; note: string }
 
 const DATA_KEY = 'northstar-careos-data-v5'
 
@@ -99,6 +123,10 @@ interface HospitalContextValue {
   addHandover: (patientId: string, to: string, note: string) => void
   acknowledgeHandover: (id: string) => void
   registerPatient: (input: { name: string; age: number; sex: Patient['sex']; phone: string; insurance: string; complaint: string }) => void
+  receptionCheckIn: (input: CheckInInput) => string
+  settleAtReception: (patientId: string, method: 'Cash' | 'Card' | 'Mobile money') => void
+  opdCall: (patientId: string, room: string) => void
+  opdFinish: (patientId: string, outcome: OpdOutcome) => void
   completeTriage: (patientId: string, input: { vitals: Vitals; esi: Patient['esi']; history: string; impression: string; allergies: string[]; department: DepartmentId }) => void
   sendPage: (toStaffId: string, message: string, urgent: boolean) => void
   acknowledgePage: (id: string) => void
@@ -397,7 +425,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return {
         next: {
           ...previous,
-          orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor, externalProviderId }, ...previous.orders],
+          orders: [{ id, patientId, title: title.trim(), kind, department, priority, status: 'ordered', createdAt: new Date().toISOString(), createdBy: actor, externalProviderId, ...((kind === 'Laboratory' || kind === 'Imaging') && !externalProviderId ? { billing: orderBilling(patient) } : {}) }, ...previous.orders],
           patients: withTimeline(previous.patients, patientId, { type: 'order', title: `${title.trim()} ordered`, detail: `${kind} order ${external ? `referred to ${external}` : `sent to ${unitName(department)}`}. Priority: ${priority}.`, author: actor, department, orderId: id }),
         },
         actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
@@ -832,13 +860,161 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
           ...previous,
           patients: withTimeline(previous.patients, patientId, { type: 'triage', title: `Triaged ESI ${input.esi}`, detail: `${input.impression}. ${input.history}`.trim(), author: actor, department: input.department }, {
             vitals: input.vitals, observations: [set], esi: input.esi, status: 'waiting', department: input.department, history: input.history || patient.history,
-            allergies: input.allergies.length ? input.allergies : ['No known allergies'], location: input.esi <= 2 ? 'ED priority queue' : 'Waiting Room A', complaint: input.impression || patient.complaint,
+            allergies: input.allergies.length ? input.allergies : ['No known allergies'], complaint: input.impression || patient.complaint,
+            ...(patient.visit?.type === 'OPD' && input.esi >= 3
+              ? { location: `${unitName(input.department)} OPD · waiting`, visit: { ...patient.visit, department: input.department, opd: 'Waiting' as const } }
+              : { location: input.esi <= 2 ? 'ED priority queue' : 'Waiting Room A', ...(patient.visit?.type === 'OPD' ? { department: 'emergency', visit: { ...patient.visit, type: 'Emergency' as const, department: 'emergency' } } : {}) }),
           }),
         },
         actor, action: `completed ESI ${input.esi} triage for ${patient.name}`, department: input.department, patientId,
       }
     })
     notify('Triage complete — patient is waiting for a doctor')
+  }, [actorName, commit, notify])
+
+  const receptionCheckIn = useCallback((input: CheckInInput) => {
+    const actor = actorName('Reception')
+    const now = new Date().toISOString()
+    const snapshot = stateRef.current
+    const queueDept = snapshot.departments.find((item) => item.id === input.department) ?? snapshot.departments[0]
+    const issuedNo = nextQueueNo(snapshot.patients, queueDept)
+    commit((previous) => {
+      const fees = previous.settings.fees ?? DEFAULT_FEES
+      const department = previous.departments.find((item) => item.id === input.department) ?? previous.departments[0]
+      const existing = input.patientId ? previous.patients.find((item) => item.id === input.patientId) : undefined
+      const patientId = existing?.id ?? makeId('p')
+      const tests = (input.tests ?? []).map((name) => { const item = previous.investigations.find((inv) => inv.name === name); return { name, price: item?.price ?? 0, kind: (item?.kind ?? 'Laboratory') as ClinicalOrder['kind'] } })
+      const { lines, total } = visitCharges({ returning: Boolean(existing), type: input.type, department: department.id, tests }, fees)
+      const cover = input.payment === 'Waived' ? 0 : payerCover(input.payer)
+      const invoiceId = nextNumber(previous.invoices.map((item) => item.id), 'INV', 24000)
+      const covered = Math.round(total * cover * 100) / 100
+      const patientShare = Math.round((total - covered) * 100) / 100
+      const paidNow = input.payment === 'Paid' && patientShare > 0
+      const billing: BillingState = input.payment === 'Waived' ? 'Waived' : input.payment === 'Deferred' ? 'Deferred' : patientShare <= 0 ? 'Covered' : paidNow ? 'Paid' : 'Unpaid'
+      const receipt = billing === 'Paid' || billing === 'Covered' ? `RC-${Date.now().toString().slice(-6)}` : undefined
+      const invoice: Invoice = {
+        id: invoiceId, patientId, issuedAt: now, dueAt: now, tax: 0,
+        items: lines.map((line) => ({ id: makeId('b'), description: line.description, code: line.category === 'Investigation' ? 'INV' : 'REC', category: line.category, quantity: 1, unitPrice: line.price })),
+        discount: input.payment === 'Waived' ? total : 0, insuranceCovered: covered, insuranceProvider: cover > 0 ? `${input.payer}${input.payerRef ? ` · ${input.payerRef}` : ''}` : undefined,
+        status: billing === 'Unpaid' || billing === 'Deferred' ? 'Pending' : 'Paid', ...(billing === 'Paid' || billing === 'Covered' || billing === 'Waived' ? { paidAt: now } : {}),
+        payments: paidNow ? [{ at: now, by: actor, method: input.method ?? 'Cash', amount: patientShare }] : [],
+      }
+      const queueNo = issuedNo
+      const visit: Visit = { id: makeId('V'), type: input.type, department: department.id, queueNo, checkedInAt: now, payer: input.payer, payerRef: input.payerRef, billing, invoiceId, receipt, waiverReason: input.waiverReason }
+      const cleared = billing !== 'Unpaid'
+      const investigationOnly = input.type === 'Investigation'
+      const status: Patient['status'] = !cleared ? 'awaiting-payment' : investigationOnly ? 'waiting' : 'awaiting-triage'
+      const location = !cleared ? 'Reception · cashier' : investigationOnly ? 'Diagnostics waiting area' : 'Triage waiting area'
+      const base: Patient = existing ?? {
+        id: patientId, mrn: `NS-${String(Math.floor(100000 + Math.random() * 899999))}`, name: (input.name ?? '').trim(), age: input.age ?? 0, sex: input.sex ?? 'Female',
+        pronouns: input.sex === 'Female' ? 'she/her' : input.sex === 'Male' ? 'he/him' : 'they/them', complaint: input.complaint.trim(), history: 'Awaiting triage assessment.',
+        allergies: ['Not yet recorded'], arrival: now, esi: 3, riskFactors: [], resources: 0, vitals: { hr: 0, rr: 0, spo2: 0, bpSys: 0, bpDia: 0, temp: 0, gcs: 15, pain: 0 },
+        department: department.id, location, status, encounterType: 'outpatient', assignedTo: 'Unassigned', timeline: [],
+      }
+      const patient: Patient = {
+        ...base, complaint: input.complaint.trim() || base.complaint, phone: input.phone?.trim() || base.phone, insurance: input.payer,
+        department: input.type === 'Emergency' ? 'emergency' : department.id, status, location, visit,
+        encounterType: input.type === 'Admission' ? 'inpatient' : 'outpatient',
+        ...(existing ? { arrival: now } : {}),
+        timeline: [{ id: makeId('ev'), at: now, type: 'arrival', title: `Checked in at reception · ${VISIT_LABEL[input.type]}`, detail: `${queueNo} · ${department.name}. ${input.payer}${input.payerRef ? ` (${input.payerRef})` : ''}. Bill ${total.toFixed(2)}: ${billing === 'Paid' ? `paid ${patientShare.toFixed(2)}` : billing === 'Covered' ? 'covered by payer' : billing === 'Waived' ? `waived — ${input.waiverReason}` : billing === 'Deferred' ? 'emergency — treat first, bill later' : 'waiting for payment'}.`, author: actor, department: department.id }, ...base.timeline],
+      }
+      const firstOrder = Number(nextNumber(previous.orders.map((item) => item.id), 'OR', 8100).replace('OR-', ''))
+      const orders = investigationOnly ? tests.map((test, index): ClinicalOrder => ({ id: `OR-${firstOrder + index}`, patientId, title: test.name, kind: test.kind, department: test.kind === 'Imaging' ? 'radiology' : 'laboratory', priority: 'routine', status: 'ordered', createdAt: now, createdBy: actor, billing: cleared ? billing : 'Unpaid' })) : []
+      return {
+        next: { ...previous, patients: existing ? previous.patients.map((item) => item.id === patientId ? patient : item) : [patient, ...previous.patients], invoices: [invoice, ...previous.invoices], orders: [...orders, ...previous.orders] },
+        actor, action: `checked in ${patient.name} for ${VISIT_LABEL[input.type].toLowerCase()} (${queueNo}, ${billing.toLowerCase()})`, department: department.id, patientId,
+      }
+    })
+    notify(input.payment === 'Unpaid' ? 'Checked in — waiting at the cashier' : input.type === 'Investigation' ? 'Checked in — sent to lab / imaging' : 'Checked in — sent to triage')
+    return issuedNo
+  }, [actorName, commit, notify])
+
+  const settleAtReception = useCallback((patientId: string, method: 'Cash' | 'Card' | 'Mobile money') => {
+    const actor = actorName('Reception')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const now = new Date().toISOString()
+      let invoices = previous.invoices
+      if (patient.visit?.invoiceId) invoices = invoices.map((inv) => {
+        if (inv.id !== patient.visit!.invoiceId || inv.status === 'Paid') return inv
+        const due = invoiceTotals(inv).patientPayable - (inv.payments ?? []).filter((pay) => pay.method !== 'Insurer').reduce((sum, pay) => sum + pay.amount, 0)
+        return { ...inv, status: 'Paid' as const, paidAt: now, payments: [...(inv.payments ?? []), ...(due > 0 ? [{ at: now, by: actor, method, amount: Math.round(due * 100) / 100 }] : [])] }
+      })
+      const owed = previous.orders.filter((order) => order.patientId === patientId && order.billing === 'Unpaid')
+      if (owed.length) {
+        const items = owed.map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}`, code: order.id, category: order.kind, quantity: 1, unitPrice: previous.investigations.find((item) => item.name === order.title.split(' — ')[0])?.price ?? (order.kind === 'Imaging' ? 40 : 8) }))
+        const total = items.reduce((sum, item) => sum + item.unitPrice, 0)
+        invoices = [{ id: nextNumber(invoices.map((item) => item.id), 'INV', 24000), patientId, issuedAt: now, dueAt: now, items, tax: 0, discount: 0, insuranceCovered: 0, status: 'Paid', paidAt: now, payments: [{ at: now, by: actor, method, amount: total }] }, ...invoices]
+      }
+      const visit = patient.visit ? { ...patient.visit, billing: 'Paid' as const, receipt: patient.visit.receipt ?? `RC-${Date.now().toString().slice(-6)}` } : undefined
+      const wasWaiting = patient.status === 'awaiting-payment'
+      const next: Partial<Patient> = { visit }
+      if (wasWaiting) {
+        if (visit?.type === 'Investigation') Object.assign(next, { status: 'waiting', location: 'Diagnostics waiting area' })
+        else if (visit?.type === 'Admission') Object.assign(next, { status: 'admitted', encounterType: 'inpatient', location: `${unitName(visit.department)} ward`, department: visit.department })
+        else Object.assign(next, { status: 'awaiting-triage', location: 'Triage waiting area' })
+      }
+      return {
+        next: {
+          ...previous, invoices,
+          orders: previous.orders.map((order) => order.patientId === patientId && order.billing === 'Unpaid' ? { ...order, billing: 'Paid' as const } : order),
+          patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Paid at reception', detail: `${method}${owed.length ? ` · ${owed.length} test${owed.length > 1 ? 's' : ''} released to lab / imaging` : ''}${wasWaiting ? ` · sent to ${visit?.type === 'Admission' ? 'the ward' : visit?.type === 'Investigation' ? 'lab / imaging' : 'triage'}` : ''}.`, author: actor, department: patient.department }, next),
+        },
+        actor, action: `took payment from ${patient.name} (${method})`, department: patient.department, patientId,
+      }
+    })
+    notify('Payment taken')
+  }, [actorName, commit, notify])
+
+  const opdCall = useCallback((patientId: string, room: string) => {
+    const actor = actorName('Clinic')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient?.visit) return null
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `Called in to ${room}`, detail: `${patient.visit.queueNo} seen by ${actor}.`, author: actor, department: patient.visit.department }, { status: 'in-treatment', assignedTo: actor, location: `${unitName(patient.visit.department)} OPD · ${room}`, visit: { ...patient.visit, opd: 'With doctor', room } }) }, actor, action: `called ${patient.name} (${patient.visit.queueNo}) into ${room}`, department: patient.visit.department, patientId }
+    })
+  }, [actorName, commit])
+
+  const opdFinish = useCallback((patientId: string, outcome: OpdOutcome) => {
+    const actor = actorName('Clinic')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient?.visit) return null
+      const visit = patient.visit
+      const now = new Date().toISOString()
+      if (outcome.kind === 'Refer') {
+        const target = previous.departments.find((item) => item.id === outcome.department)
+        if (!target) return null
+        const queueNo = nextQueueNo(previous.patients, target)
+        return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'referral', title: `Sent to ${target.name} OPD`, detail: `${outcome.note || 'Specialist opinion requested.'} New queue number ${queueNo}.`, author: actor, department: target.id }, { status: 'waiting', department: target.id, location: `${target.shortName} OPD · waiting`, visit: { ...visit, department: target.id, queueNo, opd: 'Waiting', room: undefined } }) }, actor, action: `referred ${patient.name} to ${target.name} OPD`, department: target.id, patientId }
+      }
+      if (outcome.kind === 'Admit') {
+        const fees = previous.settings.fees ?? DEFAULT_FEES
+        const cover = payerCover(visit.payer)
+        const invoiceId = nextNumber(previous.invoices.map((item) => item.id), 'INV', 24000)
+        const covered = Math.round(fees.admissionDeposit * cover * 100) / 100
+        const billing: BillingState = visit.billing === 'Waived' ? 'Waived' : cover >= 1 ? 'Covered' : 'Unpaid'
+        const invoice: Invoice = { id: invoiceId, patientId, issuedAt: now, dueAt: now, items: [{ id: makeId('b'), description: 'Admission deposit', code: 'ADM', category: 'Room & nursing', quantity: 1, unitPrice: fees.admissionDeposit }], tax: 0, discount: billing === 'Waived' ? fees.admissionDeposit : 0, insuranceCovered: covered, insuranceProvider: cover > 0 ? visit.payer : undefined, status: billing === 'Unpaid' ? 'Pending' : 'Paid', payments: [] }
+        const admitted = billing !== 'Unpaid'
+        return {
+          next: {
+            ...previous, invoices: [invoice, ...previous.invoices],
+            patients: withTimeline(previous.patients, patientId, { type: 'transfer', title: `Admission decided in ${unitName(visit.department)} OPD`, detail: `${outcome.note || 'Admitted for inpatient care.'} ${admitted ? 'Deposit covered — going to the ward.' : 'Patient to pay the admission deposit at reception, then go to the ward.'}`, author: actor, department: visit.department }, {
+              status: admitted ? 'admitted' : 'awaiting-payment', encounterType: admitted ? 'inpatient' : patient.encounterType, location: admitted ? `${unitName(visit.department)} ward` : 'Reception · cashier', department: visit.department,
+              visit: { ...visit, type: 'Admission', billing, invoiceId, opd: 'Seen', outcome: 'Admitted' },
+            }),
+          },
+          actor, action: `admitted ${patient.name} from ${unitName(visit.department)} OPD${admitted ? '' : ' (deposit due at reception)'}`, department: visit.department, patientId,
+        }
+      }
+      const appointments = outcome.kind === 'Follow-up' && outcome.date ? [{ id: nextNumber(previous.appointments.map((item) => item.id), 'APT', 500), patientId, clinician: actor, department: visit.department, startsAt: new Date(`${outcome.date}T09:00:00`).toISOString(), durationMinutes: 20, mode: 'In person' as const, status: 'Scheduled' as const, reason: outcome.note || 'OPD follow-up' }, ...previous.appointments] : previous.appointments
+      return {
+        next: { ...previous, appointments, patients: withTimeline(previous.patients, patientId, { type: 'discharge', title: `OPD visit completed · ${outcome.kind === 'Follow-up' ? 'follow-up booked' : 'home'}`, detail: `${outcome.note || 'Seen and sent home.'}${outcome.kind === 'Follow-up' && outcome.date ? ` Return on ${outcome.date}.` : ''}`, author: actor, department: visit.department }, { status: 'discharged', location: 'Home', visit: { ...visit, opd: 'Seen', outcome: outcome.kind === 'Follow-up' ? 'Follow-up booked' : 'Home' } }) },
+        actor, action: `completed the OPD visit of ${patient.name}`, department: visit.department, patientId,
+      }
+    })
+    notify(outcome.kind === 'Admit' ? 'Admission recorded' : outcome.kind === 'Refer' ? 'Sent to the other clinic' : 'Visit completed')
   }, [actorName, commit, notify])
 
   const sendPage = useCallback((toStaffId: string, message: string, urgent: boolean) => {
@@ -1320,11 +1496,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : setSelectedPatientId,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
-    recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
+    recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

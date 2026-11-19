@@ -69,6 +69,7 @@ export function EsiBadge({ level, compact = false }: { level: EsiLevel; compact?
 }
 
 const statusLabels: Record<string, string> = {
+  'awaiting-payment': 'At reception — billing',
   'awaiting-triage': 'Awaiting triage',
   'in-treatment': 'In treatment',
   'in-progress': 'In progress',
