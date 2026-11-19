@@ -165,7 +165,42 @@ export interface GlucoseEntry extends ChartStamp {
   insulinUnits?: number
 }
 
+export type PupilReaction = 'Brisk' | 'Sluggish' | 'Fixed' | 'Closed'
+
+/** Neurological observations: Glasgow Coma Scale, pupils and limb power (MRC 0–5). */
+export interface NeuroEntry extends ChartStamp {
+  eye: number
+  /** 1–5; null when intubated or otherwise untestable (recorded as “T”). */
+  verbal: number | null
+  motor: number
+  pupilL: number
+  pupilR: number
+  reactL: PupilReaction
+  reactR: PupilReaction
+  limbs: { la: number; ra: number; ll: number; rl: number }
+  bpSys?: number
+  hr?: number
+  note?: string
+}
+
+/** NIH Stroke Scale: item key → score. */
+export interface NihssEntry extends ChartStamp {
+  items: Record<string, number>
+  total: number
+}
+
+export interface SeizureEntry extends ChartStamp {
+  type: string
+  durationSec: number
+  rescue?: string
+  recoveryMin?: number
+  note?: string
+}
+
 export interface PatientCharts {
+  neuro?: NeuroEntry[]
+  nihss?: NihssEntry[]
+  seizures?: SeizureEntry[]
   sam?: SamEntry[]
   labour?: LabourEntry[]
   anc?: AncVisit[]

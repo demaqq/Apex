@@ -15,20 +15,20 @@ const C2 = 'var(--series-2)'
 
 /* ---------------- Shared pieces ---------------- */
 
-function Flags({ flags }: { flags: Flag[] }) {
+export function Flags({ flags }: { flags: Flag[] }) {
   if (!flags.length) return null
   return <section className="record-alerts">{flags.map((flag) => <p key={flag.text} className={flag.tone === 'success' ? 'success' : flag.tone}>{flag.tone === 'success' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}{flag.text}</p>)}</section>
 }
 
-function Stat({ label, value, detail, tone }: { label: string; value: ReactNode; detail?: ReactNode; tone?: 'danger' | 'warning' | 'success' }) {
+export function Stat({ label, value, detail, tone }: { label: string; value: ReactNode; detail?: ReactNode; tone?: 'danger' | 'warning' | 'success' }) {
   return <div className={`chart-stat ${tone ?? ''}`}><span>{label}</span><b>{value}</b>{detail && <small>{detail}</small>}</div>
 }
 
-const Tip = ({ title, lines }: { title: string; lines: Array<ReactNode | false | undefined> }) => <><b>{title}</b>{lines.filter(Boolean).map((line, i) => <span key={i}>{line}</span>)}</>
+export const Tip = ({ title, lines }: { title: string; lines: Array<ReactNode | false | undefined> }) => <><b>{title}</b>{lines.filter(Boolean).map((line, i) => <span key={i}>{line}</span>)}</>
 
-const num = (value: string) => (value.trim() === '' ? undefined : Number(value))
+export const num = (value: string) => (value.trim() === '' ? undefined : Number(value))
 
-function useChartForm<K extends ChartKey>(patient: Patient, chart: K) {
+export function useChartForm<K extends ChartKey>(patient: Patient, chart: K) {
   const { can, addChartEntry } = useHospital()
   const [error, setError] = useState('')
   const editable = (can('vitals') || can('notes')) && patient.status !== 'discharged'
@@ -36,20 +36,20 @@ function useChartForm<K extends ChartKey>(patient: Patient, chart: K) {
   return { editable, error, setError, save }
 }
 
-function Field({ label, unit, children, wide }: { label: string; unit?: string; children: ReactNode; wide?: boolean }) {
+export function Field({ label, unit, children, wide }: { label: string; unit?: string; children: ReactNode; wide?: boolean }) {
   return <label className={`form-field ${wide ? 'span-2' : ''}`}><span>{label}{unit && <small className="muted-text"> {unit}</small>}</span>{children}</label>
 }
 
-function FormError({ error }: { error: string }) {
+export function FormError({ error }: { error: string }) {
   return error ? <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div> : null
 }
 
 /** Ticks for an hours axis whose zero is `t0` (ms). */
-function hourTicks(t0: number, hours: number, step: number) {
+export function hourTicks(t0: number, hours: number, step: number) {
   return Array.from({ length: Math.floor(hours / step) + 1 }, (_, i) => ({ v: i * step, label: new Date(t0 + i * step * HOUR).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) }))
 }
 
-function dayTicks(t0: number, t1: number) {
+export function dayTicks(t0: number, t1: number) {
   const ticks: Array<{ v: number; label: string }> = []
   for (let d = new Date(t0).setHours(24, 0, 0, 0); d < t1; d += DAY) ticks.push({ v: (d - t0) / HOUR, label: new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) })
   return ticks

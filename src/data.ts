@@ -505,6 +505,14 @@ const samDays: Array<[number, SamEntry['phase'], number, SamEntry['oedema'], num
 ]
 
 const chartSeed = (): Record<string, PatientCharts> => ({
+  p1003: {
+    neuro: [
+      { ...st(30, 'Sarah Okafor, RN'), eye: 4, verbal: 3, motor: 6, pupilL: 3, pupilR: 3, reactL: 'Brisk', reactR: 'Brisk', limbs: { la: 5, ra: 2, ll: 5, rl: 3 }, bpSys: 178, hr: 92 },
+      { ...st(18, 'Stroke nurse'), eye: 4, verbal: 3, motor: 6, pupilL: 3, pupilR: 3, reactL: 'Brisk', reactR: 'Brisk', limbs: { la: 5, ra: 2, ll: 5, rl: 3 }, bpSys: 172, hr: 90 },
+      { ...st(6, 'Stroke nurse'), eye: 3, verbal: 3, motor: 6, pupilL: 3, pupilR: 3, reactL: 'Brisk', reactR: 'Brisk', limbs: { la: 5, ra: 2, ll: 5, rl: 3 }, bpSys: 168, hr: 88 },
+    ],
+    nihss: [{ ...st(28, 'Dr. Tomas Reid'), items: { '1a': 0, '1b': 1, '1c': 0, '2': 1, '3': 0, '4': 2, '5a': 0, '5b': 3, '6a': 0, '6b': 2, '7': 0, '8': 1, '9': 1, '10': 0, '11': 0 }, total: 11 }],
+  },
   p1018: {
     sam: samDays.map(([days, phase, weightKg, oedema, muacCm, temp, feed, feedsPlanned, appetite, complications]) => ({ ...st(days * 1440 - 180, 'Megan Shaw, RN'), phase, weightKg, oedema, muacCm, temp, feed, feedsPlanned, feedsTaken: days === 8 ? 5 : feedsPlanned, appetite, complications })),
     fluids: [{ ...st(300, 'Megan Shaw, RN'), direction: 'In', route: 'Oral RUTF + water', ml: 250 }, { ...st(180, 'Megan Shaw, RN'), direction: 'Out', route: 'Urine (nappy weight)', ml: 120 }],

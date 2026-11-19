@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, Baby, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
+import { Activity, AlertTriangle, Baby, Brain, Zap, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
 import { isChild, isObstetric, isUnderFive } from '../lib/charts'
 import { AntenatalChart, ContractionChart, FluidChart, GlucoseChart, PaediatricChart, PartographChart, PostpartumChart, SamChart } from './SpecialtyCharts'
+import { NeuroChart, NihssChart, SeizureChart } from './NeuroCharts'
 import { patientNews2, stagesFor, orderStage, THEATRE_STAGES } from '../lib/clinical'
 import { formatDate, formatDateTime, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
@@ -11,7 +12,7 @@ import { ObservationsPanel } from './RecordPanels'
 import { Button, Chip } from './ui'
 
 type CoreView = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
-type SpecialtyView = 'paediatric' | 'sam' | 'anc' | 'partograph' | 'contractions' | 'postpartum' | 'fluids' | 'glucose'
+type SpecialtyView = 'paediatric' | 'sam' | 'anc' | 'partograph' | 'contractions' | 'postpartum' | 'fluids' | 'glucose' | 'neuro' | 'nihss' | 'seizures'
 type View = CoreView | SpecialtyView
 const VIEWS: Array<[CoreView, string, typeof HeartPulse]> = [
   ['vitals', 'Vitals', HeartPulse],
@@ -30,9 +31,12 @@ function specialtyViews(patient: Patient): Array<[SpecialtyView, string, typeof 
   if (isObstetric(patient) || c.postpartum?.length) views.push(['postpartum', 'Postpartum & gyn bleeding', Droplets])
   if (isUnderFive(patient) || c.sam?.length) views.push(['sam', 'SAM', Utensils])
   if (isChild(patient)) views.push(['paediatric', 'Paediatric & growth', Ruler])
+  views.push(['neuro', 'GCS & neuro obs', Brain])
+  if (['neurology', 'emergency', 'icu'].includes(patient.department) || c.nihss?.length) views.push(['nihss', 'Stroke scale (NIHSS)', Brain])
+  if (['neurology', 'pediatrics', 'obgyn', 'emergency', 'icu'].includes(patient.department) || c.seizures?.length) views.push(['seizures', 'Seizures', Zap])
   views.push(['fluids', 'Fluid balance', GlassWater], ['glucose', 'Glucose', Syringe])
   // Put charts that already hold data first.
-  const has = (v: SpecialtyView) => Boolean(v === 'partograph' || v === 'contractions' ? c.labour?.length : v === 'paediatric' ? patient.growth?.length : v === 'fluids' ? c.fluids?.length : v === 'glucose' ? c.glucose?.length : v === 'sam' ? c.sam?.length : v === 'anc' ? c.anc?.length : c.postpartum?.length)
+  const has = (v: SpecialtyView) => Boolean(v === 'partograph' || v === 'contractions' ? c.labour?.length : v === 'paediatric' ? patient.growth?.length : v === 'fluids' ? c.fluids?.length : v === 'glucose' ? c.glucose?.length : v === 'neuro' ? c.neuro?.length : v === 'nihss' ? c.nihss?.length : v === 'seizures' ? c.seizures?.length : v === 'sam' ? c.sam?.length : v === 'anc' ? c.anc?.length : c.postpartum?.length)
   return [...views.filter(([v]) => has(v)), ...views.filter(([v]) => !has(v))]
 }
 
@@ -43,7 +47,7 @@ const hospitalDay = (patient: Patient, at: string) => {
   return Math.floor((new Date(at).getTime() - start.getTime()) / DAY) + 1
 }
 
-const defaultView = (patient: Patient): View => patient.charts?.labour?.length && patient.status !== 'discharged' ? 'partograph' : patient.charts?.sam?.length && patient.status !== 'discharged' ? 'sam' : 'vitals'
+const defaultView = (patient: Patient): View => patient.charts?.labour?.length && patient.status !== 'discharged' ? 'partograph' : patient.charts?.sam?.length && patient.status !== 'discharged' ? 'sam' : patient.department === 'neurology' && patient.charts?.neuro?.length ? 'neuro' : 'vitals'
 
 export function ChartsPanel({ patient }: { patient: Patient }) {
   const [view, setView] = useState<View>(() => defaultView(patient))
@@ -70,6 +74,9 @@ export function ChartsPanel({ patient }: { patient: Patient }) {
       {view === 'postpartum' && <PostpartumChart patient={patient} />}
       {view === 'fluids' && <FluidChart patient={patient} />}
       {view === 'glucose' && <GlucoseChart patient={patient} />}
+      {view === 'neuro' && <NeuroChart patient={patient} />}
+      {view === 'nihss' && <NihssChart patient={patient} />}
+      {view === 'seizures' && <SeizureChart patient={patient} />}
     </>
   )
 }

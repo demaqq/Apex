@@ -531,3 +531,24 @@ svg.flow-map { width: 100%; height: auto; }
   .ambient .bubble, .ambient .petal, .ambient .hex, .ambient .star, .ambient .scan-bar { display: none; }
 }
 @media (max-width: 760px) { .ambient .orb { filter: blur(50px); } .ambient .bubble:nth-child(n + 12), .ambient .hex:nth-child(n + 10) { display: none; } }
+
+/* ---------- Neuro charts ---------- */
+.gcs-grid { display: grid; gap: 3px; overflow-x: auto; font-size: 12px; }
+.gcs-grid > div { display: grid; grid-template-columns: 92px repeat(10, minmax(46px, 1fr)); gap: 3px; align-items: center; }
+.gcs-grid [role="rowheader"] { color: var(--muted); font-weight: 600; }
+.gcs-head span { color: var(--faint); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; text-align: center; }
+.gcs-cell { display: grid; place-items: center; height: 26px; border-radius: 4px; color: var(--ink); font-weight: 600; background: color-mix(in srgb, var(--series-1) calc(var(--fill) * 55%), var(--sunken)); }
+.gcs-total span[role="cell"] { text-align: center; color: var(--ink); }
+.gcs-picker, .nihss-form { display: grid; gap: 10px; margin-bottom: 12px; }
+.gcs-row, .nihss-item { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: start; }
+.nihss-item { grid-template-columns: 200px 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.gcs-row > span, .nihss-item > span { padding-top: 6px; color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.gcs-row > div, .nihss-item > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.gcs-option { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px 4px 5px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--sunken); color: var(--text); font-size: 12px; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.gcs-option b { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 5px; background: var(--chip); color: var(--ink); font-size: 11.5px; }
+.gcs-option:hover { border-color: var(--teal); }
+.gcs-option.on { border-color: var(--teal); background: var(--accent-soft); color: var(--accent-text); }
+.gcs-option.on b { background: var(--teal); color: var(--on-accent); }
+td.power-0, td.power-1, td.power-2 { color: var(--danger-text); font-weight: 700; }
+td.power-3, td.power-4 { color: var(--warn-text); font-weight: 600; }
+@media (max-width: 640px) { .gcs-row, .nihss-item { grid-template-columns: 1fr; } .gcs-row > span, .nihss-item > span { padding-top: 0; } }

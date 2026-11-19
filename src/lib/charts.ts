@@ -1,4 +1,4 @@
-import type { AncVisit, FluidEntry, GlucoseEntry, LabourEntry, Patient, PostpartumEntry, SamEntry } from '../types'
+import type { AncVisit, FluidEntry, GlucoseEntry, LabourEntry, NeuroEntry, NihssEntry, Patient, PostpartumEntry, SamEntry, SeizureEntry } from '../types'
 
 export type Flag = { tone: 'danger' | 'warning' | 'success'; text: string }
 
@@ -179,6 +179,86 @@ export function glucoseFlag(entry: GlucoseEntry): Flag | null {
   return null
 }
 
+/* ---------------- Neurological observations ---------------- */
+
+export const gcsTotal = (e: Pick<NeuroEntry, 'eye' | 'verbal' | 'motor'>) => e.eye + (e.verbal ?? 1) + e.motor
+export const gcsLabel = (e: Pick<NeuroEntry, 'eye' | 'verbal' | 'motor'>) => `E${e.eye}V${e.verbal ?? 'T'}M${e.motor}`
+const LIMBS = [['la', 'left arm'], ['ra', 'right arm'], ['ll', 'left leg'], ['rl', 'right leg']] as const
+
+export function neuroSummary(entries: NeuroEntry[]) {
+  if (!entries.length) return null
+  const latest = entries[entries.length - 1]
+  const previous = entries.length > 1 ? entries[entries.length - 2] : null
+  const best = entries.reduce((max, e) => (gcsTotal(e) > gcsTotal(max) ? e : max), entries[0])
+  const total = gcsTotal(latest)
+  const flags: Flag[] = []
+  const dropBest = gcsTotal(best) - total
+  const dropPrev = previous ? gcsTotal(previous) - total : 0
+  if (dropPrev >= 2 || dropBest >= 2) flags.push({ tone: 'danger', text: `GCS fallen ${Math.max(dropPrev, dropBest)} points (best ${gcsTotal(best)}, now ${total}) — urgent medical review, consider CT` })
+  else if (dropPrev === 1 && previous) flags.push({ tone: 'warning', text: `GCS down 1 point since the last check — repeat in 15 minutes` })
+  if (previous && latest.motor < previous.motor) flags.push({ tone: 'danger', text: `Motor score fell from ${previous.motor} to ${latest.motor}` })
+  if (total <= 8) flags.push({ tone: 'danger', text: `GCS ${total} — airway at risk, call anaesthesia/ICU` })
+  const diff = Math.abs(latest.pupilL - latest.pupilR)
+  if (diff >= 1) flags.push({ tone: 'danger', text: `Unequal pupils (L ${latest.pupilL} mm, R ${latest.pupilR} mm) — neurosurgical emergency if new` })
+  ;(['L', 'R'] as const).forEach((side) => {
+    const now = latest[`react${side}`]
+    const before = previous?.[`react${side}`]
+    if (now === 'Fixed' && before !== 'Fixed') flags.push({ tone: 'danger', text: `${side === 'L' ? 'Left' : 'Right'} pupil newly fixed` })
+    else if (now === 'Sluggish' && before === 'Brisk') flags.push({ tone: 'warning', text: `${side === 'L' ? 'Left' : 'Right'} pupil now sluggish` })
+  })
+  if (previous) LIMBS.forEach(([key, label]) => { if (latest.limbs[key] < previous.limbs[key]) flags.push({ tone: 'danger', text: `New weakness: ${label} ${previous.limbs[key]} → ${latest.limbs[key]}/5` }) })
+  if (latest.bpSys && latest.hr && latest.bpSys >= 160 && latest.hr < 60) flags.push({ tone: 'danger', text: `Rising BP (${latest.bpSys}) with slow pulse (${latest.hr}) — possible raised intracranial pressure` })
+  return { latest, previous, best, total, flags }
+}
+
+/* ---------------- NIH Stroke Scale ---------------- */
+
+export const NIHSS_ITEMS: Array<{ key: string; label: string; options: string[] }> = [
+  { key: '1a', label: '1a Level of consciousness', options: ['Alert', 'Drowsy, rousable to minor stimulation', 'Needs repeated or painful stimulation', 'Reflex responses only or unresponsive'] },
+  { key: '1b', label: '1b LOC questions (month, age)', options: ['Both correct', 'One correct', 'Neither correct'] },
+  { key: '1c', label: '1c LOC commands (eyes, grip)', options: ['Both correct', 'One correct', 'Neither correct'] },
+  { key: '2', label: '2 Best gaze', options: ['Normal', 'Partial gaze palsy', 'Forced deviation'] },
+  { key: '3', label: '3 Visual fields', options: ['No visual loss', 'Partial hemianopia', 'Complete hemianopia', 'Bilateral hemianopia or blind'] },
+  { key: '4', label: '4 Facial palsy', options: ['Normal', 'Minor', 'Partial', 'Complete'] },
+  { key: '5a', label: '5a Left arm motor', options: ['No drift', 'Drift', 'Some effort against gravity', 'No effort against gravity', 'No movement'] },
+  { key: '5b', label: '5b Right arm motor', options: ['No drift', 'Drift', 'Some effort against gravity', 'No effort against gravity', 'No movement'] },
+  { key: '6a', label: '6a Left leg motor', options: ['No drift', 'Drift', 'Some effort against gravity', 'No effort against gravity', 'No movement'] },
+  { key: '6b', label: '6b Right leg motor', options: ['No drift', 'Drift', 'Some effort against gravity', 'No effort against gravity', 'No movement'] },
+  { key: '7', label: '7 Limb ataxia', options: ['Absent', 'Present in one limb', 'Present in two limbs'] },
+  { key: '8', label: '8 Sensory', options: ['Normal', 'Mild to moderate loss', 'Severe or total loss'] },
+  { key: '9', label: '9 Best language', options: ['No aphasia', 'Mild to moderate aphasia', 'Severe aphasia', 'Mute, global aphasia'] },
+  { key: '10', label: '10 Dysarthria', options: ['Normal', 'Mild to moderate', 'Severe'] },
+  { key: '11', label: '11 Extinction and inattention', options: ['None', 'In one modality', 'Profound or in more than one modality'] },
+]
+
+export const nihssBand = (total: number): Flag => total === 0 ? { tone: 'success', text: 'No stroke symptoms' } : total <= 4 ? { tone: 'success', text: 'Minor stroke' } : total <= 15 ? { tone: 'warning', text: 'Moderate stroke' } : total <= 20 ? { tone: 'danger', text: 'Moderate to severe stroke' } : { tone: 'danger', text: 'Severe stroke' }
+
+export function nihssSummary(entries: NihssEntry[]) {
+  if (!entries.length) return null
+  const latest = entries[entries.length - 1]
+  const lowest = entries.reduce((min, e) => (e.total < min.total ? e : min), entries[0])
+  const first = entries[0]
+  const flags: Flag[] = []
+  if (latest.total - lowest.total >= 4) flags.push({ tone: 'danger', text: `NIHSS up ${latest.total - lowest.total} points from ${lowest.total} — neurological deterioration, urgent CT (bleed?)` })
+  else if (latest.total - lowest.total >= 2) flags.push({ tone: 'warning', text: `NIHSS up ${latest.total - lowest.total} points — reassess` })
+  if (first !== latest && first.total - latest.total >= 4) flags.push({ tone: 'success', text: `Improved ${first.total - latest.total} points since the first assessment` })
+  return { latest, lowest, first, flags, band: nihssBand(latest.total) }
+}
+
+/* ---------------- Seizures ---------------- */
+
+export function seizureSummary(entries: SeizureEntry[]) {
+  if (!entries.length) return null
+  const latest = entries[entries.length - 1]
+  const last24 = entries.filter((e) => Date.now() - new Date(e.at).getTime() < DAY)
+  const flags: Flag[] = []
+  if (latest.durationSec >= 300) flags.push({ tone: 'danger', text: `Seizure lasted ${Math.round(latest.durationSec / 60)} min — status epilepticus pathway` })
+  if (last24.length >= 3) flags.push({ tone: 'danger', text: `${last24.length} seizures in 24 hours — cluster, senior review` })
+  else if (last24.length === 2) flags.push({ tone: 'warning', text: '2 seizures in 24 hours' })
+  if (latest.recoveryMin !== undefined && latest.recoveryMin > 60) flags.push({ tone: 'warning', text: `Slow recovery (${latest.recoveryMin} min) — check GCS and glucose` })
+  return { latest, last24, flags }
+}
+
 /** All chart alerts for the patient's alert box and dashboards. */
 export function chartAlerts(patient: Patient): Flag[] {
   const charts = patient.charts
@@ -189,6 +269,9 @@ export function chartAlerts(patient: Patient): Flag[] {
   if (charts.postpartum?.length) flags.push(...(postpartumSummary(charts.postpartum)?.flags ?? []).filter((flag) => flag.tone === 'danger'))
   const lastGlucose = charts.glucose?.[charts.glucose.length - 1]
   if (lastGlucose) { const flag = glucoseFlag(lastGlucose); if (flag?.tone === 'danger') flags.push(flag) }
+  if (charts.neuro?.length) flags.push(...(neuroSummary(charts.neuro)?.flags ?? []).filter((flag) => flag.tone === 'danger'))
+  if (charts.nihss?.length) flags.push(...(nihssSummary(charts.nihss)?.flags ?? []).filter((flag) => flag.tone === 'danger'))
+  if (charts.seizures?.length) flags.push(...(seizureSummary(charts.seizures)?.flags ?? []).filter((flag) => flag.tone === 'danger'))
   const lastAnc = charts.anc?.[charts.anc.length - 1]
   if (lastAnc) flags.push(...ancFlags(lastAnc).filter((flag) => flag.tone === 'danger'))
   return flags
