@@ -67,3 +67,4 @@ export function navFor(role: RoleId, disabled: string[] = []) {
 
 export const pageName = (path: string) => ALL_NAV.find((item) => item.to === path)?.page
 
+export const sectionName = (path: string) => NAV_SECTIONS.find((section) => section.items.some((item) => item.to === path))?.label

@@ -727,6 +727,17 @@ td.power-3, td.power-4 { color: var(--warn-text); font-weight: 600; }
 .handover-done div { display: grid; }
 .handover-done b { color: var(--ink); }
 .handover-done span { color: var(--muted); font-size: 12.5px; }
+.discharge-handoff-options { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: var(--sunken); border: 1px solid var(--line-soft); }
+.consult-workspace-grid { display: grid; gap: 14px; margin-bottom: 20px; }
+.active-consult-panel { padding: 16px 18px; border-left: 3px solid #22c55e; }
+.active-consult-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.active-consult-head h3 { margin: 6px 0 2px; font-size: 16px; color: var(--ink); }
+.active-consult-head h3 small { margin-left: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.active-consult-head p { font-size: 13px; }
+.active-consult-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.active-consult-vitals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.active-consult-note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.active-consult-note .panel-actions { margin-top: 8px; justify-content: flex-end; }
 @media (max-width: 760px) {
   .rx-line { grid-template-columns: 26px 1fr 1fr; }
   .rx-line .rx-med { grid-column: 2 / -1; }

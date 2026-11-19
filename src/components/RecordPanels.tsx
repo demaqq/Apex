@@ -185,8 +185,9 @@ export function EvaluationPanel({ patient }: { patient: Patient }) {
 /* ---------------- Discharge ---------------- */
 
 export function DischargePanel({ patient }: { patient: Patient }) {
-  const { state, can, dischargeWithSummary } = useHospital()
+  const { state, profile, can, dischargeWithSummary, generateInvoice, scheduleAppointment } = useHospital()
   const medicines = state.prescriptions.filter((rx) => rx.patientId === patient.id && rx.status !== 'Cancelled').flatMap((rx) => rx.items.map((item) => `${state.formulary.find((med) => med.id === item.medicationId)?.name ?? 'Medicine'} ${item.dosage} ${item.frequency}`))
+  const hasInvoice = state.invoices.some((invoice) => invoice.patientId === patient.id)
   const [diagnosis, setDiagnosis] = useState(patient.complaint)
   const [condition, setCondition] = useState<DischargeSummary['condition'] | ''>('')
   const [course, setCourse] = useState('')
@@ -195,6 +196,8 @@ export function DischargePanel({ patient }: { patient: Patient }) {
   const [followUp, setFollowUp] = useState('')
   const [followUpDate, setFollowUpDate] = useState(new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10))
   const [instructions, setInstructions] = useState('')
+  const [bookFollowUp, setBookFollowUp] = useState(true)
+  const [autoInvoice, setAutoInvoice] = useState(!hasInvoice)
   const [error, setError] = useState('')
 
   if (patient.discharge) {
@@ -209,6 +212,9 @@ export function DischargePanel({ patient }: { patient: Patient }) {
         {summary.newMedicines && <p><b>New medicines to take home:</b> {summary.newMedicines}</p>}
         <p><b>Follow-up:</b> {summary.followUp} on {formatDate(summary.followUpDate)}. {summary.instructions}</p>
         <p className="record-hint">Signed by {summary.by}</p>
+        {!hasInvoice && (can('billing') || can('discharge')) && (
+          <div className="panel-actions"><Button size="sm" variant="secondary" onClick={() => generateInvoice(patient.id)}>Generate episode invoice</Button></div>
+        )}
       </section>
     )
   }
@@ -217,6 +223,19 @@ export function DischargePanel({ patient }: { patient: Patient }) {
   const submit = () => {
     if (!condition || course.trim().length < 10 || !followUp.trim()) { setError('Choose the condition at discharge, describe the hospital course and give follow-up arrangements.'); return }
     dischargeWithSummary(patient.id, { diagnosis: diagnosis.trim(), condition, course: course.trim(), medicines: decisions, newMedicines: newMedicines.trim(), followUp: followUp.trim(), followUpDate, instructions: instructions.trim() })
+    if (bookFollowUp && followUpDate) {
+      const startsAt = new Date(`${followUpDate}T09:30:00`).toISOString()
+      scheduleAppointment({
+        patientId: patient.id,
+        department: patient.department,
+        clinician: profile?.name ?? patient.assignedTo,
+        startsAt,
+        durationMinutes: 30,
+        mode: 'In person',
+        reason: `Post-discharge follow-up: ${followUp.trim()} (${diagnosis.trim() || patient.complaint})`,
+      })
+    }
+    if (autoInvoice && !hasInvoice) generateInvoice(patient.id)
   }
 
   return (
@@ -241,6 +260,10 @@ export function DischargePanel({ patient }: { patient: Patient }) {
         <label className="form-field"><span>Follow-up with <b>*</b></span><input value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="e.g. Cardiology clinic" /></label>
         <label className="form-field"><span>Follow-up date</span><input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} /></label>
         <label className="form-field span-2"><span>Instructions for the patient</span><input value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Warning signs, activity, diet" /></label>
+      </div>
+      <div className="discharge-handoff-options">
+        <label className="remember-row"><input type="checkbox" checked={bookFollowUp} onChange={(event) => setBookFollowUp(event.target.checked)} />Book follow-up visit in clinic schedule</label>
+        {!hasInvoice && <label className="remember-row"><input type="checkbox" checked={autoInvoice} onChange={(event) => setAutoInvoice(event.target.checked)} />Generate episode invoice for billing</label>}
       </div>
       {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
       <div className="panel-actions"><Button icon={FileCheck2} onClick={submit}>Sign and discharge</Button></div>
