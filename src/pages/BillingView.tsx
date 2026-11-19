@@ -11,7 +11,8 @@ import type { Invoice, InvoiceStatus } from '../types'
 const STATUSES: InvoiceStatus[] = ['Pending', 'Claim submitted', 'Overdue', 'Paid']
 
 export default function BillingView() {
-  const { state, setInvoiceStatus } = useHospital()
+  const { state, can, setInvoiceStatus, generateInvoice, recordPayment } = useHospital()
+  const [generateFor, setGenerateFor] = useState('')
   const patients = usePatients()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
@@ -41,9 +42,12 @@ export default function BillingView() {
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader
         eyebrow="Revenue cycle · Billing"
-        title="Billing & invoicing"
-        description="Track patient balances, insurance claims and payments."
-        actions={<Button variant="secondary" icon={Download} onClick={exportInvoices}>Export invoices</Button>}
+        title="Billing & claims"
+        description="Invoices built from each patient’s orders, payments by any method and insurance claims."
+        actions={<>
+          <Button variant="secondary" icon={Download} onClick={exportInvoices}>Export invoices</Button>
+          {can('billing') && <div className="generate-invoice"><select aria-label="Patient to invoice" value={generateFor} onChange={(event) => setGenerateFor(event.target.value)}><option value="">Invoice a patient…</option>{state.patients.filter((patient) => patient.status !== 'awaiting-triage').map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.mrn}</option>)}</select><Button icon={FileText} disabled={!generateFor} onClick={() => { generateInvoice(generateFor); setGenerateFor('') }}>Generate from orders</Button></div>}
+        </>}
       />
 
       <div className="metrics-grid">
@@ -84,12 +88,16 @@ export default function BillingView() {
         {filtered.length === 0 && <EmptyState icon={FileText} title="No invoices match" text="Try another search term or clear the status filter." />}
       </Panel>
 
-      {selected && <InvoiceModal invoice={selected} onClose={() => setSelectedId(null)} onStatus={(value) => setInvoiceStatus(selected.id, value)} />}
+      {selected && <InvoiceModal invoice={selected} canBill={can('billing')} onClose={() => setSelectedId(null)} onStatus={(value) => setInvoiceStatus(selected.id, value)} onPay={(method, amount) => recordPayment(selected.id, method, amount)} />}
     </motion.div>
   )
 }
 
-function InvoiceModal({ invoice, onClose, onStatus }: { invoice: Invoice; onClose: () => void; onStatus: (status: InvoiceStatus) => void }) {
+type Method = NonNullable<Invoice['payments']>[number]['method']
+
+function InvoiceModal({ invoice, canBill, onClose, onStatus, onPay }: { invoice: Invoice; canBill: boolean; onClose: () => void; onStatus: (status: InvoiceStatus) => void; onPay: (method: Method, amount: number) => void }) {
+  const [method, setMethod] = useState<Method>('Card')
+  const [amount, setAmount] = useState('')
   const patients = usePatients()
   const patient = patients.get(invoice.patientId)
   const totals = invoiceTotals(invoice)
@@ -115,11 +123,19 @@ function InvoiceModal({ invoice, onClose, onStatus }: { invoice: Invoice; onClos
         <div><dt>Insurance covers</dt><dd>−{formatCurrency(invoice.insuranceCovered)}</dd></div>
         <div className="grand"><dt>Patient owes</dt><dd>{formatCurrency(totals.patientPayable)}</dd></div>
       </dl>
+      {(invoice.payments ?? []).length > 0 && <div className="payments-list"><span className="detail-heading">Payments</span>{invoice.payments!.map((pay, index) => <p key={index}><b>{formatCurrency(pay.amount)}</b> · {pay.method} · {formatDate(pay.at)} · {pay.by}</p>)}</div>}
+      {canBill && invoice.status !== 'Paid' && (
+        <div className="payment-form">
+          <label className="form-field"><span>Payment method</span><select value={method} onChange={(event) => setMethod(event.target.value as Method)}>{(['Card', 'Cash', 'Mobile money', 'Bank transfer'] as Method[]).map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="form-field"><span>Amount</span><input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={totals.patientPayable.toFixed(2)} /></label>
+          <Button icon={CreditCard} disabled={!Number(amount)} onClick={() => { onPay(method, Number(amount)); setAmount('') }}>Record payment</Button>
+        </div>
+      )}
       <div className="modal-footer">
         <Button variant="ghost" onClick={onClose}>Close</Button>
-        {invoice.status !== 'Paid' && <div className="footer-actions">
-          {invoice.status !== 'Claim submitted' && invoice.insuranceProvider && <Button variant="secondary" icon={Send} onClick={() => onStatus('Claim submitted')}>Submit claim</Button>}
-          <Button icon={CreditCard} onClick={() => onStatus('Paid')}>Record payment</Button>
+        {canBill && invoice.status !== 'Paid' && invoice.insuranceProvider && <div className="footer-actions">
+          {invoice.status !== 'Claim submitted' && <Button variant="secondary" icon={Send} onClick={() => onStatus('Claim submitted')}>Submit claim</Button>}
+          {invoice.status === 'Claim submitted' && !(invoice.payments ?? []).some((pay) => pay.method === 'Insurer') && <Button variant="secondary" icon={CircleDollarSign} onClick={() => onPay('Insurer', invoice.insuranceCovered)}>Record insurer settlement</Button>}
         </div>}
       </div>
     </Modal>

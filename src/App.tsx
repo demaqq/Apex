@@ -27,6 +27,11 @@ const OpsCenter = lazy(() => import('./pages/OpsCenter'))
 const BedBoard = lazy(() => import('./pages/BedBoard'))
 const Handover = lazy(() => import('./pages/Handover'))
 const MedRound = lazy(() => import('./pages/MedRound'))
+const FrontDesk = lazy(() => import('./pages/FrontDesk'))
+const Theatres = lazy(() => import('./pages/Theatres'))
+const Services = lazy(() => import('./pages/Services'))
+const Review = lazy(() => import('./pages/Review'))
+const Admin = lazy(() => import('./pages/Admin'))
 
 export default function App() {
   return (
@@ -52,6 +57,11 @@ export default function App() {
             <Route path="/beds" element={<BedBoard />} />
             <Route path="/handover" element={<Handover />} />
             <Route path="/med-round" element={<MedRound />} />
+            <Route path="/front-desk" element={<FrontDesk />} />
+            <Route path="/theatres" element={<Theatres />} />
+            <Route path="/services" element={<Services />} />
+            <Route path="/review" element={<Review />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

@@ -192,3 +192,22 @@ svg.flow-map { width: 100%; height: auto; }
   .news-card .button, .news-card .chip { grid-column: 1 / -1; }
   .med-rec-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- Stage C pages ---------- */
+.checklist { display: grid; gap: 4px; margin-top: 8px; }
+.checklist .remember-row { font-size: 12px; }
+.selected-row td { background: var(--accent-soft); }
+.generate-invoice { display: flex; gap: 8px; align-items: center; }
+.generate-invoice select { height: 39px; padding: 0 10px; border-radius: 8px; font-size: 13px; max-width: 240px; }
+.payments-list { margin: 14px 0 0; }
+.payments-list p { margin: 4px 0; color: var(--text); font-size: 13px; }
+.payment-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.unit-chip { gap: 6px; }
+.unit-chip button { display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; opacity: .6; }
+.unit-chip button:hover { opacity: 1; }
+.awaiting-panel { margin-bottom: 18px; }
+@media (max-width: 700px) {
+  .payment-form { grid-template-columns: 1fr; }
+  .generate-invoice { flex-wrap: wrap; width: 100%; }
+  .generate-invoice select { max-width: none; flex: 1; }
+}

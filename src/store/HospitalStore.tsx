@@ -88,6 +88,7 @@ interface HospitalContextValue {
   restock: (medicationId: string, amount: number) => void
   createStaff: (input: Omit<StaffMember, 'id' | 'onDuty' | 'pager' | 'email' | 'phone' | 'license'>) => void
   setStaffSuspended: (id: string, suspended: boolean) => void
+  setDepartmentServices: (id: DepartmentId, services: string[]) => void
   myStaffId: string | null
   resetDemo: () => void
   notify: (message: string, tone?: Toast['tone']) => void
@@ -872,6 +873,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(suspended ? 'Account suspended' : 'Account reactivated', 'info')
   }, [actorName, commit, notify])
 
+  const setDepartmentServices = useCallback((id: DepartmentId, services: string[]) => {
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, departments: previous.departments.map((department) => department.id === id ? { ...department, services } : department) }, actor, action: `updated the units of ${unitName(id)}`, department: id }))
+    notify('Department units updated')
+  }, [actorName, commit, notify])
+
   const resetDemo = useCallback(() => {
     setState(createInitialState())
     setSelectedPatientId(null)
@@ -898,9 +905,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
-    advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, myStaffId,
+    advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, myStaffId, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

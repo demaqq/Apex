@@ -6,15 +6,14 @@ All data is synthetic and saved in the browser's local storage. Use **Restore de
 
 ## Features
 
-- **Triage** — ESI-based triage with a suggested acuity and documented overrides
-- **Patient records** — one shared episode per patient: notes, referrals, orders, transfers, discharge
-- **Departments & care network** — live bed capacity and interdepartmental referrals
-- **Lab & imaging** — order, start and report diagnostic requests; results go straight to the chart
-- **Pharmacy** — verify and dispense prescriptions against formulary stock
-- **Telehealth** — schedule, start and complete video or in-person visits
-- **Billing** — invoices, insurance claims and payments
-- **Staff & schedule** — rota and on-duty status
-- **Emergency codes & audit** — call and stand down codes; every action is logged
+Twelve role workspaces (physician, consultant, intern, nurse, imaging/lab, pharmacist, front desk, anaesthetist, physiotherapist, flow coordinator, billing officer, administrator), each landing on its own home screen.
+
+- **Front desk and triage** — registration, a triage evaluation with suggested ESI, and an ED scoreboard against ESI target times
+- **Patient record** — clinical alerts, NEWS2 observation chart with escalation, staged orders, referrals, clinical evaluation with ICD-10 differentials, discharge summary with medication reconciliation, paediatric growth chart
+- **Wards** — bed board with bed states, SBAR shift handover with acknowledgement, medication and transfusion round
+- **Diagnostics and services** — laboratory and imaging pipelines (collection, analysis, verification), pharmacy verification and dispensing with stock, interaction checker and prescribing warnings, operating theatres with safety checklist and anaesthesia record, physiotherapy, nutrition and blood bank worklists
+- **Operations** — operations center, animated care-flow map, roster and pagers, billing from orders with payments and claims, emergency codes with banners and optional alert sound, audit trail, staff accounts and department units
+- **Interface** — light and dark themes (follows the device), keyboard shortcuts (press <kbd>?</kbd>), search across patients, orders, staff and modules (<kbd>/</kbd>)
 
 ## Run locally
 
