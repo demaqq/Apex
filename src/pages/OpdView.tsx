@@ -13,9 +13,10 @@ import type { DepartmentId, Patient } from '../types'
 const DOCTORS = ['physician', 'consultant', 'intern']
 
 export default function OpdView() {
-  const { state, profile, currentRole, opdCall, setSelectedPatientId } = useHospital()
+  const { state, profile, currentRole, scoped, opdCall, setSelectedPatientId } = useHospital()
   const now = useNow()
-  const clinics = opdDepartments(state.departments)
+  // Clinicians see their own clinic (plus any clinic holding one of their linked patients); reception and coordinators see all.
+  const clinics = opdDepartments(state.departments).filter((clinic) => !scoped || clinic.id === profile?.department || state.patients.some((p) => p.visit?.type === 'OPD' && p.visit.department === clinic.id && p.status !== 'discharged'))
   const inClinic = (patient: Patient, dept: string) => patient.visit?.type === 'OPD' && patient.visit.department === dept
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
   const waitingIn = (dept: string) => state.patients.filter((p) => inClinic(p, dept) && p.visit?.opd === 'Waiting' && p.status !== 'discharged').length

@@ -807,3 +807,14 @@ tr.is-active-row td { background: color-mix(in srgb, var(--teal) 6%, transparent
 .checkin { padding: 4px 18px 0; }
 .checkin + .inline-error { margin: 10px 18px 0; }
 .checkin-actions { padding: 12px 18px 16px; }
+
+/* ---------- Department scope and care team ---------- */
+.scope-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--line-soft); border-left: 3px solid var(--teal); border-radius: 10px; background: var(--paper); color: var(--teal); }
+.scope-banner > div { flex: 1; display: grid; gap: 2px; }
+.scope-banner b { color: var(--ink); font-size: 13.5px; }
+.scope-banner span { color: var(--muted); font-size: 12.5px; }
+.care-team { display: grid; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; }
+.care-team li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--sunken); }
+.care-team li > b { color: var(--ink); font-size: 13px; }
+.care-reasons { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+@media (max-width: 640px) { .scope-banner { flex-wrap: wrap; } }

@@ -24,7 +24,7 @@ export default function Login() {
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState('')
   const profile = roleProfiles[selected]
-  const canChooseDepartment = ['physician', 'nurse', 'diagnostics'].includes(selected)
+  const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern', 'diagnostics'].includes(selected)
   const live = state.departments.filter((item) => item.active !== false)
   const options = selected === 'diagnostics' ? diagnosticDepartments.filter((id) => live.some((item) => item.id === id)) : live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
 
@@ -90,6 +90,7 @@ export default function Login() {
                   {options.map((id) => <option key={id} value={id}>{state.departments.find((item) => item.id === id)?.name}</option>)}
                 </select>
               </div>
+              {['physician', 'nurse', 'consultant', 'intern'].includes(selected) && <small className="muted-text">You’ll see patients in this department’s wards and OPD, plus consults and comorbidity links.</small>}
             </label>
           )}
 

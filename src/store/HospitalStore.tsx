@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { positionById, positionPrivileges } from '../lib/positions'
+import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
@@ -27,6 +28,7 @@ import type {
   ObservationContext,
   ObservationSet,
   RoundNote,
+  AccessGrant,
   Visit,
   VisitType,
   Payer,
@@ -92,6 +94,13 @@ interface HospitalContextValue {
   logout: () => void
   can: (permission: Permission) => boolean
   setSelectedPatientId: (id: string | null) => void
+  /** True when the signed-in clinician's view is limited to their department's patients. */
+  scoped: boolean
+  /** Patients outside the clinician's view, for the emergency-access search (name, MRN, department only). */
+  outsidePatients: Array<{ id: string; name: string; mrn: string; age: number; department: DepartmentId; location: string }>
+  breakGlass: (patientId: string, reason: string) => void
+  linkDepartment: (patientId: string, department: DepartmentId, reason: 'Comorbidity' | 'Shared care', note: string) => void
+  unlinkDepartment: (patientId: string, department: DepartmentId) => void
   addTriage: (input: TriageInput) => string
   retriage: (patientId: string, vitals: Vitals, esi: Patient['esi'], reason: string) => void
   addReferral: (patientId: string, to: DepartmentId, reason: string, priority: Priority) => void
@@ -209,6 +218,7 @@ function loadState(): HospitalState {
       investigations: mergeById(parsed.investigations, seed.investigations),
       providers: mergeById(parsed.providers, seed.providers),
       stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
+      accessGrants: Array.isArray(parsed.accessGrants) ? parsed.accessGrants : [],
     }
   } catch {
     return seed
@@ -1491,16 +1501,89 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     return specialtyProfile
   }, [currentRole, currentDepartment, state.departments])
 
+  const viewerDepartment = currentDepartment ?? (currentRole ? roleProfiles[currentRole].department : undefined)
+  const scoped = Boolean(currentRole && SCOPED_ROLES.includes(currentRole))
+  const viewerName = currentRole ? roleProfiles[currentRole].name : ''
+  const canTriage = can('triage')
+  const visibleIds = useMemo(() => {
+    if (!scoped) return null
+    const viewer = { role: currentRole, department: viewerDepartment, name: viewerName, canTriage, grants: state.accessGrants ?? [] }
+    return new Set(state.patients.filter((patient) => canSeePatient(patient, viewer, state.referrals)).map((patient) => patient.id))
+  }, [scoped, currentRole, viewerDepartment, viewerName, canTriage, state.patients, state.referrals, state.accessGrants])
+
+  /** What the screens see: for department-scoped clinicians, only their patients and the records attached to them. */
+  const scopedState = useMemo<HospitalState>(() => {
+    if (!visibleIds) return state
+    const seen = (id?: string) => !id || visibleIds.has(id)
+    return {
+      ...state,
+      patients: state.patients.filter((patient) => visibleIds.has(patient.id)),
+      orders: state.orders.filter((item) => seen(item.patientId)),
+      referrals: state.referrals.filter((item) => seen(item.patientId)),
+      prescriptions: state.prescriptions.filter((item) => seen(item.patientId)),
+      appointments: state.appointments.filter((item) => seen(item.patientId)),
+      invoices: state.invoices.filter((item) => seen(item.patientId)),
+      handovers: state.handovers.filter((item) => seen(item.patientId)),
+      cosignNotes: state.cosignNotes.filter((item) => seen(item.patientId)),
+      theatreCases: state.theatreCases.filter((item) => seen(item.patientId)),
+      activities: state.activities.filter((item) => seen(item.patientId)),
+    }
+  }, [state, visibleIds])
+
+  const outsidePatients = useMemo(() => visibleIds ? state.patients.filter((patient) => !visibleIds.has(patient.id) && patient.status !== 'discharged').map((patient) => ({ id: patient.id, name: patient.name, mrn: patient.mrn, age: patient.age, department: patient.department, location: patient.location })) : [], [state.patients, visibleIds])
+
+  const guardedSelect = useCallback((id: string | null) => {
+    if (id && visibleIds && !visibleIds.has(id)) { notify('This patient is not under your department. Use emergency access on the Patients page if you need the record.', 'warning'); return }
+    setSelectedPatientId(id)
+  }, [visibleIds, notify])
+
+  const breakGlass = useCallback((patientId: string, reason: string) => {
+    if (!currentRole || !viewerDepartment) return
+    const actor = actorName('Clinician')
+    const at = new Date().toISOString()
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const grant: AccessGrant = { id: makeId('AG'), patientId, role: currentRole, department: viewerDepartment, by: actor, at, until: new Date(Date.now() + BREAK_GLASS_HOURS * 3_600_000).toISOString(), reason }
+      return {
+        next: { ...previous, accessGrants: [grant, ...(previous.accessGrants ?? [])].slice(0, 500), patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Emergency access to the record', detail: `${actor} (${unitName(viewerDepartment)}) opened the record outside their department for ${BREAK_GLASS_HOURS} hours. Reason: ${reason}`, author: actor, department: viewerDepartment }) },
+        actor, action: `used emergency access to ${patient.name}'s record (${reason})`, department: viewerDepartment, patientId,
+      }
+    })
+    notify(`Emergency access granted for ${BREAK_GLASS_HOURS} hours — recorded in the audit log`, 'warning')
+    setTimeout(() => setSelectedPatientId(patientId), 0)
+  }, [actorName, commit, currentRole, notify, viewerDepartment])
+
+  const linkDepartment = useCallback((patientId: string, department: DepartmentId, reason: 'Comorbidity' | 'Shared care', note: string) => {
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const links = [...(patient.links ?? []).filter((link) => link.department !== department), { department, reason, note, by: actor, at: new Date().toISOString() }]
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${unitName(department)} added to the care team`, detail: `${reason}: ${note}`, author: actor, department }, { links }) }, actor, action: `linked ${patient.name} to ${unitName(department)} (${reason.toLowerCase()})`, department, patientId }
+    })
+    notify(`${unitName(department)} can now see this patient`)
+  }, [actorName, commit, notify])
+
+  const unlinkDepartment = useCallback((patientId: string, department: DepartmentId) => {
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      return { next: { ...previous, patients: previous.patients.map((item) => item.id === patientId ? { ...item, links: (item.links ?? []).filter((link) => link.department !== department) } : item) }, actor, action: `removed ${unitName(department)} from ${patient.name}'s care team`, department, patientId }
+    })
+  }, [actorName, commit])
+
   const value = useMemo<HospitalContextValue>(() => ({
-    state, currentRole, profile, selectedPatientId, toasts,
-    login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : setSelectedPatientId,
+    state: scopedState, currentRole, profile, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
+    login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

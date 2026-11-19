@@ -5,6 +5,7 @@ import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, Retriage
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
 import { AlertsBox, AssessmentPanel, DischargePanel, EvaluationPanel } from './RecordPanels'
 import { ChartsPanel } from './ChartsPanel'
+import { CareTeam } from './CareTeam'
 import ClinicalChat from './ClinicalChat'
 import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 import { SPECIALTY } from '../lib/specialty'
@@ -92,6 +93,7 @@ export default function PatientDrawer() {
 
                 {tab === 'overview' && <>
                   <AlertsBox patient={patient} />
+                  <CareTeam patient={patient} />
                   <section className="clinical-course" aria-label="Patient clinical course">
                     <div className="course-heading"><span>CLINICAL COURSE</span><b>{getEncounterType(patient)} review</b></div>
                     <div className="course-steps">

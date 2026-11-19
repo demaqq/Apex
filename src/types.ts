@@ -288,6 +288,8 @@ export interface Patient {
   /** Time-series specialty charts (oldest first). */
   charts?: PatientCharts
   visit?: Visit
+  /** Departments sharing care because of a comorbidity or by agreement. */
+  links?: Array<{ department: DepartmentId; reason: 'Comorbidity' | 'Shared care'; note: string; by: string; at: string }>
   evaluations?: Evaluation[]
   /** Daily ward-round notes, newest first. */
   rounds?: RoundNote[]
@@ -692,6 +694,9 @@ export interface EmergencyCode {
   activatedBy?: string
 }
 
+/** Time-limited "break-glass" access to a patient outside the clinician's department. Always audited. */
+export interface AccessGrant { id: string; patientId: string; role: RoleId; department: DepartmentId; by: string; at: string; until: string; reason: string }
+
 export interface HospitalState {
   patients: Patient[]
   departments: Department[]
@@ -714,4 +719,5 @@ export interface HospitalState {
   investigations: InvestigationItem[]
   providers: ExternalProvider[]
   stockMovements: StockMovement[]
+  accessGrants: AccessGrant[]
 }
