@@ -189,9 +189,34 @@ const eye: SpecialtyConfig = {
   summary: (v) => `VA ${v.var} / ${v.val}${v.iopr ? `, IOP ${v.iopr}/${v.iopl || '–'}` : ''}`,
 }
 
+const nutrition: SpecialtyConfig = {
+  title: 'Paediatric nutrition screen',
+  worklist: 'Children on the ward and SAM unit: growth, MUAC and oedema',
+  fields: [
+    { key: 'weight', label: 'Weight (kg)', type: 'number', min: 0.5, max: 120, required: true },
+    { key: 'height', label: 'Height / length (cm)', type: 'number', min: 30, max: 200 },
+    { key: 'muac', label: 'MUAC (cm)', type: 'number', min: 5, max: 35 },
+    { key: 'oedema', label: 'Bilateral pitting oedema', type: 'select', options: ['None', '+', '++', '+++'], required: true },
+    { key: 'appetite', label: 'RUTF appetite test', type: 'select', options: ['Not done', 'Pass', 'Fail'] },
+  ],
+  calc: (v, patient) => {
+    const chips: Array<[string, Tone]> = [[`${v.weight} kg`, 'accent']]
+    const alerts: string[] = []
+    const muac = num(v.muac)
+    if (muac !== undefined) chips.push([`MUAC ${muac} cm`, muac < 11.5 ? 'danger' : muac < 12.5 ? 'warning' : 'success'])
+    if (v.oedema && v.oedema !== 'None') chips.push([`Oedema ${v.oedema}`, 'danger'])
+    const sam = (muac !== undefined && muac < 11.5 && patient.age < 5) || (v.oedema && v.oedema !== 'None')
+    if (sam) alerts.push(v.appetite === 'Pass' && v.oedema !== '+++' ? 'Meets SAM criteria: outpatient programme if no medical complications, otherwise admit and start the SAM chart.' : 'Meets SAM criteria with failed or untested appetite or severe oedema: admit and start the SAM chart.')
+    else if (muac !== undefined && muac < 12.5 && patient.age < 5) alerts.push('Moderate acute malnutrition: targeted supplementary feeding.')
+    return { chips, alerts }
+  },
+  summary: (v) => `${v.weight} kg${v.muac ? `, MUAC ${v.muac} cm` : ''}, oedema ${v.oedema}`,
+}
+
 /** Specialty assessment for each department id; administrators can add “ophthalmology” to enable the eye exam. */
 export const SPECIALTY: Record<string, SpecialtyConfig> = {
   obgyn: obstetric,
+  pediatrics: nutrition,
   cardiology: cardiac,
   emergency: critical,
   icu: critical,

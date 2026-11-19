@@ -8,6 +8,11 @@ import type {
   Handover,
   ObservationSet,
   RoundNote,
+  LabourEntry,
+  SamEntry,
+  AncVisit,
+  PatientCharts,
+  FluidEntry,
   Page,
   TheatreCase,
   Ward,
@@ -252,6 +257,8 @@ const patientSeed = (): Patient[] => [
   { id: 'p1015', mrn: 'NS-008437', name: 'Lily Anderson', age: 17, sex: 'Female', pronouns: 'she/her', encounterType: 'outpatient', complaint: 'Recurrent tonsillitis and noisy breathing during sleep', history: 'Six documented tonsillitis episodes in the past year. Attending scheduled ENT outpatient review with parent; no current airway compromise.', allergies: ['No known allergies'], arrival: ago(24), esi: 4, riskFactors: [], resources: 1, vitals: v({ hr: 84, rr: 15, spo2: 99, bpSys: 112, bpDia: 68, temp: 36.7, pain: 2 }), department: 'ent', location: 'ENT Clinic 03', status: 'waiting', assignedTo: 'Ms. Prianka Shah', timeline: [ { id: uid('ev'), at: ago(24), type: 'arrival', title: 'Outpatient arrival recorded', detail: 'Referral letter and previous primary care treatment history available for review.', author: 'ENT reception', department: 'ent' }, { id: uid('ev'), at: ago(9), type: 'note', title: 'Pre-clinic observations', detail: 'Comfortable at rest with no stridor or drooling. Awaiting specialist assessment.', author: 'Sarah Okafor, RN', department: 'ent' } ] },
   { id: 'p1016', mrn: 'NS-008392', name: 'Marcus Lee', age: 38, sex: 'Male', pronouns: 'he/him', encounterType: 'outpatient', complaint: 'Persistent pruritic rash affecting hands and forearms', history: 'Six-month history with partial response to emollients. No mucosal involvement, fever or systemic symptoms. Patch testing to be considered.', allergies: ['No known allergies'], arrival: ago(41), esi: 5, riskFactors: [], resources: 1, vitals: v({ hr: 72, rr: 14, spo2: 99, bpSys: 124, bpDia: 74, temp: 36.6, pain: 1 }), department: 'dermatology', location: 'Dermatology Clinic 02', status: 'in-treatment', assignedTo: 'Dr. Anthony Ford', timeline: [ { id: uid('ev'), at: ago(41), type: 'arrival', title: 'Dermatology clinic arrival', detail: 'Outpatient episode opened; previous prescriptions reconciled.', author: 'Clinic reception', department: 'dermatology' }, { id: uid('ev'), at: ago(12), type: 'note', title: 'Skin examination documented', detail: 'Bilateral eczematous plaques without infection. Discuss allergen exposure and consider patch testing.', author: 'Dr. Anthony Ford', department: 'dermatology' } ] },
   { id: 'p1017', mrn: 'NS-008441', name: 'Rhea Kapoor', age: 28, sex: 'Female', pronouns: 'she/her', encounterType: 'outpatient', complaint: 'Routine 32-week antenatal review with mild ankle swelling', history: 'First pregnancy, previously uncomplicated. Fetal movements normal; no headache, visual symptoms or abdominal pain. Blood pressure and urine dipstick reviewed at clinic.', allergies: ['No known allergies'], arrival: ago(18), esi: 5, riskFactors: ['Pregnancy'], resources: 1, vitals: v({ hr: 88, rr: 16, spo2: 99, bpSys: 118, bpDia: 72, temp: 36.7, pain: 1 }), department: 'obgyn', location: 'Antenatal Clinic 04', status: 'waiting', assignedTo: 'Dr. Hannah Reid', timeline: [ { id: uid('ev'), at: ago(18), type: 'arrival', title: 'Antenatal outpatient arrival', detail: 'Growth chart and previous antenatal records available for continuity review.', author: 'Maternity reception', department: 'obgyn' }, { id: uid('ev'), at: ago(6), type: 'note', title: 'Midwife assessment', detail: 'Blood pressure normal, urine dipstick negative and fetal heart rate reassuring. Awaiting obstetric review.', author: 'Alicia Moore, RM', department: 'obgyn' } ] },
+  { id: 'p1018', mrn: 'NS-008452', name: 'Liya Tadesse', age: 2, sex: 'Female', pronouns: 'she/her', encounterType: 'inpatient', complaint: 'Severe acute malnutrition with bilateral pitting oedema', history: 'Admitted 8 days ago from the outpatient therapeutic programme: oedema ++, MUAC 10.8 cm, poor appetite. Hypoglycaemia treated on arrival. Now oedema-free and on RUTF.', allergies: ['No known allergies'], arrival: ago(8 * 1440 - 120), esi: 3, riskFactors: ['Severe acute malnutrition'], resources: 2, vitals: v({ hr: 118, rr: 30, spo2: 98, bpSys: 92, bpDia: 56, temp: 36.6, pain: 0 }), department: 'pediatrics', location: 'Paeds SAM unit · Bed 03', status: 'admitted', assignedTo: 'Dr. Isaac Green', timeline: [ { id: uid('ev'), at: ago(8 * 1440 - 120), type: 'arrival', title: 'Admitted to the SAM stabilisation centre', detail: 'Referred from outpatient programme: oedema ++, failed appetite test, lethargic.', author: 'Paeds reception', department: 'pediatrics' } ] },
+  { id: 'p1019', mrn: 'NS-008455', name: 'Meron Haile', age: 26, sex: 'Female', pronouns: 'she/her', encounterType: 'inpatient', complaint: 'Spontaneous labour at 39+2 weeks, G2P1', history: 'Previous normal vaginal birth. Membranes ruptured 2 hours ago, clear liquor. Augmented with oxytocin for slow progress.', allergies: ['No known allergies'], arrival: ago(390), esi: 3, riskFactors: ['Pregnancy', 'Labour'], resources: 2, vitals: v({ hr: 94, rr: 18, spo2: 99, bpSys: 122, bpDia: 78, temp: 37.0, pain: 7 }), department: 'obgyn', location: 'Labour ward · Room 2', status: 'admitted', assignedTo: 'Dr. Hannah Reid', timeline: [ { id: uid('ev'), at: ago(390), type: 'arrival', title: 'Admitted in labour', detail: 'Regular contractions since early morning; cervix 4 cm on admission.', author: 'Alicia Moore, RM', department: 'obgyn' } ] },
 ]
 
 const referralSeed = (): Referral[] => [
@@ -460,6 +467,65 @@ const observationSeed: Record<string, ObservationSet[]> = {
   ]),
 }
 
+const st = (minutes: number, by: string) => ({ id: uid('CH'), at: ago(minutes), by })
+
+const labourSeed = (): LabourEntry[] => {
+  const by = 'Alicia Moore, RM'
+  const entries: LabourEntry[] = []
+  for (let m = 340; m >= 10; m -= 30) {
+    const t = 340 - m
+    const oxy = m <= 80
+    const entry: LabourEntry = {
+      ...st(m, by),
+      fhr: [138, 142, 136, 140, 144, 138, 146, 142, 148, 140, 136, 144][Math.round(t / 30)] ?? 140,
+      contractions: m > 220 ? 2 : m > 100 ? 3 : oxy ? 4 : 3,
+      contractionSeconds: m > 220 ? 18 : m > 100 ? 30 : oxy ? 45 : 35,
+      ...(oxy ? { oxytocinDrops: m <= 40 ? 20 : 10 } : {}),
+    }
+    if (m === 340 || m === 220 || m === 100) Object.assign(entry, { dilationCm: m === 340 ? 4 : m === 220 ? 5 : 6, descentFifths: m === 340 ? 4 : 3, liquor: m === 340 ? 'I' : 'C', moulding: m === 100 ? '+' : '0', pulse: m === 100 ? 96 : 88, bpSys: m === 100 ? 124 : 118, bpDia: m === 100 ? 80 : 76, temp: 37.0, urine: m === 220 ? 'Protein –, acetone –, 150 ml' : undefined })
+    else if (m % 60 === 40) Object.assign(entry, { pulse: 88 + (t % 7), })
+    entries.push(entry)
+  }
+  return entries.sort((a, b) => a.at.localeCompare(b.at))
+}
+
+const samDays: Array<[number, SamEntry['phase'], number, SamEntry['oedema'], number | undefined, number, SamEntry['feed'], number, SamEntry['appetite'], string[]]> = [
+  [8, 'Stabilisation', 9.1, '++', 10.8, 35.4, 'F-75', 6, 'Fail', ['Hypoglycaemia on admission — treated with 10% glucose']],
+  [7, 'Stabilisation', 8.7, '++', undefined, 36.4, 'F-75', 7, 'Not done', []],
+  [6, 'Stabilisation', 8.4, '+', undefined, 36.6, 'F-75', 8, 'Not done', []],
+  [5, 'Transition', 8.1, '+', undefined, 36.7, 'RUTF', 8, 'Pass', []],
+  [4, 'Transition', 7.9, '0', 10.9, 36.8, 'RUTF', 8, 'Pass', []],
+  [3, 'Rehabilitation', 7.95, '0', undefined, 36.7, 'RUTF', 6, 'Pass', []],
+  [2, 'Rehabilitation', 8.05, '0', undefined, 36.6, 'RUTF', 6, 'Pass', []],
+  [1, 'Rehabilitation', 8.2, '0', 11.1, 36.6, 'RUTF', 6, 'Pass', []],
+]
+
+const chartSeed = (): Record<string, PatientCharts> => ({
+  p1018: {
+    sam: samDays.map(([days, phase, weightKg, oedema, muacCm, temp, feed, feedsPlanned, appetite, complications]) => ({ ...st(days * 1440 - 180, 'Megan Shaw, RN'), phase, weightKg, oedema, muacCm, temp, feed, feedsPlanned, feedsTaken: days === 8 ? 5 : feedsPlanned, appetite, complications })),
+    fluids: [{ ...st(300, 'Megan Shaw, RN'), direction: 'In', route: 'Oral RUTF + water', ml: 250 }, { ...st(180, 'Megan Shaw, RN'), direction: 'Out', route: 'Urine (nappy weight)', ml: 120 }],
+  },
+  p1019: { labour: labourSeed(), anc: [{ ...st(390, 'Alicia Moore, RM'), gaWeeks: 39, weightKg: 68, bpSys: 118, bpDia: 76, fundalCm: 37, fhr: 140, presentation: 'Cephalic', urineProtein: '-', hb: 11.6 }] },
+  p1017: {
+    anc: ([[12, 58, 108, 68, undefined, undefined, '-', 11.8], [20, 61, 110, 70, 20, 148, '-', undefined], [26, 63.5, 112, 70, 26, 150, '-', 10.6], [30, 65, 116, 72, 28, 146, 'Trace', undefined], [32, 66, 118, 72, 31, 148, '-', 11.2]] as Array<[number, number, number, number, number | undefined, number | undefined, AncVisit['urineProtein'], number | undefined]>)
+      .map(([gaWeeks, weightKg, bpSys, bpDia, fundalCm, fhr, urineProtein, hb]) => ({ ...st(gaWeeks === 32 ? 10 : (32 - gaWeeks) * 7 * 1440, gaWeeks === 32 ? 'Alicia Moore, RM' : 'ANC midwife'), gaWeeks, weightKg, bpSys, bpDia, fundalCm, fhr, presentation: gaWeeks >= 30 ? 'Cephalic' : undefined, urineProtein, hb, note: gaWeeks === 26 ? 'Iron and folic acid started.' : undefined })),
+  },
+  p1013: {
+    postpartum: [
+      { ...st(185, 'Alicia Moore, RM'), uterus: 'Well contracted', lochia: 'Moderate', padsSoaked: 1, bloodLossMl: 150, pulse: 98, bpSys: 166, bpDia: 104 },
+      { ...st(125, 'Alicia Moore, RM'), uterus: 'Well contracted', lochia: 'Moderate', padsSoaked: 1, bloodLossMl: 100, pulse: 96, bpSys: 164, bpDia: 102 },
+      { ...st(65, 'Alicia Moore, RM'), uterus: 'Well contracted', lochia: 'Light', padsSoaked: 1, bloodLossMl: 80, pulse: 96, bpSys: 162, bpDia: 100 },
+      { ...st(20, 'Alicia Moore, RM'), uterus: 'Well contracted', lochia: 'Light', bloodLossMl: 40, pulse: 94, bpSys: 160, bpDia: 100 },
+    ],
+  },
+  p1014: {
+    glucose: ([[1800, 232, 'Admission'], [1560, 198, 'Before lunch'], [1320, 176, 'Before dinner'], [1080, 164, 'Bedtime'], [780, 188, 'Fasting'], [540, 214, 'Before lunch'], [300, 196, 'Before dinner'], [190, 256, 'Bedtime']] as Array<[number, number, string]>)
+      .map(([minutes, mgdl, timing]) => ({ ...st(minutes, 'Medical 5N nurse'), mgdl, timing, insulinUnits: mgdl > 200 ? 4 : undefined })),
+    fluids: ([[1500, 'In', 'IV 0.9% saline', 1000], [1440, 'In', 'Oral', 300], [1380, 'Out', 'Urine', 350], [1200, 'In', 'Oral', 250], [1100, 'Out', 'Urine', 300], [900, 'Out', 'Urine', 250], [720, 'In', 'IV 0.9% saline', 1000], [600, 'In', 'Oral', 200], [480, 'Out', 'Urine', 200], [360, 'In', 'Oral', 300], [240, 'Out', 'Urine', 150], [120, 'In', 'Oral', 150], [60, 'Out', 'Urine', 120]] as Array<[number, FluidEntry['direction'], string, number]>)
+      .map(([minutes, direction, route, ml]) => ({ ...st(minutes, 'Medical 5N nurse'), direction, route, ml })),
+  },
+})
+
 const round = (minutes: number, by: string, status: RoundNote['status'], subjective: string, examination: string, assessment: string, plan: string): RoundNote => ({ id: uid('RN'), at: ago(minutes), by, status, subjective, examination, assessment, plan })
 
 const roundSeed: Record<string, RoundNote[]> = {
@@ -536,11 +602,15 @@ const providerSeed = (): ExternalProvider[] => [
 
 export function createInitialState(): HospitalState {
   const wards = wardSeed()
+  const charts = chartSeed()
   const patients = patientSeed().map((patient) => {
     const observations = observationSeed[patient.id]
     const rounds = roundSeed[patient.id]
-    const withObs = observations ? { ...patient, observations, ...(rounds ? { rounds } : {}), vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : patient
+    const chartData = charts[patient.id]
+    const withCharts = chartData ? { ...patient, charts: chartData } : patient
+    const withObs = observations ? { ...withCharts, observations, ...(rounds ? { rounds } : {}), vitals: { ...observations[0], at: undefined, by: undefined, onOxygen: undefined, consciousness: undefined } as unknown as Vitals } : withCharts
     if (patient.id === 'p1006') return { ...withObs, weightKg: 24.6, growth: [{ at: ago(1051200), ageYears: 6, weightKg: 20.1, heightCm: 115 }, { at: ago(525600), ageYears: 7, weightKg: 22.0, heightCm: 121 }, { at: ago(27), ageYears: 8, weightKg: 24.6, heightCm: 127 }] }
+    if (patient.id === 'p1018') return { ...withObs, weightKg: 8.2, growth: [{ at: ago(8 * 1440 - 120), ageYears: 2, weightKg: 9.1, heightCm: 79, muacCm: 10.8 }, { at: ago(1440), ageYears: 2, weightKg: 8.2, heightCm: 79.5, muacCm: 11.1 }] }
     if (patient.id === 'p1002') return { ...withObs, insurance: 'Aetna' }
     if (patient.id === 'p1017') return { ...withObs, assessments: [{ id: 'SA-1', at: ago(50), by: 'Dr. Hannah Reid', values: { lmp: new Date(Date.now() - 32 * 7 * 86_400_000).toISOString().slice(0, 10), gravida: '1', para: '0', fundal: '31', fhr: '148', presentation: 'Cephalic', contractions: '0' } }] }
     if (patient.id === 'p1015') return { ...withObs, assessments: [{ id: 'SA-2', at: ago(30), by: 'Ms. Prianka Shah', values: { r500: '15', r1000: '20', r2000: '20', r4000: '25', l500: '35', l1000: '40', l2000: '45', l4000: '50', otoscopy: 'Effusion' } }] }

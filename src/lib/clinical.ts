@@ -1,3 +1,4 @@
+import { chartAlerts } from './charts'
 import { specialtyFor } from './specialty'
 import type { ClinicalOrder, Consciousness, FormularyItem, OrderKind, OrderStatus, Patient, Prescription, Vitals } from '../types'
 
@@ -224,6 +225,7 @@ export function patientAlerts(patient: Patient, orders: ClinicalOrder[]) {
   if (patient.escalation) alerts.push({ tone: 'warning', text: `Escalated to the medical team by ${patient.escalation.by} (NEWS2 ${patient.escalation.score})` })
   orders.filter((order) => order.patientId === patient.id && order.result && /\b(low|high|critical)\b/i.test(order.result)).forEach((order) => alerts.push({ tone: 'warning', text: `Abnormal result · ${order.title}: ${order.result}` }))
   specialtyFor(patient).alerts.forEach((text) => alerts.push({ tone: 'warning', text }))
+  chartAlerts(patient).forEach((flag) => alerts.push({ tone: 'danger', text: flag.text }))
   const allergies = patient.allergies.filter((allergy) => !/no known|not yet/i.test(allergy))
   if (allergies.length) alerts.push({ tone: 'danger', text: `Allergy: ${allergies.join(', ')}` })
   return alerts

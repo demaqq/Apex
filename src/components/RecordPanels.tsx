@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { AlertTriangle, BellRing, FileCheck2, HeartPulse, Plus, Ruler, Stethoscope, Trash2 } from 'lucide-react'
-import { EXAM_SYSTEMS, ICD10, WEIGHT_MEDIAN, newsResponse, newsTone, observationFlags, patientAlerts, patientNews2 } from '../lib/clinical'
+import { AlertTriangle, BellRing, FileCheck2, HeartPulse, Plus, Stethoscope, Trash2 } from 'lucide-react'
+import { EXAM_SYSTEMS, ICD10, newsResponse, newsTone, observationFlags, patientAlerts, patientNews2 } from '../lib/clinical'
 import { formatDate, formatDateTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import { specialtyFor } from '../lib/specialty'
@@ -247,54 +247,6 @@ export function DischargePanel({ patient }: { patient: Patient }) {
     </section>
   )
 }
-
-/* ---------------- Growth (children) ---------------- */
-
-export function GrowthPanel({ patient }: { patient: Patient }) {
-  const { can, recordGrowth } = useHospital()
-  const [weight, setWeight] = useState('')
-  const [height, setHeight] = useState('')
-  const points = patient.growth ?? []
-  const sex = patient.sex === 'Female' ? 'Female' : 'Male'
-  const median = WEIGHT_MEDIAN[sex]
-  const x = (age: number) => 40 + age * 50
-  const y = (kg: number) => 230 - (kg - 6) * 6.5
-  const line = (factor: number) => median.map((value, index) => `${index ? 'L' : 'M'}${x(index + 1)} ${y(value * factor)}`).join('')
-  const last = points[points.length - 1]
-  const expected = last ? median[Math.max(0, Math.min(9, Math.round(last.ageYears) - 1))] : 0
-  const low = last && last.weightKg < expected * 0.78
-  const high = last && last.weightKg > expected * 1.28
-
-  return (
-    <section className="drawer-section">
-      <div className="section-label"><Ruler size={15} />Growth monitoring</div>
-      <svg className="flow-map" viewBox="0 0 560 260" role="img" aria-label="Weight for age chart">
-        <path d={line(0.78)} fill="none" stroke="var(--muted)" strokeDasharray="4 4" />
-        <path d={line(1)} fill="none" stroke="var(--teal)" strokeWidth="2" />
-        <path d={line(1.28)} fill="none" stroke="var(--muted)" strokeDasharray="4 4" />
-        {points.map((point) => <circle key={point.at} cx={x(point.ageYears)} cy={y(point.weightKg)} r="5" fill="var(--danger)" />)}
-        {Array.from({ length: 10 }, (_, index) => <text key={index} x={x(index + 1)} y="252" textAnchor="middle" fontSize="11" fill="var(--muted)">{index + 1}y</text>)}
-        <text x="6" y="14" fontSize="11" fill="var(--muted)">Weight (kg)</text>
-      </svg>
-      <p className="record-hint">Teal line: approximate median for {sex === 'Male' ? 'boys' : 'girls'}; dashed lines: approximate range. Illustrative only — use the WHO growth standards for clinical decisions.</p>
-      {low && <p className="record-alerts"><span className="warning"><AlertTriangle size={14} />Weight is below the expected range for age. Review nutrition and illness history.</span></p>}
-      {high && <p className="record-alerts"><span className="warning"><AlertTriangle size={14} />Weight is above the expected range for age.</span></p>}
-      <table className="data-table compact">
-        <thead><tr><th>Age</th><th className="num">Weight</th><th className="num">Height</th><th className="num">BMI</th></tr></thead>
-        <tbody>{points.map((point) => <tr key={point.at}><td>{point.ageYears} y</td><td className="num">{point.weightKg} kg</td><td className="num">{point.heightCm} cm</td><td className="num">{(point.weightKg / (point.heightCm / 100) ** 2).toFixed(1)}</td></tr>)}</tbody>
-      </table>
-      {can('vitals') && patient.status !== 'discharged' && (
-        <div className="ddx-add" style={{ marginTop: 12 }}>
-          <input type="number" step="0.1" placeholder="Weight (kg)" aria-label="Weight in kilograms" value={weight} onChange={(event) => setWeight(event.target.value)} />
-          <input type="number" placeholder="Height (cm)" aria-label="Height in centimetres" value={height} onChange={(event) => setHeight(event.target.value)} />
-          <Button size="sm" icon={Plus} disabled={!Number(weight) || !Number(height)} onClick={() => { recordGrowth(patient.id, { ageYears: patient.age, weightKg: Number(weight), heightCm: Number(height) }); setWeight(''); setHeight('') }}>Record</Button>
-        </div>
-      )}
-    </section>
-  )
-}
-
-/* ---------------- Specialty assessment ---------------- */
 
 export function AssessmentPanel({ patient }: { patient: Patient }) {
   const { can, saveAssessment } = useHospital()

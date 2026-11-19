@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion'
-import { AlertTriangle, ClipboardList, Stethoscope, UsersRound } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Stethoscope, Timer, Utensils, UsersRound } from 'lucide-react'
+import { partograph, samSummary } from '../lib/charts'
+import type { Patient } from '../types'
 import { Chip, EmptyState, Metric, NewsChip, PageHeader, Panel, PersonCell } from '../components/ui'
 import { departmentById } from '../data'
 import { patientAlerts } from '../lib/clinical'
@@ -29,6 +31,8 @@ export default function SpecialtyDashboard() {
         <Metric label="Open orders" value={openOrders} detail="Not yet resulted" icon={ClipboardList} tone="amber" />
         <Metric label="Assessed" value={rows.filter((row) => row.specialty.latest).length} detail={`With a ${config.title.toLowerCase()}`} icon={Stethoscope} tone="blue" />
       </div>
+      {departmentId === 'obgyn' && <LabourBoard patients={patients} onOpen={setSelectedPatientId} />}
+      {departmentId === 'pediatrics' && <SamBoard patients={patients} onOpen={setSelectedPatientId} />}
       <Panel title={config.worklist}>
         <div className="table-wrap">
           <table className="data-table">
@@ -48,5 +52,61 @@ export default function SpecialtyDashboard() {
         {rows.length === 0 && <EmptyState icon={UsersRound} title="No active patients" text="Patients in this department appear here." />}
       </Panel>
     </motion.div>
+  )
+}
+
+function LabourBoard({ patients, onOpen }: { patients: Patient[]; onOpen: (id: string) => void }) {
+  const labouring = patients.map((patient) => ({ patient, p: partograph(patient.charts?.labour ?? []) })).filter((row) => row.p)
+  return (
+    <Panel title="Labour ward · women with an open partograph">
+      {labouring.length === 0 ? <EmptyState icon={Timer} title="No one in labour" text="Start a partograph from the record’s Charts tab." /> : (
+        <div className="board-cards">
+          {labouring.map(({ patient, p }) => {
+            const entries = [...(patient.charts?.labour ?? [])].reverse()
+            const fhr = entries.find((e) => e.fhr !== undefined); const ctx = entries.find((e) => e.contractions !== undefined)
+            return (
+              <button key={patient.id} type="button" className={`board-card tone-${p!.line === 'action' ? 'danger' : p!.line === 'alert' ? 'warning' : 'success'}`} onClick={() => onOpen(patient.id)}>
+                <header><b>{patient.name}</b><span>{patient.location}</span></header>
+                <div className="board-metrics">
+                  <span><small>Cervix</small><b>{p!.latestDilation ? `${p!.latestDilation.dilationCm} cm` : '–'}</b></span>
+                  <span><small>FHR</small><b className={fhr && (Number(fhr.fhr) < 110 || Number(fhr.fhr) > 160) ? 'danger-text' : ''}>{fhr?.fhr ?? '–'}</b></span>
+                  <span><small>Contractions</small><b>{ctx ? `${ctx.contractions}/10′` : '–'}</b></span>
+                  <span><small>Active labour</small><b>{p!.active ? `${p!.hoursActive.toFixed(1)} h` : 'Latent'}</b></span>
+                </div>
+                <Chip tone={p!.line === 'action' ? 'danger' : p!.line === 'alert' ? 'warning' : 'success'}>{p!.line === 'on track' ? 'Progress on track' : p!.line === 'alert' ? 'Right of alert line' : 'Action line crossed'}</Chip>
+                {p!.flags.filter((f) => f.tone === 'danger').map((f) => <small key={f.text} className="danger-text">• {f.text}</small>)}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function SamBoard({ patients, onOpen }: { patients: Patient[]; onOpen: (id: string) => void }) {
+  const rows = patients.map((patient) => ({ patient, s: samSummary(patient.charts?.sam ?? []) })).filter((row) => row.s)
+  return (
+    <Panel title="SAM unit · children on therapeutic feeding">
+      {rows.length === 0 ? <EmptyState icon={Utensils} title="No children on the SAM chart" text="Start one from the record’s Charts tab." /> : (
+        <div className="board-cards">
+          {rows.map(({ patient, s }) => (
+            <button key={patient.id} type="button" className={`board-card tone-${s!.flags.some((f) => f.tone === 'danger') ? 'danger' : s!.readyForDischarge ? 'success' : 'neutral'}`} onClick={() => onOpen(patient.id)}>
+              <header><b>{patient.name}</b><span>{patient.age} y · {patient.location}</span></header>
+              <div className="board-metrics">
+                <span><small>Day</small><b>{s!.day}</b></span>
+                <span><small>Phase</small><b>{s!.latest.phase}</b></span>
+                <span><small>Weight</small><b>{s!.latest.weightKg} kg</b></span>
+                <span><small>Target</small><b>{s!.target} kg</b></span>
+                <span><small>Gain</small><b>{s!.gain === null ? '–' : `${s!.gain.toFixed(1)} g/kg/d`}</b></span>
+                <span><small>Oedema</small><b>{s!.latest.oedema === '0' ? 'None' : s!.latest.oedema}</b></span>
+              </div>
+              <small className="muted-text">{s!.plan.text}</small>
+              {s!.flags.filter((f) => f.tone === 'danger').map((f) => <small key={f.text} className="danger-text">• {f.text}</small>)}
+            </button>
+          ))}
+        </div>
+      )}
+    </Panel>
   )
 }

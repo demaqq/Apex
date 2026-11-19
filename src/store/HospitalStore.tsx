@@ -25,6 +25,8 @@ import type {
   ObservationContext,
   ObservationSet,
   RoundNote,
+  ChartKey,
+  ChartEntryInput,
   DischargeSummary,
   Evaluation,
   Invoice,
@@ -37,7 +39,9 @@ import type {
   StockMovement,
 } from '../types'
 
-const DATA_KEY = 'northstar-careos-data-v4'
+const DATA_KEY = 'northstar-careos-data-v5'
+
+const CHART_TITLES: Record<ChartKey, string> = { sam: 'SAM chart', labour: 'Partograph', anc: 'Antenatal chart', postpartum: 'Postpartum bleeding chart', fluids: 'Fluid balance', glucose: 'Glucose chart' }
 const SESSION_KEY = 'northstar-careos-session'
 const DEPARTMENT_KEY = 'northstar-careos-department'
 const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
@@ -77,6 +81,7 @@ interface HospitalContextValue {
   standDownCode: (id: string) => void
   recordObservations: (patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context?: ObservationContext) => void
   saveRound: (patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => void
+  addChartEntry: <K extends ChartKey>(patientId: string, chart: K, entry: ChartEntryInput<K>, summary: string) => void
   escalatePatient: (patientId: string) => void
   advanceOrder: (orderId: string, result?: string, toStage?: number) => void
   setBedState: (bedId: string, state: BedState) => void
@@ -95,7 +100,7 @@ interface HospitalContextValue {
   dischargeWithSummary: (patientId: string, summary: Omit<DischargeSummary, 'at' | 'by'>) => void
   rejectSpecimen: (orderId: string, reason: string) => void
   saveAssessment: (patientId: string, values: Record<string, string>, summary: string) => void
-  recordGrowth: (patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number }) => void
+  recordGrowth: (patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => void
   recordPayment: (invoiceId: string, method: NonNullable<Invoice['payments']>[number]['method'], amount: number) => void
   generateInvoice: (patientId: string) => void
   restock: (medicationId: string, amount: number) => void
@@ -861,6 +866,18 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Sample rejected — the ward has been asked to recollect', 'warning')
   }, [actorName, commit, notify])
 
+  const addChartEntry = useCallback(<K extends ChartKey>(patientId: string, chart: K, input: ChartEntryInput<K>, summary: string) => {
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      if (!patient) return null
+      const entry = { ...input, id: makeId('CH'), at: input.at ?? new Date().toISOString(), by: actor }
+      const list = [...(patient.charts?.[chart] ?? []), entry].sort((a, b) => a.at.localeCompare(b.at))
+      return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${CHART_TITLES[chart]} charted`, detail: summary, author: actor, department: patient.department }, { charts: { ...patient.charts, [chart]: list } }) }, actor, action: `updated the ${CHART_TITLES[chart].toLowerCase()} for ${patient.name}`, department: patient.department, patientId }
+    })
+    notify(`${CHART_TITLES[chart]} updated`)
+  }, [actorName, commit, notify])
+
   const saveRound = useCallback((patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
@@ -883,7 +900,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Assessment saved')
   }, [actorName, commit, notify])
 
-  const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number }) => {
+  const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => {
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1131,11 +1148,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : setSelectedPatientId,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
-    recordObservations, saveRound, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
+    recordObservations, saveRound, addChartEntry, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, addChartEntry, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, state, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

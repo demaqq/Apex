@@ -86,6 +86,97 @@ export interface TimelineEvent {
   orderId?: string
 }
 
+/* ---------- Specialty charts ---------- */
+
+interface ChartStamp { id: string; at: string; by: string }
+
+export type Oedema = '0' | '+' | '++' | '+++'
+export type SamPhase = 'Stabilisation' | 'Transition' | 'Rehabilitation'
+
+/** Daily severe acute malnutrition (SAM) monitoring. */
+export interface SamEntry extends ChartStamp {
+  phase: SamPhase
+  weightKg: number
+  oedema: Oedema
+  muacCm?: number
+  temp?: number
+  feed: 'F-75' | 'F-100' | 'RUTF' | 'Breastfeeding only'
+  feedsTaken?: number
+  feedsPlanned?: number
+  appetite?: 'Pass' | 'Fail' | 'Not done'
+  complications: string[]
+  note?: string
+}
+
+/** One partograph observation in labour; any field may be left out at a given time. */
+export interface LabourEntry extends ChartStamp {
+  dilationCm?: number
+  /** Fifths of the head palpable above the brim (5 → 0). */
+  descentFifths?: number
+  contractions?: number
+  contractionSeconds?: number
+  fhr?: number
+  liquor?: 'I' | 'C' | 'M' | 'B' | 'A'
+  moulding?: Oedema
+  pulse?: number
+  bpSys?: number
+  bpDia?: number
+  temp?: number
+  oxytocinDrops?: number
+  urine?: string
+  note?: string
+}
+
+export interface AncVisit extends ChartStamp {
+  gaWeeks: number
+  weightKg?: number
+  bpSys: number
+  bpDia: number
+  fundalCm?: number
+  fhr?: number
+  presentation?: string
+  urineProtein?: '-' | 'Trace' | '+' | '++' | '+++'
+  hb?: number
+  note?: string
+}
+
+/** Postpartum / gynaecology bleeding and uterine monitoring. */
+export interface PostpartumEntry extends ChartStamp {
+  uterus: 'Well contracted' | 'Boggy'
+  lochia: 'Light' | 'Moderate' | 'Heavy' | 'Clots'
+  padsSoaked?: number
+  bloodLossMl: number
+  pulse?: number
+  bpSys?: number
+  bpDia?: number
+  note?: string
+}
+
+export interface FluidEntry extends ChartStamp {
+  direction: 'In' | 'Out'
+  route: string
+  ml: number
+}
+
+export interface GlucoseEntry extends ChartStamp {
+  /** mg/dL. */
+  mgdl: number
+  timing: string
+  insulinUnits?: number
+}
+
+export interface PatientCharts {
+  sam?: SamEntry[]
+  labour?: LabourEntry[]
+  anc?: AncVisit[]
+  postpartum?: PostpartumEntry[]
+  fluids?: FluidEntry[]
+  glucose?: GlucoseEntry[]
+}
+export type ChartKey = keyof PatientCharts
+export type ChartEntry<K extends ChartKey> = NonNullable<PatientCharts[K]>[number]
+export type ChartEntryInput<K extends ChartKey> = Omit<ChartEntry<K>, 'id' | 'at' | 'by'> & { at?: string }
+
 export interface Patient {
   id: string
   mrn: string
@@ -113,7 +204,9 @@ export interface Patient {
   insurance?: string
   phone?: string
   weightKg?: number
-  growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number }>
+  growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }>
+  /** Time-series specialty charts (oldest first). */
+  charts?: PatientCharts
   evaluations?: Evaluation[]
   /** Daily ward-round notes, newest first. */
   rounds?: RoundNote[]

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, ClipboardList, FlaskConical, HeartPulse, NotebookPen, Pill, ScanLine, Scissors } from 'lucide-react'
+import { Activity, AlertTriangle, Baby, ClipboardList, Droplets, FlaskConical, GlassWater, HeartPulse, NotebookPen, Pill, Ruler, ScanLine, Scissors, Syringe, Timer, Utensils, Waves } from 'lucide-react'
+import { isChild, isObstetric, isUnderFive } from '../lib/charts'
+import { AntenatalChart, ContractionChart, FluidChart, GlucoseChart, PaediatricChart, PartographChart, PostpartumChart, SamChart } from './SpecialtyCharts'
 import { patientNews2, stagesFor, orderStage, THEATRE_STAGES } from '../lib/clinical'
 import { formatDate, formatDateTime, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
@@ -8,14 +10,31 @@ import { OBSERVATION_CONTEXTS } from '../types'
 import { ObservationsPanel } from './RecordPanels'
 import { Button, Chip } from './ui'
 
-type View = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
-const VIEWS: Array<[View, string, typeof HeartPulse]> = [
+type CoreView = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
+type SpecialtyView = 'paediatric' | 'sam' | 'anc' | 'partograph' | 'contractions' | 'postpartum' | 'fluids' | 'glucose'
+type View = CoreView | SpecialtyView
+const VIEWS: Array<[CoreView, string, typeof HeartPulse]> = [
   ['vitals', 'Vitals', HeartPulse],
   ['medications', 'Medications', Pill],
   ['procedures', 'Procedures', Scissors],
   ['investigations', 'Investigations', FlaskConical],
   ['rounds', 'Daily rounds', NotebookPen],
 ]
+
+/** Specialty charts that apply to this patient, most relevant first. */
+function specialtyViews(patient: Patient): Array<[SpecialtyView, string, typeof HeartPulse]> {
+  const c = patient.charts ?? {}
+  const views: Array<[SpecialtyView, string, typeof HeartPulse]> = []
+  if (isObstetric(patient) || c.labour?.length) views.push(['partograph', 'Partograph', Timer], ['contractions', 'Contractions', Waves])
+  if (isObstetric(patient) || c.anc?.length) views.push(['anc', 'Antenatal', Baby])
+  if (isObstetric(patient) || c.postpartum?.length) views.push(['postpartum', 'Postpartum & gyn bleeding', Droplets])
+  if (isUnderFive(patient) || c.sam?.length) views.push(['sam', 'SAM', Utensils])
+  if (isChild(patient)) views.push(['paediatric', 'Paediatric & growth', Ruler])
+  views.push(['fluids', 'Fluid balance', GlassWater], ['glucose', 'Glucose', Syringe])
+  // Put charts that already hold data first.
+  const has = (v: SpecialtyView) => Boolean(v === 'partograph' || v === 'contractions' ? c.labour?.length : v === 'paediatric' ? patient.growth?.length : v === 'fluids' ? c.fluids?.length : v === 'glucose' ? c.glucose?.length : v === 'sam' ? c.sam?.length : v === 'anc' ? c.anc?.length : c.postpartum?.length)
+  return [...views.filter(([v]) => has(v)), ...views.filter(([v]) => !has(v))]
+}
 
 const DAY = 86_400_000
 /** Hospital day number counted from arrival (day 1 = day of arrival). */
@@ -24,18 +43,33 @@ const hospitalDay = (patient: Patient, at: string) => {
   return Math.floor((new Date(at).getTime() - start.getTime()) / DAY) + 1
 }
 
+const defaultView = (patient: Patient): View => patient.charts?.labour?.length && patient.status !== 'discharged' ? 'partograph' : patient.charts?.sam?.length && patient.status !== 'discharged' ? 'sam' : 'vitals'
+
 export function ChartsPanel({ patient }: { patient: Patient }) {
-  const [view, setView] = useState<View>('vitals')
+  const [view, setView] = useState<View>(() => defaultView(patient))
+  const extra = specialtyViews(patient)
   return (
     <>
       <div className="segmented chart-switch" role="tablist" aria-label="Patient charts">
         {VIEWS.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Icon size={14} />{label}</button>)}
+      </div>
+      <div className="chart-chips" role="tablist" aria-label="Specialty charts">
+        <span>Specialty charts</span>
+        {extra.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={view === id} className={`pick-chip ${view === id ? 'on' : ''}`} onClick={() => setView(id)}><Icon size={13} />{label}</button>)}
       </div>
       {view === 'vitals' && <VitalsView patient={patient} />}
       {view === 'medications' && <MedicationChart patient={patient} />}
       {view === 'procedures' && <ProcedureChart patient={patient} />}
       {view === 'investigations' && <InvestigationChart patient={patient} />}
       {view === 'rounds' && <RoundsView patient={patient} />}
+      {view === 'paediatric' && <PaediatricChart patient={patient} />}
+      {view === 'sam' && <SamChart patient={patient} />}
+      {view === 'anc' && <AntenatalChart patient={patient} />}
+      {view === 'partograph' && <PartographChart patient={patient} />}
+      {view === 'contractions' && <ContractionChart patient={patient} />}
+      {view === 'postpartum' && <PostpartumChart patient={patient} />}
+      {view === 'fluids' && <FluidChart patient={patient} />}
+      {view === 'glucose' && <GlucoseChart patient={patient} />}
     </>
   )
 }

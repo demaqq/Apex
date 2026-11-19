@@ -3,7 +3,7 @@ import { Activity, AlertCircle, ArrowRight, BedDouble, Check, ClipboardList, Clo
 import { useEffect, useMemo, useState } from 'react'
 import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, RetriageModal, TransferModal } from './ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
-import { AlertsBox, AssessmentPanel, DischargePanel, EvaluationPanel, GrowthPanel } from './RecordPanels'
+import { AlertsBox, AssessmentPanel, DischargePanel, EvaluationPanel } from './RecordPanels'
 import { ChartsPanel } from './ChartsPanel'
 import ClinicalChat from './ClinicalChat'
 import { SPECIALTY } from '../lib/specialty'
@@ -12,7 +12,7 @@ import { useHospital } from '../store/HospitalStore'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
 import type { ClinicalOrder, Referral } from '../types'
 
-type Tab = 'conversation' | 'overview' | 'assessment' | 'charts' | 'orders' | 'referrals' | 'evaluation' | 'growth' | 'discharge' | 'timeline'
+type Tab = 'conversation' | 'overview' | 'assessment' | 'charts' | 'orders' | 'referrals' | 'evaluation' | 'discharge' | 'timeline'
 
 export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
@@ -52,7 +52,6 @@ export default function PatientDrawer() {
   const tabs: Tab[] = patient ? [
     'conversation', 'overview', ...(SPECIALTY[patient.department] ? ['assessment' as Tab] : []), 'charts', 'orders', 'referrals',
     ...((can('prescribe') || can('refer') || (patient.evaluations?.length ?? 0) > 0) ? ['evaluation' as Tab] : []),
-    ...(patient.age < 12 ? ['growth' as Tab] : []),
     ...((can('discharge') && ['admitted', 'observation', 'in-treatment'].includes(patient.status)) || patient.discharge ? ['discharge' as Tab] : []),
     'timeline',
   ] : []
@@ -137,7 +136,6 @@ export default function PatientDrawer() {
                 {tab === 'assessment' && <AssessmentPanel patient={patient} />}
                 {tab === 'charts' && <ChartsPanel patient={patient} />}
                 {tab === 'evaluation' && <EvaluationPanel patient={patient} />}
-                {tab === 'growth' && <GrowthPanel patient={patient} />}
                 {tab === 'discharge' && <DischargePanel patient={patient} />}
                 {tab === 'timeline' && <section className="drawer-section"><div className="section-label"><Clock3 size={15} />COMPLETE EPISODE TIMELINE<span>{patient.timeline.length} events</span></div><div className="patient-timeline">{[...patient.timeline].sort((a, b) => b.at.localeCompare(a.at)).map((event) => <article key={event.id}><div className={`timeline-icon timeline-${event.type}`}>{event.type === 'triage' ? <Activity size={15} /> : event.type === 'transfer' ? <BedDouble size={15} /> : event.type === 'referral' ? <Network size={15} /> : event.type === 'order' || event.type === 'result' ? <FlaskConical size={15} /> : event.type === 'note' ? <MessageSquareText size={15} /> : <UserRound size={15} />}</div><div><span>{formatDate(event.at)} · {formatTime(event.at)}</span><h3>{event.title}</h3><p>{event.detail}</p><small>{event.author}</small></div></article>)}</div></section>}
               </motion.div>
