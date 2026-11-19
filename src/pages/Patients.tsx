@@ -7,7 +7,7 @@ import { Avatar, Button, EmptyState, EsiBadge, PageHeader, Panel, StatusBadge } 
 import { departmentById } from '../data'
 import { getEncounterType, patientCsv, statusLabels } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
-import type { DepartmentId, PatientStatus } from '../types'
+import type { DepartmentId } from '../types'
 
 type RecordView = 'active' | 'critical' | 'inpatient' | 'outpatient' | 'discharged' | 'all'
 

@@ -1,16 +1,15 @@
-import React, { isValidElement } from 'react'
-import { type ReactNode, type HTMLAttributes, type ComponentType, type SVGProps } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
+import type { LucideIcon } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export interface PanelProps extends HTMLAttributes<HTMLDivElement> {
+interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
   title?: string
   action?: ReactNode
-  className?: string
 }
 
-export function Panel({ title, action, children, className = '', style, ...props }: PanelProps) {
+export function Panel({ title, action, children, className = '', ...props }: PanelProps) {
   return (
-    <div className={`panel ${className}`} style={style} {...props}>
+    <section className={`panel ${className}`} {...props}>
       {(title || action) && (
         <div className="panel-heading">
           {title && <h2>{title}</h2>}
@@ -18,7 +17,7 @@ export function Panel({ title, action, children, className = '', style, ...props
         </div>
       )}
       {children}
-    </div>
+    </section>
   )
 }
 
@@ -26,8 +25,8 @@ export interface MetricProps {
   label: string
   value: string | number
   detail: string
-  icon: ReactNode | ComponentType<SVGProps<SVGSVGElement>>
-  tone?: string
+  icon: LucideIcon
+  tone?: 'teal' | 'blue' | 'amber' | 'coral' | 'green'
   progress?: number
 }
 
@@ -36,32 +35,22 @@ export function Metric({ label, value, detail, icon: Icon, tone, progress }: Met
     <div className={`metric ${tone ? `metric-${tone}` : ''}`}>
       <div className="metric-top">
         <span>{label}</span>
-        <span className="metric-icon">
-          {isValidElement(Icon) ? Icon : Icon ? React.createElement(Icon as ComponentType<SVGProps<SVGSVGElement>>, { width: 16, height: 16 }) : null}
-        </span>
+        <span className="metric-icon"><Icon size={16} aria-hidden="true" /></span>
       </div>
       <strong>{value}</strong>
       <p className="metric-detail">{detail}</p>
       {progress !== undefined && (
         <div className="metric-track">
-          <motion.span initial={{ width: 0 }} animate={{ width: `${progress}%` }} />
+          <motion.span initial={{ width: 0 }} animate={{ width: `${Math.min(progress, 100)}%` }} />
         </div>
       )}
     </div>
   )
 }
 
-export interface PageHeaderProps {
-  eyebrow?: string
-  title: string
-  description?: string
-  actions?: ReactNode
-  className?: string
-}
-
-export function PageHeader({ eyebrow, title, description, actions, className = '' }: PageHeaderProps) {
+export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
   return (
-    <header className={`page-header ${className}`}>
+    <header className="page-header">
       <div>
         {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1>{title}</h1>
@@ -72,30 +61,13 @@ export function PageHeader({ eyebrow, title, description, actions, className = '
   )
 }
 
-export interface EmptyStateProps {
-  icon: ReactNode | ComponentType<SVGProps<SVGSVGElement>>
-  title: string
-  text: string
-  action?: ReactNode
-}
-
-export function EmptyState({ icon, title, text, action }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, text, action }: { icon: LucideIcon; title: string; text: string; action?: ReactNode }) {
   return (
     <div className="empty-state">
-      <span>
-        {isValidElement(icon) ? icon : icon ? React.createElement(icon as ComponentType<SVGProps<SVGSVGElement>>, { width: 21, height: 21 }) : null}
-      </span>
+      <span><Icon size={21} aria-hidden="true" /></span>
       <h3>{title}</h3>
       <p>{text}</p>
       {action}
     </div>
   )
-}
-
-export interface TextLinkProps extends HTMLAttributes<HTMLAnchorElement> {
-  children: ReactNode
-}
-
-export function TextLink({ children, className = '', ...props }: TextLinkProps) {
-  return <a className={`text-link ${className}`} {...props}>{children}</a>
 }

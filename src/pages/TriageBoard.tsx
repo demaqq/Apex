@@ -7,12 +7,14 @@ import { esiLabels } from '../data'
 import { formatWait, minutesSince, relativeTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { Patient } from '../types'
+import { TriageEvaluationModal } from './FrontDesk'
 
 export default function TriageBoard() {
   const { state, profile, can, setSelectedPatientId } = useHospital()
   const canEmergencyTriage = can('triage') && profile?.department === 'emergency'
   const [triageOpen, setTriageOpen] = useState(false)
   const [reassess, setReassess] = useState<Patient | null>(null)
+  const [evaluating, setEvaluating] = useState<Patient | null>(null)
   const [query, setQuery] = useState('')
   const [acuity, setAcuity] = useState('all')
   const [view, setView] = useState<'waiting' | 'all' | 'reassessment'>('waiting')
@@ -22,7 +24,7 @@ export default function TriageBoard() {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 15_000); return () => window.clearInterval(timer) }, [])
   const refresh = () => { setRefreshing(true); window.setTimeout(() => { setNow(Date.now()); setRefreshing(false) }, 450) }
 
-  const emergency = useMemo(() => state.patients.filter((patient) => patient.department === 'emergency' && patient.status !== 'discharged'), [state.patients])
+  const emergency = useMemo(() => state.patients.filter((patient) => patient.department === 'emergency' && !['discharged', 'awaiting-triage'].includes(patient.status)), [state.patients])
   const patients = useMemo(() => emergency.filter((patient) => {
     if (view === 'waiting' && patient.status !== 'waiting') return false
     if (view === 'reassessment' && !(patient.status === 'waiting' && minutesSince(patient.arrival, now) >= 30)) return false
@@ -36,8 +38,13 @@ export default function TriageBoard() {
   const critical = emergency.filter((patient) => patient.esi <= 2)
   const longest = waiting.length ? Math.max(...waiting.map((patient) => minutesSince(patient.arrival, now))) : 0
 
+  const registered = state.patients.filter((patient) => patient.status === 'awaiting-triage').sort((a, b) => a.arrival.localeCompare(b.arrival))
+
   return <motion.div className="triage-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
     <PageHeader eyebrow="EMERGENCY MEDICINE · LIVE SAFETY BOARD" title="Triage & waiting room" description="Prioritise arrivals, monitor deterioration and keep every reassessment visible." actions={<><Button variant="secondary" icon={RefreshCw} className={refreshing ? 'is-spinning' : ''} onClick={refresh}>Refresh</Button>{canEmergencyTriage && <Button icon={Plus} onClick={() => setTriageOpen(true)}>New patient triage</Button>}</>} />
+    {registered.length > 0 && <Panel title="Registered, awaiting triage" className="awaiting-panel" action={<span className="panel-count">{registered.length} WAITING</span>}>
+      <div className="card-grid" style={{ padding: 14 }}>{registered.map((patient) => <article key={patient.id} className="work-card priority-urgent"><header><b>{patient.name}</b><span className="mono muted-text">{patient.mrn}</span><span className="muted-text">{minutesSince(patient.arrival, now)} min</span></header><p className="work-card-reason">{patient.complaint}</p><footer><small>{patient.age} y · {patient.insurance ?? 'Self-pay'}</small>{can('triage') && <Button size="sm" icon={Plus} onClick={() => setEvaluating(patient)}>Evaluate</Button>}</footer></article>)}</div>
+    </Panel>}
     <div className="metrics-grid triage-metrics">
       <Metric label="Waiting now" value={waiting.length} detail={`${emergency.length} total active in Emergency`} icon={UsersRound} tone="blue" />
       <Metric label="ESI 1–2" value={critical.length} detail="High-acuity patients in the unit" icon={Siren} tone="coral" />
@@ -79,5 +86,6 @@ export default function TriageBoard() {
 
     {canEmergencyTriage && <TriageModal open={triageOpen} onClose={() => setTriageOpen(false)} onCreated={(id) => setSelectedPatientId(id)} />}
     {reassess && <RetriageModal patient={reassess} open={!!reassess} onClose={() => setReassess(null)} />}
+    {evaluating && <TriageEvaluationModal patient={evaluating} onClose={() => setEvaluating(null)} />}
   </motion.div>
 }

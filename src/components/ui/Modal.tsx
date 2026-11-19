@@ -1,85 +1,63 @@
-import { type ReactNode, useEffect, useRef } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
-import { Button } from './Button'
 
-export interface ModalProps {
-  isOpen?: boolean
-  open?: boolean
+interface ModalProps {
+  open: boolean
   onClose: () => void
-  title?: string
+  title: string
   subtitle?: string
-  description?: string
   children: ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
-  showClose?: boolean
-  closeOnOverlayClick?: boolean
-  closeOnEscape?: boolean
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
-export function Modal({ isOpen, open, onClose, title, subtitle, description, children, size = 'md', showClose = true, closeOnOverlayClick = true, closeOnEscape = true }: ModalProps) {
-  const modalOpen = isOpen ?? open ?? false
-  const overlayRef = useRef<HTMLDivElement>(null)
+const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+
+export function Modal({ open, onClose, title, subtitle, children, size = 'md' }: ModalProps) {
+  const titleId = useId()
   const contentRef = useRef<HTMLDivElement>(null)
-  const previousActiveElement = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
-    if (modalOpen) {
-      previousActiveElement.current = document.activeElement as HTMLElement
-      document.body.style.overflow = 'hidden'
-      contentRef.current?.focus()
-    } else {
-      document.body.style.overflow = ''
-      previousActiveElement.current?.focus()
-    }
-    return () => { document.body.style.overflow = '' }
-  }, [modalOpen])
+    if (!open) return
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const content = contentRef.current
+    // Focus the first field (or the dialog) so keyboard users land inside it.
+    const first = content?.querySelector<HTMLElement>('input, select, textarea')
+    ;(first ?? content)?.focus()
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (!modalOpen) return
-      if (event.key === 'Escape' && closeOnEscape) onClose()
-      if (event.key === 'Tab') {
-        const focusableElements = contentRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-        if (!focusableElements?.length) return
-        const firstElement = focusableElements[0]
-        const lastElement = focusableElements[focusableElements.length - 1]
-        if (event.shiftKey && document.activeElement === firstElement) { event.preventDefault(); lastElement.focus() }
-        else if (!event.shiftKey && document.activeElement === lastElement) { event.preventDefault(); firstElement.focus() }
-      }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopPropagation(); onCloseRef.current() }
+      if (event.key !== 'Tab' || !content) return
+      const focusable = content.querySelectorAll<HTMLElement>(FOCUSABLE)
+      if (!focusable.length) return
+      const firstEl = focusable[0]
+      const lastEl = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === firstEl) { event.preventDefault(); lastEl.focus() }
+      else if (!event.shiftKey && document.activeElement === lastEl) { event.preventDefault(); firstEl.focus() }
     }
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [modalOpen, closeOnEscape, onClose])
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = overflow
+      previous?.focus?.()
+    }
+  }, [open])
 
-  if (!modalOpen) return null
-
-  const sizeClass = { sm: 'modal-sm', md: 'modal-md', lg: 'modal-lg', xl: 'modal-xl', full: 'modal-xl' }[size]
+  if (!open) return null
 
   return (
-    <div
-      className="modal-backdrop"
-      ref={overlayRef}
-      onMouseDown={closeOnOverlayClick ? (event) => { if (event.target === event.currentTarget) onClose() } : undefined}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={title ? 'modal-title' : undefined}
-      aria-describedby={description ? 'modal-description' : undefined}
-    >
-      <div ref={contentRef} tabIndex={-1} className={`modal ${sizeClass}`}>
-        {(title || subtitle || showClose) && (
-          <div className="modal-header">
-            <div>
-              {title && <h2 id="modal-title">{title}</h2>}
-              {subtitle && <p className="modal-subtitle">{subtitle}</p>}
-              {description && <p id="modal-description">{description}</p>}
-            </div>
-            {showClose && (
-              <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close modal">
-                <X size={18} />
-              </Button>
-            )}
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <div ref={contentRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`modal modal-${size}`}>
+        <div className="modal-header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
           </div>
-        )}
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
+        </div>
         <div className="modal-body">{children}</div>
       </div>
     </div>

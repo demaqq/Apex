@@ -1,280 +1,182 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Fragment } from 'react'
-import { Calendar, Camera, Check, ChevronRight, Download, Eye, Filter, Loader, MessageSquare, Plus, Search, ShieldCheck, Video, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { AlertTriangle, Ban, CalendarCheck, CalendarClock, CalendarPlus, Check, Download, Play, Video } from 'lucide-react'
+import { Button, DepartmentIcon, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { departmentById } from '../data'
+import { downloadCsv, formatDateTime, formatTime, relativeTime, today } from '../lib/format'
+import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import { useAppointments } from '../data'
-import { Avatar, Badge, Button, EmptyState, Modal, PageHeader, Panel, StatusBadge } from '../components/ui'
-import { downloadCsv, formatTime } from '../lib/format'
-import type { Appointment } from '../types'
+import type { Appointment, AppointmentStatus, DepartmentId } from '../types'
+
+type View = 'upcoming' | 'all'
+
+const toLocalInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 
 export default function TelehealthView() {
-  const { state, notify } = useHospital()
-  const appointments = useAppointments()
+  const { state, setAppointmentStatus, setSelectedPatientId } = useHospital()
+  const patients = usePatients()
+  const now = useNow()
+  const [view, setView] = useState<View>('upcoming')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
-  const [type, setType] = useState('all')
-  const [view, setView] = useState<'schedule' | 'active'>('schedule')
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [scheduling, setScheduling] = useState(false)
 
-  const statuses = useMemo(() => [...new Set(appointments.map((a) => a.status))], [appointments])
-  const filtered = appointments.filter((a) =>
-    (status === 'all' || a.status === status) &&
-    (type === 'all' || a.type === type) &&
-    (!query || `${a.patientName} ${a.mrn ?? ''} ${a.doctorName} ${a.reason ?? a.chiefReason ?? ''}`.toLowerCase().includes(query.toLowerCase()))
-  )
+  const sorted = [...state.appointments].sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+  const live = sorted.filter((apt) => apt.status === 'In progress')
+  const upcoming = sorted.filter((apt) => apt.status === 'Scheduled')
+  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
+  const endOfDay = startOfDay.getTime() + 86_400_000
+  const todayCount = sorted.filter((apt) => apt.status !== 'Cancelled' && new Date(apt.startsAt).getTime() >= startOfDay.getTime() && new Date(apt.startsAt).getTime() < endOfDay).length
+  const filtered = sorted.filter((apt) => {
+    const patient = patients.get(apt.patientId)
+    return (status === 'all' || apt.status === status) && matches(query, apt.id, patient?.name, patient?.mrn, apt.clinician, apt.reason)
+  })
 
-  const scheduled = appointments.filter((a) => a.status === 'Scheduled' || a.status === 'Confirmed').length
-  const inProgress = appointments.filter((a) => a.status === 'In Progress').length
-  const completed = appointments.filter((a) => a.status === 'Completed').length
-  const telehealthCount = appointments.filter((a) => a.type === 'Telehealth' || a.type === 'Telehealth Virtual').length
-
-  const exportAppointments = () => downloadCsv('northstar-appointments.csv', [
-    ['ID', 'Patient', 'MRN', 'Doctor', 'Department', 'Date', 'Time', 'Duration', 'Type', 'Status', 'Reason'],
-    ...appointments.map((a) => [a.id, a.patientName, a.mrn ?? '', a.doctorName, a.department ?? '', a.date ?? a.dateTime?.split('T')[0] ?? '', a.time ?? a.dateTime?.split('T')[1]?.slice(0, 5) ?? '', a.durationMinutes ?? '', a.type, a.status, a.reason ?? a.chiefReason ?? ''])
+  const exportSchedule = () => downloadCsv(`visits-${today()}.csv`, [
+    ['Visit', 'Patient', 'MRN', 'Clinician', 'Department', 'Starts', 'Minutes', 'Mode', 'Status', 'Reason'],
+    ...sorted.map((apt) => [apt.id, patients.get(apt.patientId)?.name, patients.get(apt.patientId)?.mrn, apt.clinician, departmentById(state.departments, apt.department).name, apt.startsAt, apt.durationMinutes, apt.mode, apt.status, apt.reason]),
   ])
 
+  const actionsFor = (apt: Appointment) => <>
+    {apt.status === 'Scheduled' && <Button size="sm" icon={Play} onClick={() => setAppointmentStatus(apt.id, 'In progress')}>Start</Button>}
+    {apt.status === 'In progress' && <Button size="sm" icon={Check} onClick={() => setAppointmentStatus(apt.id, 'Completed')}>Complete</Button>}
+    {apt.status === 'Scheduled' && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setAppointmentStatus(apt.id, 'Cancelled')}>Cancel</Button>}
+  </>
+
+  const visitCard = (apt: Appointment) => {
+    const patient = patients.get(apt.patientId)
+    const department = departmentById(state.departments, apt.department)
+    return (
+      <article key={apt.id} className={`work-card ${apt.status === 'In progress' ? 'is-live' : ''}`}>
+        <header>
+          <b>{formatTime(apt.startsAt)}</b>
+          <span className="muted-text">{relativeTime(apt.startsAt, now)} · {apt.durationMinutes} min</span>
+          {apt.status === 'In progress' ? <span className="live-badge"><span className="live-dot" />Live</span> : <span className="mode-label">{apt.mode === 'Video' ? <Video size={13} /> : <CalendarCheck size={13} />}{apt.mode}</span>}
+        </header>
+        {patient && <PersonCell name={patient.name} detail={patient.mrn} onClick={() => setSelectedPatientId(patient.id)} />}
+        <p className="work-card-reason">{apt.reason}</p>
+        <footer><small><DepartmentIcon id={apt.department} size={13} />{apt.clinician} · {department.shortName}</small><div>{actionsFor(apt)}</div></footer>
+      </article>
+    )
+  }
+
   return (
-    <motion.div className="telehealth-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader
-        eyebrow="VIRTUAL CARE · TELEHEALTH OPERATIONS"
-        title="Telehealth Visits"
-        description="Virtual visit scheduling, video consultations, and telehealth workflow management."
-        actions={
-          <Fragment>
-            <Button variant="secondary" icon={Download} onClick={exportAppointments}>Export schedule</Button>
-            <Button icon={Plus} onClick={() => { setView('schedule'); setSelectedAppointment(null) }}>Schedule visit</Button>
-          </Fragment>
-        }
+        eyebrow="Virtual care · Clinics"
+        title="Telehealth & clinic visits"
+        description="Run video consultations and follow-up clinics from one schedule."
+        actions={<>
+          <Button variant="secondary" icon={Download} onClick={exportSchedule}>Export schedule</Button>
+          <Button icon={CalendarPlus} onClick={() => setScheduling(true)}>Schedule visit</Button>
+        </>}
       />
-      <div className="metrics-grid telehealth-metrics">
-        <div className="metric metric-blue">
-          <div className="metric-icon"><Calendar size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Scheduled</p>
-            <p className="metric-value">{scheduled}</p>
-            <p className="metric-detail">Upcoming visits</p>
-          </div>
-        </div>
-        <div className="metric metric-green">
-          <div className="metric-icon"><Video size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">In progress</p>
-            <p className="metric-value">{inProgress}</p>
-            <p className="metric-detail">Active video visits</p>
-          </div>
-        </div>
-        <div className="metric metric-teal">
-          <div className="metric-icon"><Check size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Completed</p>
-            <p className="metric-value">{completed}</p>
-            <p className="metric-detail">This period</p>
-          </div>
-        </div>
-        <div className="metric metric-amber">
-          <div className="metric-icon"><MessageSquare size={20} /></div>
-          <div className="metric-body">
-            <p className="metric-label">Telehealth</p>
-            <p className="metric-value">{telehealthCount}</p>
-            <p className="metric-detail">Virtual visits total</p>
-          </div>
-        </div>
+
+      <div className="metrics-grid">
+        <Metric label="Live now" value={live.length} detail="Video visits in progress" icon={Video} tone="green" />
+        <Metric label="Today" value={todayCount} detail="Visits booked for today" icon={CalendarClock} tone="blue" />
+        <Metric label="Upcoming" value={upcoming.length} detail="Scheduled and not yet started" icon={CalendarPlus} tone="amber" />
+        <Metric label="Completed" value={sorted.filter((apt) => apt.status === 'Completed').length} detail={`${sorted.filter((apt) => apt.status === 'Cancelled').length} cancelled`} icon={CalendarCheck} tone="teal" />
       </div>
 
-      <div className="telehealth-tabs" role="tablist">
-        {(['schedule', 'active'] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            className={view === v ? 'active' : ''}
-            onClick={() => setView(v)}
-          >
-            {v.charAt(0).toUpperCase() + v.slice(1)}
-          </button>
-        ))}
-      </div>
+      <Tabs<View> label="Visit views" value={view} onChange={(next) => { setView(next); setQuery(''); setStatus('all') }} options={[{ value: 'upcoming', label: 'Live & upcoming', count: live.length + upcoming.length }, { value: 'all', label: 'All visits' }]} />
 
-      {view === 'schedule' && (
-        <Panel className="schedule-panel">
-          <div className="schedule-toolbar">
-            <label className="schedule-search">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search appointments…"
-              />
-              {query && (
-                <button onClick={() => setQuery('')}>
-                  <X size={14} />
-                </button>
-              )}
-            </label>
-            <label>
-              <Filter size={15} />
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="all">All statuses</option>
-                {statuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <Camera size={15} />
-              <select value={type} onChange={(event) => setType(event.target.value)}>
-                <option value="all">All types</option>
-                <option value="Telehealth">Telehealth</option>
-                <option value="Telehealth Virtual">Telehealth Virtual</option>
-                <option value="In-Person">In-Person</option>
-              </select>
-            </label>
+      {view === 'upcoming' && (
+        <>
+          {live.length > 0 && <><h2 className="section-title">In progress</h2><div className="card-grid">{live.map(visitCard)}</div></>}
+          <h2 className="section-title">Upcoming</h2>
+          <div className="card-grid">
+            {upcoming.map(visitCard)}
+            {upcoming.length === 0 && <Panel><EmptyState icon={CalendarClock} title="Nothing scheduled" text="Schedule a visit to see it here." action={<Button size="sm" icon={CalendarPlus} onClick={() => setScheduling(true)}>Schedule visit</Button>} /></Panel>}
           </div>
-          <div className="schedule-table-wrap">
-            <table className="schedule-table">
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Doctor</th>
-                  <th>Date / Time</th>
-                  <th>Duration</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Reason</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
+        </>
+      )}
+
+      {view === 'all' && (
+        <Panel>
+          <div className="table-toolbar">
+            <SearchField value={query} onChange={setQuery} placeholder="Search patient, clinician or reason…" />
+            <FilterSelect label="All statuses" value={status} onChange={setStatus} options={['Scheduled', 'In progress', 'Completed', 'Cancelled'] satisfies AppointmentStatus[]} />
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>When</th><th>Patient</th><th>Clinician</th><th>Mode</th><th>Reason</th><th>Status</th><th aria-label="Actions" /></tr></thead>
               <tbody>
-                {filtered.map((apt) => (
-                  <tr key={apt.id}>
-                    <td>
-                      <Avatar name={apt.patientName} size="sm" />
-                      <span>
-                        <b>{apt.patientName}</b>
-                        <small>{apt.mrn ?? ''}</small>
-                      </span>
-                    </td>
-                    <td>{apt.doctorName}</td>
-                    <td>
-                      {apt.date ?? apt.dateTime?.split('T')[0] ?? ''}
-                      {apt.time ? ` @ ${apt.time}` : apt.dateTime ? ` @ ${apt.dateTime.split('T')[1].slice(0, 5)}` : ''}
-                    </td>
-                    <td>{apt.durationMinutes ?? 30} min</td>
-                    <td>
-                      <Badge
-                        variant={
-                          apt.type === 'Telehealth' || apt.type === 'Telehealth Virtual' ? 'info' : 'neutral'
-                        }
-                      >
-                        {apt.type}
-                      </Badge>
-                    </td>
-                    <td><StatusBadge status={apt.status.toLowerCase().replace(' ', '-')} /></td>
-                    <td>{apt.reason ?? apt.chiefReason ?? ''}</td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant={apt.status === 'In Progress' ? 'secondary' : 'outline'}
-                        onClick={() => setSelectedAppointment(apt)}
-                      >
-                        {apt.status === 'In Progress' ? <Video size={14} /> : <Eye size={14} />}
-                        {apt.status === 'In Progress' ? ' Join' : ' View'}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((apt) => {
+                  const patient = patients.get(apt.patientId)
+                  return (
+                    <tr key={apt.id}>
+                      <td><b>{formatDateTime(apt.startsAt)}</b><small>{apt.durationMinutes} min</small></td>
+                      <td>{patient && <PersonCell name={patient.name} detail={patient.mrn} onClick={() => setSelectedPatientId(patient.id)} />}</td>
+                      <td>{apt.clinician}<small>{departmentById(state.departments, apt.department).shortName}</small></td>
+                      <td>{apt.mode}</td>
+                      <td className="wrap">{apt.reason}</td>
+                      <td><StatusBadge status={apt.status} /></td>
+                      <td className="row-actions">{actionsFor(apt)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && (
-            <EmptyState icon={Calendar} title="No appointments match" text="Try another search term or clear the filters." />
-          )}
+          {filtered.length === 0 && <EmptyState icon={CalendarClock} title="No visits match" text="Try another search term or clear the status filter." />}
         </Panel>
       )}
 
-      {view === 'active' && (
-        <Panel className="active-panel" title="Active video visits" action={<span className="panel-count">{inProgress} LIVE</span>}>
-          <div className="panel-subhead">Ongoing telehealth sessions requiring attention.<span>Live</span></div>
-          <div className="active-grid">
-            {appointments.filter((a) => a.status === 'In Progress').map((apt) => (
-              <article key={apt.id} className="active-card">
-                <div className="active-header">
-                  <div>
-                    <Avatar name={apt.patientName} size="sm" />
-                    <span>
-                      <b>{apt.patientName}</b>
-                      <small>{apt.mrn ?? ''}</small>
-                    </span>
-                  </div>
-                  <span className="live-badge">LIVE</span>
-                </div>
-                <p className="active-doctor">{apt.doctorName} · {apt.department ?? ''}</p>
-                <p className="active-reason">{apt.reason ?? apt.chiefReason ?? ''}</p>
-                <div className="active-actions">
-                  <Button size="sm" variant="secondary" onClick={() => setSelectedAppointment(apt)}>
-                    <Video size={14} />
-                    Join visit
-                  </Button>
-                  <Button size="sm" onClick={() => notify(`${apt.patientName} visit ended`, 'info')}>
-                    End visit
-                    <Check size={14} />
-                  </Button>
-                </div>
-              </article>
-            ))}
-            {inProgress === 0 && (
-              <EmptyState icon={Video} title="No active visits" text="Active telehealth sessions will appear here." />
-            )}
-          </div>
-        </Panel>
-      )}
-
-      {selectedAppointment && (
-        <Modal open={!!selectedAppointment} onClose={() => setSelectedAppointment(null)} title="Appointment Details" subtitle={`${selectedAppointment.patientName} · ${selectedAppointment.type}`} size="lg">
-          <div className="appointment-detail">
-            <div className="appointment-header">
-              <div>
-                <b>{selectedAppointment.patientName}</b>
-                <small>{selectedAppointment.mrn ?? ''}</small>
-              </div>
-              <StatusBadge status={selectedAppointment.status.toLowerCase().replace(' ', '-')} />
-            </div>
-            <div className="appointment-meta">
-              <div>
-                <p><b>Doctor:</b> {selectedAppointment.doctorName}</p>
-                <p><b>Department:</b> {selectedAppointment.department ?? ''}</p>
-              </div>
-              <div>
-                <p><b>Date:</b> {selectedAppointment.date ?? selectedAppointment.dateTime?.split('T')[0] ?? ''}</p>
-                <p><b>Time:</b> {selectedAppointment.time ?? selectedAppointment.dateTime?.split('T')[1]?.slice(0, 5) ?? ''}</p>
-              </div>
-              <div>
-                <p><b>Duration:</b> {selectedAppointment.durationMinutes ?? 30} min</p>
-                <p><b>Type:</b> {selectedAppointment.type}</p>
-              </div>
-            </div>
-            <div className="appointment-reason">
-              <h4>Reason for Visit</h4>
-              <p>{selectedAppointment.reason ?? selectedAppointment.chiefReason ?? 'No reason provided'}</p>
-            </div>
-            <div className="appointment-actions">
-              {selectedAppointment.status === 'In Progress' && (
-                <Button onClick={() => notify(`${selectedAppointment.patientName} visit ended`, 'info')}>
-                  End visit
-                  <Check size={14} />
-                </Button>
-              )}
-              {selectedAppointment.status === 'Scheduled' && (
-                <Button variant="secondary" onClick={() => notify(`${selectedAppointment.patientName} visit started`, 'success')}>
-                  Start visit
-                  <Video size={14} />
-                </Button>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
+      <ScheduleModal open={scheduling} onClose={() => setScheduling(false)} />
     </motion.div>
+  )
+}
+
+function ScheduleModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { state, profile, scheduleAppointment } = useHospital()
+  const clinicalUnits = state.departments.filter((department) => !['laboratory', 'radiology', 'pharmacy'].includes(department.id))
+  const initialStart = () => { const date = new Date(Date.now() + 3_600_000); date.setMinutes(0, 0, 0); return toLocalInput(date) }
+  const [patientId, setPatientId] = useState('')
+  const [department, setDepartment] = useState<DepartmentId>(profile?.department && clinicalUnits.some((unit) => unit.id === profile.department) ? profile.department : 'cardiology')
+  const [clinician, setClinician] = useState('')
+  const [startsAt, setStartsAt] = useState(initialStart)
+  const [duration, setDuration] = useState(30)
+  const [mode, setMode] = useState<Appointment['mode']>('Video')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const unit = departmentById(state.departments, department)
+
+  const close = () => { setPatientId(''); setClinician(''); setStartsAt(initialStart()); setDuration(30); setMode('Video'); setReason(''); setError(''); onClose() }
+  const submit = () => {
+    if (!patientId || !reason.trim() || !startsAt) { setError('Choose a patient, a start time and a reason for the visit.'); return }
+    scheduleAppointment({ patientId, department, clinician: clinician.trim() || unit.onCall, startsAt: new Date(startsAt).toISOString(), durationMinutes: duration, mode, reason: reason.trim() })
+    close()
+  }
+
+  return (
+    <Modal open={open} onClose={close} title="Schedule a visit" subtitle="Video or in-person follow-up" size="md">
+      <div className="form-grid form-grid-2">
+        <label className="form-field span-2"><span>Patient <b>*</b></span>
+          <select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}>
+            <option value="">Select a patient…</option>
+            {state.patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.mrn}</option>)}
+          </select>
+        </label>
+        <label className="form-field"><span>Department</span>
+          <select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>
+            {clinicalUnits.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <label className="form-field"><span>Clinician</span><input value={clinician} onChange={(event) => setClinician(event.target.value)} placeholder={unit.onCall} /></label>
+        <label className="form-field"><span>Starts <b>*</b></span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label>
+        <label className="form-field"><span>Length</span>
+          <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{[15, 30, 45, 60].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}</select>
+        </label>
+        <div className="form-field span-2"><span>Visit type</span>
+          <div className="priority-control two">
+            {(['Video', 'In person'] as const).map((value) => <button type="button" key={value} aria-pressed={mode === value} className={mode === value ? 'active routine' : ''} onClick={() => setMode(value)}>{value}</button>)}
+          </div>
+        </div>
+        <label className="form-field span-2"><span>Reason <b>*</b></span><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Blood pressure review after discharge" /></label>
+      </div>
+      {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
+      <div className="modal-footer"><Button variant="ghost" onClick={close}>Cancel</Button><Button icon={CalendarPlus} onClick={submit}>Schedule</Button></div>
+    </Modal>
   )
 }
