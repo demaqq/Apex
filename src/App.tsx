@@ -1,5 +1,8 @@
 import { lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+
+// Static hosts without server-side routing (e.g. a shared preview) build with VITE_HASH_ROUTER=1.
+const Router = import.meta.env.VITE_HASH_ROUTER ? HashRouter : BrowserRouter
 import { HospitalProvider } from './store/HospitalStore'
 import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
@@ -36,7 +39,7 @@ const Admin = lazy(() => import('./pages/Admin'))
 export default function App() {
   return (
     <HospitalProvider>
-      <BrowserRouter>
+      <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
@@ -65,7 +68,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
-      </BrowserRouter>
+      </Router>
     </HospitalProvider>
   )
 }
