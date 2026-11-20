@@ -1,19 +1,19 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Ban, CalendarCheck, CalendarClock, CalendarPlus, Check, Download, Play, Video } from 'lucide-react'
-import { Button, DepartmentIcon, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
+import { AlertTriangle, Ban, CalendarCheck, CalendarClock, CalendarPlus, Check, Download, ExternalLink, FilePenLine, Play, Send, Video } from 'lucide-react'
+import { Button, Chip, DepartmentIcon, EmptyState, FilterSelect, Metric, Modal, PageHeader, Panel, PersonCell, SearchField, StatusBadge, Tabs } from '../components/ui'
 import { departmentById } from '../data'
 import { downloadCsv, formatDateTime, formatTime, relativeTime, today } from '../lib/format'
 import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
-import type { Appointment, AppointmentStatus, DepartmentId } from '../types'
+import type { Appointment, AppointmentStatus, DepartmentId, Patient } from '../types'
 
 type View = 'upcoming' | 'all'
 
 const toLocalInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 
 export default function TelehealthView() {
-  const { state, profile, setAppointmentStatus, setSelectedPatientId } = useHospital()
+  const { state, profile, can, addNote, setAppointmentStatus, setSelectedPatientId } = useHospital()
   const isClinician = ['physician', 'consultant', 'intern'].includes(profile?.id ?? '')
   const [mineOnly, setMineOnly] = useState(isClinician && state.appointments.some((apt) => apt.clinician === profile?.name))
   const patients = usePatients()
@@ -88,7 +88,25 @@ export default function TelehealthView() {
 
       {view === 'upcoming' && (
         <>
-          {live.length > 0 && <><h2 className="section-title">In progress</h2><div className="card-grid">{live.map(visitCard)}</div></>}
+          {live.length > 0 && (
+            <>
+              <h2 className="section-title">In progress</h2>
+              <div className="consult-workspace-grid">
+                {live.map((apt) => (
+                  <ActiveConsultationPanel
+                    key={apt.id}
+                    appointment={apt}
+                    patient={patients.get(apt.patientId)}
+                    departmentName={departmentById(state.departments, apt.department).shortName}
+                    canWriteNote={can('notes')}
+                    onOpenChart={() => setSelectedPatientId(apt.patientId)}
+                    onSaveNote={(note) => addNote(apt.patientId, `[${apt.mode} consultation] ${note}`)}
+                    onComplete={() => setAppointmentStatus(apt.id, 'Completed')}
+                  />
+                ))}
+              </div>
+            </>
+          )}
           <h2 className="section-title">Upcoming</h2>
           <div className="card-grid">
             {upcoming.map(visitCard)}
@@ -130,6 +148,74 @@ export default function TelehealthView() {
 
       <ScheduleModal open={scheduling} onClose={() => setScheduling(false)} />
     </motion.div>
+  )
+}
+
+function ActiveConsultationPanel({
+  appointment,
+  patient,
+  departmentName,
+  canWriteNote,
+  onOpenChart,
+  onSaveNote,
+  onComplete,
+}: {
+  appointment: Appointment
+  patient?: Patient
+  departmentName: string
+  canWriteNote: boolean
+  onOpenChart: () => void
+  onSaveNote: (note: string) => void
+  onComplete: () => void
+}) {
+  const [note, setNote] = useState('')
+  const save = () => {
+    if (!note.trim()) return
+    onSaveNote(note.trim())
+    setNote('')
+  }
+  const finish = () => {
+    if (note.trim()) onSaveNote(note.trim())
+    setNote('')
+    onComplete()
+  }
+
+  return (
+    <Panel className="active-consult-panel">
+      <div className="active-consult-head">
+        <div>
+          <span className="live-badge"><span className="live-dot" />{appointment.mode === 'Video' ? 'Live video consultation' : 'In-person consultation'}</span>
+          <h3>{patient?.name ?? 'Patient'} <small className="mono">{patient?.mrn}</small></h3>
+          <p className="muted-text">{appointment.clinician} · {departmentName} · {appointment.durationMinutes} min · {appointment.reason}</p>
+        </div>
+        <div className="active-consult-actions">
+          {patient && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={onOpenChart}>Open full chart</Button>}
+          <Button size="sm" icon={Check} onClick={finish}>Complete visit</Button>
+        </div>
+      </div>
+
+      {patient && (
+        <div className="active-consult-vitals">
+          <Chip tone="neutral">HR {patient.vitals.hr} bpm</Chip>
+          <Chip tone="neutral">BP {patient.vitals.bpSys}/{patient.vitals.bpDia}</Chip>
+          <Chip tone={patient.vitals.spo2 < 94 ? 'danger' : 'neutral'}>SpO₂ {patient.vitals.spo2}%</Chip>
+          <Chip tone="neutral">Temp {patient.vitals.temp.toFixed(1)}°C</Chip>
+          {!patient.allergies.includes('No known allergies') && <Chip tone="warning">Allergy: {patient.allergies.join(', ')}</Chip>}
+        </div>
+      )}
+
+      {canWriteNote && patient && (
+        <div className="active-consult-note">
+          <label className="form-field">
+            <span><FilePenLine size={13} style={{ display: 'inline', marginRight: 5 }} />Consultation note (saves to shared patient timeline)</span>
+            <textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Subjective findings, assessment, plan and follow-up…" />
+          </label>
+          <div className="panel-actions">
+            <Button size="sm" variant="secondary" icon={Send} disabled={!note.trim()} onClick={save}>Save note to chart</Button>
+          </div>
+        </div>
+      )}
+    </Panel>
   )
 }
 

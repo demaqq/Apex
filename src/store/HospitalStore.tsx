@@ -287,14 +287,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastTimers = useRef(new Map<number, number>())
+  const storageWarned = useRef(false)
   const stateRef = useRef(state)
   stateRef.current = state
   setCurrency(state.settings.currency)
   liveDepartments = state.departments
-
-  useEffect(() => {
-    try { localStorage.setItem(DATA_KEY, JSON.stringify(state)) } catch { /* storage full or unavailable */ }
-  }, [state])
 
   useEffect(() => {
     const timers = toastTimers.current
@@ -312,6 +309,18 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     setToasts((items) => [...items.slice(-2), { id: toastId, message, tone }])
     toastTimers.current.set(toastId, window.setTimeout(() => dismissToast(toastId), 4200))
   }, [dismissToast])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DATA_KEY, JSON.stringify(state))
+      storageWarned.current = false
+    } catch {
+      if (!storageWarned.current) {
+        storageWarned.current = true
+        notify('Browser storage is full — recent changes may not persist after reload.', 'warning')
+      }
+    }
+  }, [state, notify])
 
   const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId) => {
     clearSession()
@@ -1264,7 +1273,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const items = [
         { id: makeId('b'), description: 'Consultation', code: '99284', category: 'Consultation', quantity: 1, unitPrice: 320 },
         ...previous.orders.filter((order) => order.patientId === patientId).map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}${order.externalProviderId ? ' (referred)' : ''}`, code: order.id, category: order.kind, quantity: 1, unitPrice: previous.investigations.find((item) => item.name === order.title.split(' — ')[0])?.price ?? tariff[order.kind] ?? 100 })),
-        ...(['admitted', 'observation'].includes(patient.status) ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: '99231', category: 'Room & nursing', quantity: 1, unitPrice: 850 }] : []),
+        ...((['admitted', 'observation'].includes(patient.status) || patient.encounterType === 'inpatient') ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: '99231', category: 'Room & nursing', quantity: 1, unitPrice: 850 }] : []),
         ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: 4200 })),
       ]
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)

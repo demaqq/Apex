@@ -1,27 +1,28 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sparkles, Sun, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, ArrowLeftRight, Bell, Check, ChevronDown, CircleHelp, Clock3, Download, Keyboard, LogOut, Megaphone, Menu, Monitor, Moon, Network, RefreshCcw, Search, ShieldAlert, ShieldCheck, Sparkles, Sun, Volume2, VolumeX, X } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { departmentById } from '../data'
+import { Navigate, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { departmentById, roleProfiles } from '../data'
 import { stagesFor, orderStage } from '../lib/clinical'
 import { patientCsv, relativeTime } from '../lib/format'
 import { beep, useAmbientPref, useNow, useSoundPref, useTheme } from '../lib/hooks'
-import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor } from '../lib/nav'
-import { useHospital } from '../store/HospitalStore'
+import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor, sectionName as sectionNameFor } from '../lib/nav'
+import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { SPECIALTY } from '../lib/specialty'
 import { applyDeptTheme, themeFor } from '../lib/deptTheme'
 import { activePositions, positionById } from '../lib/positions'
 import { Ambient } from './Ambient'
-import type { DepartmentId } from '../types'
+import type { DepartmentId, RoleId } from '../types'
 import PatientDrawer from './PatientDrawer'
 import { Avatar, Brand, Button, Modal } from './ui'
 
 type Hit = { key: string; label: string; detail?: string; run: () => void }
 
 export default function AppShell() {
-  const { state, currentRole, profile, myStaffId, can, logout, setSelectedPatientId, resetDemo, notify, toasts, dismissToast, activateCode, standDownCode, acknowledgePage } = useHospital()
+  const { state, currentRole, profile, myStaffId, selectedPatientId, can, login, signInBlock, logout, setSelectedPatientId, resetDemo, notify, toasts, dismissToast, activateCode, standDownCode, acknowledgePage } = useHospital()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { theme, cycle: cycleTheme } = useTheme()
   const [ambientOn, setAmbientOn] = useAmbientPref()
   const deptTheme = useMemo(() => themeFor(currentRole === 'administrator' ? undefined : profile?.department, state.departments.find((item) => item.id === profile?.department)), [currentRole, profile?.department, state.departments])
@@ -33,6 +34,7 @@ export default function AppShell() {
   const [searchIndex, setSearchIndex] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [roleSwitchOpen, setRoleSwitchOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
@@ -41,6 +43,7 @@ export default function AppShell() {
   const popoverRef = useRef<HTMLDivElement>(null)
   const now = useNow(15_000)
   const pageName = pageNameFor(location.pathname) ?? 'Page not found'
+  const sectionLabel = sectionNameFor(location.pathname)
   const role = currentRole ?? 'physician'
   const disabled = state.settings.disabledModules
   const isAdmin = role === 'administrator'
@@ -64,10 +67,40 @@ export default function AppShell() {
     if (fresh.length && sound) beep()
   }, [activeCodes, myPages, sound])
 
-  useEffect(() => { setMobileOpen(false); setNotificationsOpen(false); setProfileOpen(false) }, [location.pathname])
+  useEffect(() => { setMobileOpen(false); setNotificationsOpen(false); setProfileOpen(false); setRoleSwitchOpen(false) }, [location.pathname])
+  useEffect(() => { if (!profileOpen) setRoleSwitchOpen(false) }, [profileOpen])
   useEffect(() => { document.title = `${pageName} · ${facility.name}` }, [pageName, facility.name])
   useEffect(() => { if (!searchOpen) setSearch('') }, [searchOpen])
   useEffect(() => { setSearchIndex(0) }, [search, searchOpen])
+
+  const urlPatient = searchParams.get('patient')
+  const prevSelectedRef = useRef<string | null>(selectedPatientId)
+  const prevUrlRef = useRef<string | null>(urlPatient)
+  useEffect(() => {
+    if (selectedPatientId !== prevSelectedRef.current) {
+      prevSelectedRef.current = selectedPatientId
+      if (selectedPatientId !== urlPatient) {
+        const next = new URLSearchParams(searchParams)
+        if (selectedPatientId) next.set('patient', selectedPatientId)
+        else next.delete('patient')
+        prevUrlRef.current = selectedPatientId
+        setSearchParams(next)
+      }
+      return
+    }
+    if (urlPatient !== prevUrlRef.current || (urlPatient && !selectedPatientId && !isAdmin)) {
+      prevUrlRef.current = urlPatient
+      if (!isAdmin && urlPatient && state.patients.some((patient) => patient.id === urlPatient)) {
+        if (selectedPatientId !== urlPatient) {
+          prevSelectedRef.current = urlPatient
+          setSelectedPatientId(urlPatient)
+        }
+      } else if (!urlPatient && selectedPatientId) {
+        prevSelectedRef.current = null
+        setSelectedPatientId(null)
+      }
+    }
+  }, [selectedPatientId, urlPatient, searchParams, setSearchParams, setSelectedPatientId, isAdmin, state.patients])
 
   const anyDialog = searchOpen || helpOpen || resetOpen || codeOpen
   useEffect(() => {
@@ -126,7 +159,22 @@ export default function AppShell() {
   const readyForDoctor = state.patients.filter((patient) => patient.department === 'emergency' && patient.status === 'waiting').length
   const navCount = (to: string) => to === '/triage' ? awaitingTriage + readyForDoctor : to === '/audit' ? activeCodes.length : to === '/review' ? state.cosignNotes.filter((note) => note.status === 'Pending review').length : to === '/front-desk' ? awaitingTriage : 0
 
+  const activePatient = !isAdmin && selectedPatientId ? state.patients.find((patient) => patient.id === selectedPatientId) : undefined
+  const queryParams = new URLSearchParams(location.search)
+  const unitParam = queryParams.get('unit')
+  const viewParam = queryParams.get('view')
+  const subBreadcrumb = unitParam ? departmentById(state.departments, unitParam).shortName : viewParam && viewParam !== 'active' ? `${viewParam.charAt(0).toUpperCase()}${viewParam.slice(1)}` : undefined
+
   const switchRole = () => { logout(); navigate('/login') }
+  const quickSwitchRole = (targetRole: RoleId) => {
+    if (targetRole === role) { setProfileOpen(false); return }
+    const reason = signInBlock(targetRole)
+    if (reason) { notify(reason, 'warning'); return }
+    login(targetRole, true, roleProfiles[targetRole].department)
+    navigate(ROLE_HOME[targetRole])
+    setProfileOpen(false)
+    notify(`Switched to ${roleProfiles[targetRole].name} (${roleProfiles[targetRole].shortTitle})`, 'info')
+  }
   const exportCensus = () => {
     patientCsv(state.patients, Object.fromEntries(state.departments.map((department) => [department.id, department.name])) as Record<DepartmentId, string>)
     notify('Patient census exported', 'info'); setProfileOpen(false)
@@ -177,7 +225,18 @@ export default function AppShell() {
 
     <div className="app-main">
       <header className="topbar">
-        <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="mobile-logo"><Brand compact /></div><div className="breadcrumb"><span>{facility.name}</span><i>/</i><b>{pageName}</b></div></div>
+        <div className="topbar-left">
+          <button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
+          <div className="mobile-logo"><Brand compact /></div>
+          <nav className="breadcrumb" aria-label="Breadcrumb">
+            <button type="button" className="breadcrumb-link" onClick={() => { setSelectedPatientId(null); navigate('/') }}>{facility.name}</button>
+            {sectionLabel && <><i>/</i><span>{sectionLabel}</span></>}
+            <i>/</i>
+            {(activePatient || subBreadcrumb) ? <button type="button" className="breadcrumb-link" onClick={() => { setSelectedPatientId(null); if (location.search) navigate(location.pathname) }}>{pageName}</button> : <b>{pageName}</b>}
+            {subBreadcrumb && <><i>/</i>{activePatient ? <button type="button" className="breadcrumb-link" onClick={() => setSelectedPatientId(null)}>{subBreadcrumb}</button> : <b>{subBreadcrumb}</b>}</>}
+            {activePatient && <><i>/</i><b>{activePatient.name}</b></>}
+          </nav>
+        </div>
         <div className="topbar-right">
           <button className="global-search" onClick={() => setSearchOpen(true)}><Search size={17} /><span>Search patients, orders, staff…</span><kbd>/</kbd></button>
           <div className="topbar-time"><b>{new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(now)}</b><span>{new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(now)}</span></div>
@@ -194,7 +253,7 @@ export default function AppShell() {
             </div>
             <div className="popover-anchor">
               <button className="profile-button" aria-label="Account menu" aria-expanded={profileOpen} onClick={() => { setProfileOpen((value) => !value); setNotificationsOpen(false) }}><span className="profile-avatar" style={{ background: profile.accent }}>{profile.initials}</span><span><b>{profile.name}</b><small>{profile.shortTitle}</small></span><ChevronDown size={14} /></button>
-              <AnimatePresence>{profileOpen && <motion.div className="popover profile-popover" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }}><div className="profile-popover-head"><span className="profile-avatar large" style={{ background: profile.accent }}>{profile.initials}</span><div><b>{profile.name}</b><span className="mono">{profile.employeeId}</span><small>{profile.title}</small>{activePositions(state.staff.find((member) => member.roleId === currentRole)).map((p) => <em key={p.id} className="profile-position">{positionById(p.id)?.title}{p.until ? ` · until ${p.until}` : ''}</em>)}</div></div><div className="profile-menu">{can('records-export') && <button onClick={exportCensus}><Download size={17} />Export patient census</button>}<button onClick={() => { setResetOpen(true); setProfileOpen(false) }}><RefreshCcw size={17} />Restore demo data</button><button onClick={switchRole}><LogOut size={17} />Sign out</button></div><div className="profile-security"><ShieldCheck size={14} />Role-based access active</div></motion.div>}</AnimatePresence>
+              <AnimatePresence>{profileOpen && <motion.div className="popover profile-popover" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }}><div className="profile-popover-head"><span className="profile-avatar large" style={{ background: profile.accent }}>{profile.initials}</span><div><b>{profile.name}</b><span className="mono">{profile.employeeId}</span><small>{profile.title}</small>{activePositions(state.staff.find((member) => member.roleId === currentRole)).map((p) => <em key={p.id} className="profile-position">{positionById(p.id)?.title}{p.until ? ` · until ${p.until}` : ''}</em>)}</div></div><div className="profile-menu"><button onClick={() => setRoleSwitchOpen((value) => !value)} aria-expanded={roleSwitchOpen}><ArrowLeftRight size={17} />Switch workspace<ChevronDown size={14} className={`switch-chevron ${roleSwitchOpen ? 'open' : ''}`} /></button>{roleSwitchOpen && <div className="role-switcher-list" role="menu">{(Object.values(roleProfiles)).map((item) => <button key={item.id} type="button" role="menuitem" className={item.id === role ? 'active' : ''} onClick={() => quickSwitchRole(item.id)}><i className="role-dot" style={{ background: item.accent }} /><span><b>{item.shortTitle}</b><small>{item.name}</small></span>{item.id === role && <Check size={14} />}</button>)}</div>}{can('records-export') && <button onClick={exportCensus}><Download size={17} />Export patient census</button>}<button onClick={() => { setResetOpen(true); setProfileOpen(false) }}><RefreshCcw size={17} />Restore demo data</button><button onClick={switchRole}><LogOut size={17} />Sign out</button></div><div className="profile-security"><ShieldCheck size={14} />Role-based access active</div></motion.div>}</AnimatePresence>
             </div>
           </div>
         </div>
