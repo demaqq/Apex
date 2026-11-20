@@ -152,7 +152,7 @@ function UsersTab() {
         {pending.map((member) => (
           <article key={member.id} className="work-card priority-urgent">
             <header><PersonCell name={member.name} detail={member.email} /></header>
-            <p className="work-card-reason">Requests <b>{member.roleId ? roleProfiles[member.roleId].title : member.role}</b> in {departmentById(state.departments, member.department).name}. {member.specialty}.</p>
+            <p className="work-card-reason">Requests <b>{member.role}</b>{member.roleId ? ` (${roleProfiles[member.roleId].shortTitle} workspace)` : ''} in {departmentById(state.departments, member.department).name}.{member.specialty && member.specialty !== member.role ? ` ${member.specialty}.` : ''}</p>
             <footer><small>Licence: {member.license}</small><div><Button size="sm" variant="ghost" icon={X} onClick={() => setStaffSuspended(member.id, true)}>Decline</Button><Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setEditing(member)}>Set access</Button><Button size="sm" icon={UserCheck} onClick={() => approveStaff(member.id)}>Approve</Button></div></footer>
           </article>
         ))}
@@ -169,7 +169,7 @@ function UsersTab() {
             {accounts.map((member) => (
               <tr key={member.id}>
                 <td><PersonCell name={member.name} detail={member.email} /></td>
-                <td>{member.roleId ? roleProfiles[member.roleId].title : member.role}</td>
+                <td>{member.role}{member.roleId && <small>{roleProfiles[member.roleId].shortTitle} workspace</small>}</td>
                 <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
                 <td>{accessLabel(member)}</td>
                 <td className="row-actions">
@@ -256,7 +256,7 @@ function AccessModal({ member, onClose, onSave }: { member: StaffMember; onClose
   const [list, setList] = useState<Permission[]>(member.permissions ?? defaults)
   const toggle = (permission: Permission) => setList((current) => current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission])
   return (
-    <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.roleId ? roleProfiles[member.roleId].title : member.role} · start from the role’s standard access, then adjust`} size="md">
+    <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.role}${member.roleId ? ` (${roleProfiles[member.roleId].shortTitle} workspace)` : ''} · start from the role’s standard access, then adjust`} size="md">
       {PERMISSION_GROUPS.map(([group, permissions]) => (
         <div key={group} className={`perm-group ${group.startsWith('Sensitive') ? 'sensitive' : ''}`}>
           <span className="detail-heading">{group}</span>

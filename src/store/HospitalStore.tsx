@@ -3,7 +3,7 @@ import { positionById, positionPrivileges } from '../lib/positions'
 import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
-import { canAssess, levelOf, professionOf } from '../lib/teaching'
+import { canAssess, levelOf, professionOf, ROLE_LEVELS } from '../lib/teaching'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
 import { setCurrency } from '../lib/format'
 import { PRINTOUT } from '../lib/diagnostics'
@@ -96,6 +96,7 @@ const DATA_KEY = 'northstar-careos-data-v5'
 const CHART_TITLES: Record<ChartKey, string> = { sam: 'SAM chart', labour: 'Partograph', anc: 'Antenatal chart', postpartum: 'Postpartum bleeding chart', fluids: 'Fluid balance', glucose: 'Glucose chart', neuro: 'Neuro observations', nihss: 'NIH Stroke Scale', seizures: 'Seizure chart' }
 const SESSION_KEY = 'northstar-careos-session'
 const GRADE_KEY = 'northstar-careos-grade'
+const LEVEL_KEY = 'northstar-careos-level'
 const DEPARTMENT_KEY = 'northstar-careos-department'
 const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
 
@@ -111,7 +112,9 @@ interface HospitalContextValue {
   profile: RoleProfile | null
   selectedPatientId: string | null
   toasts: Toast[]
-  login: (role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number) => void
+  login: (role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number, level?: string) => void
+  /** Non-doctors: the level chosen at sign-in (e.g. Senior nurse). */
+  level: string | null
   /** The signed-in doctor's grade (and resident year). */
   grade: { grade: Grade; year?: number } | null
   myRank: number
@@ -209,7 +212,7 @@ interface HospitalContextValue {
   removeInvestigation: (id: string) => void
   saveProvider: (provider: ExternalProvider) => void
   removeProvider: (id: string) => void
-  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void
+  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => void
   approveStaff: (id: string) => void
   assignPosition: (staffId: string, position: PositionId, until?: string, note?: string) => void
   removePosition: (staffId: string, position: PositionId) => void
@@ -293,6 +296,7 @@ function clearSession() {
     for (const storage of [localStorage, sessionStorage]) {
       storage.removeItem(SESSION_KEY)
       storage.removeItem(GRADE_KEY)
+      storage.removeItem(LEVEL_KEY)
       storage.removeItem(DEPARTMENT_KEY)
     }
   } catch { /* storage unavailable */ }
@@ -352,7 +356,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const [currentRole, setCurrentRole] = useState<RoleId | null>(loadSessionRole)
   const [currentDepartment, setCurrentDepartment] = useState<DepartmentId | null>(loadSessionDepartment)
   const [currentGrade, setCurrentGrade] = useState<{ grade: Grade; year?: number } | null>(loadSessionGrade)
+  const [currentLevel, setCurrentLevel] = useState<string | null>(() => readSession(LEVEL_KEY))
   const myGrade = currentGrade && gradeById(currentGrade.grade)?.role === currentRole ? currentGrade : null
+  const myLevel = currentRole && currentLevel && ROLE_LEVELS[currentRole]?.levels.includes(currentLevel) ? currentLevel : null
   const myRank = myGrade ? rankOf(myGrade.grade) : currentRole === 'intern' ? 1 : currentRole === 'consultant' ? 6 : currentRole === 'physician' ? 5 : 0
   const supervised = myGrade ? gradeById(myGrade.grade)!.supervised : currentRole === 'intern'
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
@@ -395,7 +401,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     }
   }, [state, notify])
 
-  const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number) => {
+  const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number, level?: string) => {
     clearSession()
     const selectedDepartment = department ?? roleProfiles[role].department
     const chosen = grade && gradeById(grade)?.role === role ? grade : DEFAULT_GRADE[role]
@@ -405,10 +411,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       storage.setItem(SESSION_KEY, role)
       storage.setItem(DEPARTMENT_KEY, selectedDepartment)
       if (chosen) storage.setItem(GRADE_KEY, `${chosen}${year ? `|${year}` : ''}`)
+      if (level && ROLE_LEVELS[role]?.levels.includes(level)) storage.setItem(LEVEL_KEY, level)
     } catch { /* session lasts for this tab only */ }
     setCurrentRole(role)
     setCurrentDepartment(selectedDepartment)
     setCurrentGrade(chosen ? { grade: chosen, ...(year ? { year } : {}) } : null)
+    setCurrentLevel(level && ROLE_LEVELS[role]?.levels.includes(level) ? level : null)
     setSelectedPatientId(null)
   }, [])
 
@@ -417,6 +425,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     setCurrentRole(null)
     setCurrentDepartment(null)
     setCurrentGrade(null)
+    setCurrentLevel(null)
     setSelectedPatientId(null)
   }, [])
 
@@ -1543,8 +1552,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const meAsStaff = useCallback((): StaffMember | undefined => {
     const member = stateRef.current.staff.find((item) => item.roleId === currentRole)
     if (!member) return undefined
-    return myGrade ? { ...member, grade: myGrade.grade, residentYear: myGrade.year } : member
-  }, [currentRole, myGrade])
+    if (myGrade) return { ...member, grade: myGrade.grade, residentYear: myGrade.year }
+    return myLevel ? { ...member, level: myLevel } : member
+  }, [currentRole, myGrade, myLevel])
 
   /** Workplace-based assessment of a more junior colleague in the same profession. */
   const addAssessment = useCallback((input: Omit<Assessment, 'id' | 'at' | 'assessor' | 'assessorLevel' | 'profession'>) => {
@@ -1732,11 +1742,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Provider updated', 'info')
   }, [actorName, commit, notify])
 
-  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => {
+  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => {
     commit((previous) => {
       const id = nextNumber(previous.staff.map((item) => item.id), 'ST', 0).replace(/ST-(\d)$/, 'ST-0$1')
-      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: roleProfiles[input.roleId].title, department: input.department, specialty: input.specialty.trim() || roleProfiles[input.roleId].title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
-      return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${roleProfiles[input.roleId].title.toLowerCase()} account`, department: input.department }
+      const title = input.grade ? gradeLabel(input.grade, input.residentYear) : input.level ?? roleProfiles[input.roleId].title
+      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: title, ...(input.grade ? { grade: input.grade, ...(input.residentYear ? { residentYear: input.residentYear } : {}) } : {}), ...(input.level ? { level: input.level } : {}), department: input.department, specialty: input.specialty.trim() || title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
+      return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${title.toLowerCase()} account`, department: input.department }
     })
     notify('Request sent — an administrator will review it', 'info')
   }, [commit, notify])
@@ -1844,11 +1855,15 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   /** Doctors carry their grade in the title (e.g. "Resident (R2) · Emergency"). */
   const profile = useMemo<RoleProfile | null>(() => {
+    if (deptProfile && myLevel) {
+      const department = state.departments.find((item) => item.id === deptProfile.department)
+      return { ...deptProfile, title: `${myLevel}${department ? ` · ${department.shortName}` : ''}`, shortTitle: myLevel }
+    }
     if (!deptProfile || !myGrade) return deptProfile
     const department = state.departments.find((item) => item.id === deptProfile.department)
     const label = gradeLabel(myGrade.grade, myGrade.year)
     return { ...deptProfile, title: `${label}${department ? ` · ${department.shortName}` : ''}`, shortTitle: myGrade.grade === 'Resident' ? `R${myGrade.year ?? 1} Resident` : gradeById(myGrade.grade)!.short }
-  }, [deptProfile, myGrade, state.departments])
+  }, [deptProfile, myGrade, myLevel, state.departments])
 
   const viewerDepartment = currentDepartment ?? (currentRole ? roleProfiles[currentRole].department : undefined)
   const scoped = Boolean(currentRole && SCOPED_ROLES.includes(currentRole))
@@ -1924,7 +1939,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit])
 
   const value = useMemo<HospitalContextValue>(() => ({
-    state: scopedState, currentRole, profile, grade: myGrade, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
+    state: scopedState, currentRole, profile, grade: myGrade, level: myLevel, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
@@ -1932,7 +1947,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

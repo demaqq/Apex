@@ -38,7 +38,7 @@ const blankVitals: Record<keyof Vitals, string> = { hr: '', rr: '', spo2: '', bp
 
 
 export function RoundsView({ patient }: { patient: Patient }) {
-  const { state, profile, currentRole, grade, myRank, saveRound, reviewRound } = useHospital()
+  const { state, profile, currentRole, grade, level, myRank, saveRound, reviewRound } = useHospital()
   const rounds = patient.rounds ?? []
   const canRound = ['physician', 'consultant', 'intern', 'nurse'].includes(currentRole ?? '') && patient.status !== 'discharged'
   const today = hospitalDay(patient, new Date().toISOString())
@@ -47,7 +47,8 @@ export function RoundsView({ patient }: { patient: Patient }) {
   const pendingCount = rounds.filter((item) => item.cosign === 'Pending review').length
   const [filter, setFilter] = useState<'All' | 'Doctors' | 'Nursing' | 'Awaiting review'>('All')
   const shown = rounds.filter((item) => filter === 'All' || (filter === 'Nursing' ? isNursing(item.kind) : filter === 'Doctors' ? !isNursing(item.kind) : item.cosign === 'Pending review'))
-  const kinds = (currentRole !== 'nurse' && grade ? gradeById(grade.grade)?.rounds : undefined) ?? KINDS_FOR[currentRole ?? ''] ?? ['Ward round']
+  const nurseKind: RoundKind | undefined = currentRole === 'nurse' && level ? ({ 'Student nurse': 'Intern nurse assessment', 'Intern nurse': 'Intern nurse assessment', 'Junior nurse': 'Junior nurse assessment', 'Staff nurse': 'Bedside assessment', 'Senior nurse': 'Bedside assessment', 'Nurse educator': 'Bedside assessment' } as Record<string, RoundKind>)[level] : undefined
+  const kinds = (currentRole !== 'nurse' && grade ? gradeById(grade.grade)?.rounds : undefined) ?? (nurseKind ? [nurseKind, ...NURSE_KINDS.filter((kind) => kind !== nurseKind)] : undefined) ?? KINDS_FOR[currentRole ?? ''] ?? ['Ward round']
 
   return (
     <>
@@ -57,7 +58,7 @@ export function RoundsView({ patient }: { patient: Patient }) {
         {pendingCount > 0 && <span className="due"><BadgeCheck size={14} />{pendingCount} awaiting senior review</span>}
         <span><ClipboardList size={14} />Day {today} of stay</span>
       </div>
-      {canRound && <RoundForm key={`${patient.id}-${currentRole}-${grade?.grade ?? ''}`} patient={patient} kinds={kinds} onSave={saveRound} onReview={reviewRound} today={today} author={profile?.name ?? ''} orders={state.orders.filter((order) => order.patientId === patient.id)} />}
+      {canRound && <RoundForm key={`${patient.id}-${currentRole}-${grade?.grade ?? ''}-${level ?? ''}`} patient={patient} kinds={kinds} onSave={saveRound} onReview={reviewRound} today={today} author={profile?.name ?? ''} orders={state.orders.filter((order) => order.patientId === patient.id)} />}
       <section className="drawer-section">
         <div className="section-label"><ClipboardList size={15} />Rounds and assessments<span>{rounds.length} entries</span></div>
         {rounds.length > 0 && <div className="segmented small chart-seg">{(['All', 'Doctors', 'Nursing', 'Awaiting review'] as const).map((kind) => <button key={kind} type="button" className={filter === kind ? 'on' : ''} onClick={() => setFilter(kind)}>{kind}{kind === 'Awaiting review' && pendingCount ? <small>{pendingCount}</small> : null}</button>)}</div>}

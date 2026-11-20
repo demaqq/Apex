@@ -6,7 +6,8 @@ import { Brand, Button, DepartmentIcon, Modal } from '../components/ui'
 import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { isOn, moduleForRole } from '../lib/modules'
-import { DEFAULT_GRADE, gradeById, gradesFor, RESIDENT_YEARS } from '../lib/grades'
+import { DEFAULT_GRADE, gradeById, GRADES, gradesFor, RESIDENT_YEARS } from '../lib/grades'
+import { PROFESSION_OPTIONS, ROLE_LEVELS } from '../lib/teaching'
 import type { DepartmentId, Grade, RoleId } from '../types'
 
 const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
@@ -22,6 +23,7 @@ export default function Login() {
   const [department, setDepartment] = useState<DepartmentId>('emergency')
   const [grade, setGrade] = useState<Grade | undefined>(DEFAULT_GRADE.physician)
   const [year, setYear] = useState(1)
+  const [level, setLevel] = useState<string | undefined>()
   const [accessKey, setAccessKey] = useState('NORTHSTAR')
   const [remember, setRemember] = useState(true)
   const [showKey, setShowKey] = useState(false)
@@ -33,14 +35,17 @@ export default function Login() {
 
   if (currentRole) return <Navigate to={ROLE_HOME[currentRole]} replace />
 
-  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setGrade(DEFAULT_GRADE[role]); setError('') }
+  const defaultLevel = (role: RoleId) => { const levels = ROLE_LEVELS[role]?.levels; if (!levels) return undefined; const own = state.staff.find((member) => member.roleId === role)?.level; return own && levels.includes(own) ? own : levels[levels.length - 1] }
+  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setGrade(DEFAULT_GRADE[role]); setLevel(defaultLevel(role)); setError('') }
+  const levels = ROLE_LEVELS[selected]?.levels ?? []
+  const chosenLevel = level && levels.includes(level) ? level : defaultLevel(selected)
   const grades = gradesFor(selected)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (accessKey.trim().toUpperCase() !== 'NORTHSTAR') { setError('Use the demo access key NORTHSTAR to sign in.'); return }
     const blocked = signInBlock(selected)
     if (blocked) { setError(blocked); return }
-    login(selected, remember, canChooseDepartment ? department : undefined, grade, year)
+    login(selected, remember, canChooseDepartment ? department : undefined, grade, year, chosenLevel)
     navigate(ROLE_HOME[selected])
   }
 
@@ -112,6 +117,15 @@ export default function Login() {
               <small className="muted-text">{gradeById(grade)?.description}</small>
             </div>
           )}
+          {levels.length > 1 && (
+            <div className="grade-picker">
+              <label className="form-field">
+                <span>Level</span>
+                <select value={chosenLevel} onChange={(event) => setLevel(event.target.value)} aria-label="Level">{levels.map((item) => <option key={item}>{item}</option>)}</select>
+              </label>
+              <small className="muted-text">Your level on the {ROLE_LEVELS[selected]!.profession.toLowerCase()} ladder: it sets your title, who supervises you and who you can assess.</small>
+            </div>
+          )}
 
           <label className="form-field">
             <span>Access key <small className="muted-text">· demo key <b className="mono">NORTHSTAR</b></small></span>
@@ -131,24 +145,38 @@ export default function Login() {
   )
 }
 
-function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void }) {
+export interface AccessRequest { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }
+
+function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: AccessRequest) => void }) {
   const { state } = useHospital()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [roleId, setRoleId] = useState<RoleId>('nurse')
+  const [profession, setProfession] = useState(PROFESSION_OPTIONS[0].id)
+  const [grade, setGrade] = useState<Grade>('Intern')
+  const [year, setYear] = useState(1)
+  const [level, setLevel] = useState('')
   const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
   const [specialty, setSpecialty] = useState('')
+  const option = PROFESSION_OPTIONS.find((item) => item.id === profession)!
+  const levelValue = option.levels?.includes(level) ? level : option.levels?.[0] ?? ''
+  const roleId: RoleId = option.doctor ? gradeById(grade)!.role : option.role!
   const valid = name.trim().split(/\s+/).length >= 2 && /.+@.+\..+/.test(email)
+  const submit = () => onSubmit({ name, roleId, department, specialty, email, ...(option.doctor ? { grade, ...(grade === 'Resident' ? { residentYear: year } : {}) } : levelValue ? { level: levelValue } : {}) })
   return (
     <Modal open onClose={onClose} title="Request access" subtitle={`An administrator at ${state.settings.name} will review your request`} size="md">
       <div className="form-grid form-grid-2">
         <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="form-field"><span>Work email <b>*</b></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label className="form-field"><span>Profession</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{ROLE_ORDER.filter((id) => id !== 'administrator' && id !== 'provider').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Profession</span><select value={profession} onChange={(event) => { setProfession(event.target.value); setLevel('') }}>{PROFESSION_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        {option.doctor
+          ? <label className="form-field"><span>Grade</span><select value={grade} onChange={(event) => setGrade(event.target.value as Grade)}>{GRADES.map((item) => <option key={item.id}>{item.id}</option>)}</select></label>
+          : option.levels ? <label className="form-field"><span>Level</span><select value={levelValue} onChange={(event) => setLevel(event.target.value)}>{option.levels.map((item) => <option key={item}>{item}</option>)}</select></label> : <span />}
+        {option.doctor && grade === 'Resident' && <label className="form-field"><span>Residency year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field span-2"><span>Specialty, unit or licence number</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
       </div>
-      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={() => onSubmit({ name, roleId, department, specialty, email })}>Send request</Button></div>
+      {option.doctor && <p className="record-hint">{gradeById(grade)?.description}</p>}
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={submit}>Send request</Button></div>
     </Modal>
   )
 }

@@ -1,4 +1,4 @@
-import type { Assessment, AssessmentTool, Entrustment, HospitalState, Profession, StaffMember } from '../types'
+import type { Assessment, AssessmentTool, Entrustment, HospitalState, Profession, RoleId, StaffMember } from '../types'
 import { rankOf } from './grades'
 
 export interface Level { id: string; rank: number; trainee: boolean }
@@ -139,3 +139,27 @@ export function evidenceFor(name: string, state: Pick<HospitalState, 'patients' 
     reviewed: reviewed.length,
   }
 }
+
+/** Levels a non-doctor sign-in can choose, and the profession they belong to. */
+export const ROLE_LEVELS: Partial<Record<RoleId, { profession: Profession; levels: string[] }>> = {
+  nurse: { profession: 'Nursing', levels: LADDERS.Nursing.map((level) => level.id) },
+  pharmacist: { profession: 'Pharmacy', levels: LADDERS.Pharmacy.map((level) => level.id) },
+  laboratory: { profession: 'Laboratory', levels: LADDERS.Laboratory.map((level) => level.id) },
+  diagnostics: { profession: 'Imaging', levels: ['Radiology resident', 'Radiologist'] },
+  radiographer: { profession: 'Imaging', levels: ['Radiography student', 'Radiography intern', 'Radiographer', 'Senior radiographer'] },
+}
+
+/** Professions offered when requesting access; doctors then choose a grade, others a level. */
+export const PROFESSION_OPTIONS: Array<{ id: string; label: string; role?: RoleId; levels?: string[]; doctor?: boolean }> = [
+  { id: 'doctor', label: 'Doctor (medical)', doctor: true },
+  { id: 'nurse', label: 'Nurse or midwife', role: 'nurse', levels: ROLE_LEVELS.nurse!.levels },
+  { id: 'pharmacist', label: 'Pharmacy', role: 'pharmacist', levels: ROLE_LEVELS.pharmacist!.levels },
+  { id: 'laboratory', label: 'Laboratory', role: 'laboratory', levels: ROLE_LEVELS.laboratory!.levels },
+  { id: 'radiographer', label: 'Radiography (imaging technologist)', role: 'radiographer', levels: ROLE_LEVELS.radiographer!.levels },
+  { id: 'radiologist', label: 'Radiology (doctor)', role: 'diagnostics', levels: ROLE_LEVELS.diagnostics!.levels },
+  { id: 'theatre', label: 'Anaesthesia and theatre', role: 'theatre' },
+  { id: 'allied', label: 'Physiotherapy, nutrition and blood bank', role: 'allied' },
+  { id: 'receptionist', label: 'Reception and records', role: 'receptionist' },
+  { id: 'billing', label: 'Billing and finance', role: 'billing' },
+  { id: 'coordinator', label: 'Bed and patient-flow coordination', role: 'coordinator' },
+]
