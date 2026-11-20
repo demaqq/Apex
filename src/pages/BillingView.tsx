@@ -30,11 +30,11 @@ export default function BillingView() {
     .sort((a, b) => STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status) || b.issuedAt.localeCompare(a.issuedAt))
 
   const exportInvoices = () => downloadCsv(`invoices-${today()}.csv`, [
-    ['Invoice', 'Patient', 'MRN', 'Issued', 'Due', 'Subtotal', 'Tax', 'Discount', 'Total', 'Insurance covered', 'Patient payable', 'Insurer', 'Claim', 'Status'],
+    ['Invoice', 'Patient', 'MRN', 'Issued', 'Due', 'Subtotal', 'Discount', 'Total incl. VAT', 'VAT included', 'Insurance covered', 'Patient payable', 'Insurer', 'Claim', 'Status'],
     ...state.invoices.map((invoice) => {
       const totals = invoiceTotals(invoice)
       const patient = patients.get(invoice.patientId)
-      return [invoice.id, patient?.name, patient?.mrn, formatDate(invoice.issuedAt), formatDate(invoice.dueAt), totals.subtotal.toFixed(2), invoice.tax.toFixed(2), invoice.discount.toFixed(2), totals.total.toFixed(2), invoice.insuranceCovered.toFixed(2), totals.patientPayable.toFixed(2), invoice.insuranceProvider ?? 'Self-pay', invoice.claimId, invoice.status]
+      return [invoice.id, patient?.name, patient?.mrn, formatDate(invoice.issuedAt), formatDate(invoice.dueAt), totals.subtotal.toFixed(2), invoice.discount.toFixed(2), totals.total.toFixed(2), totals.vat.toFixed(2), invoice.insuranceCovered.toFixed(2), totals.patientPayable.toFixed(2), invoice.insuranceProvider ?? 'Self-pay', invoice.claimId, invoice.status]
     }),
   ])
 
@@ -117,9 +117,9 @@ function InvoiceModal({ invoice, canBill, onClose, onStatus, onPay }: { invoice:
       </div>
       <dl className="totals">
         <div><dt>Subtotal</dt><dd>{formatCurrency(totals.subtotal)}</dd></div>
-        <div><dt>Tax</dt><dd>{formatCurrency(invoice.tax)}</dd></div>
         <div><dt>Contracted discount</dt><dd>−{formatCurrency(invoice.discount)}</dd></div>
-        <div><dt>Invoice total</dt><dd>{formatCurrency(totals.total)}</dd></div>
+        <div><dt>Invoice total <small>incl. VAT</small></dt><dd>{formatCurrency(totals.total)}</dd></div>
+        <div className="vat-line"><dt>of which VAT {totals.vatRate}%</dt><dd>{formatCurrency(totals.vat)}</dd></div>
         <div><dt>Insurance covers</dt><dd>−{formatCurrency(invoice.insuranceCovered)}</dd></div>
         <div className="grand"><dt>Patient owes</dt><dd>{formatCurrency(totals.patientPayable)}</dd></div>
       </dl>

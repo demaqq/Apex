@@ -9,7 +9,7 @@ import { formatDate } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { ModuleId, NetworkFacility, NetworkService, PriceList, SubscriptionStatus, Tenant } from '../types'
 
-type View = 'overview' | 'clients' | 'pricing' | 'network'
+type View = 'overview' | 'approvals' | 'clients' | 'pricing' | 'network'
 type Rate = Exclude<keyof PriceList, 'modules' | 'currency'>
 const RATES: Array<[Rate, string, string]> = [
   ['platform', 'Platform fee', 'per month: records, staff, roles, audit, administration'],
@@ -22,7 +22,7 @@ const RATES: Array<[Rate, string, string]> = [
   ['perLabTest', 'Per laboratory test', 'done in-house'],
   ['perImagingStudy', 'Per imaging study', 'done in-house'],
 ]
-const STATUS_TONE: Record<SubscriptionStatus, 'success' | 'warning' | 'danger'> = { Active: 'success', Trial: 'warning', Suspended: 'danger' }
+const STATUS_TONE: Record<SubscriptionStatus, 'success' | 'warning' | 'danger' | 'neutral'> = { Active: 'success', Trial: 'warning', Suspended: 'danger', Setup: 'neutral', 'Pending approval': 'warning', 'Awaiting payment': 'warning', 'Payment review': 'warning' }
 
 /** Super admin console: every subscribed client, the price list and the care network. */
 export default function Platform() {
@@ -30,11 +30,13 @@ export default function Platform() {
   const [view, setView] = useState<View>('overview')
   if (!can('pricing')) return <Panel><p className="table-footnote">Only the super admin can open this console.</p></Panel>
   const pending = state.connections.filter((item) => item.status === 'Requested').length
+  const approvals = (state.settings.subscription === 'Pending approval' ? 1 : 0) + state.services.filter((item) => item.status === 'Pending approval').length + state.platformInvoices.filter((item) => item.status === 'Payment review').length
   return (
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader eyebrow="Northstar Cloud · Super admin" title="Platform console" description="Every subscribed client, what they have switched on, what they use and what they pay — calculated automatically from your price list. Approve network connections between facilities." />
       <Tabs<View> label="Console" value={view} onChange={setView} options={[
         { value: 'overview', label: 'Overview' },
+        { value: 'approvals', label: 'Approvals', count: approvals || undefined },
         { value: 'clients', label: 'Clients', count: state.tenants.length },
         { value: 'pricing', label: 'Pricing' },
         { value: 'network', label: 'Network', count: pending || undefined },
@@ -43,6 +45,7 @@ export default function Platform() {
       {view === 'clients' && <Clients />}
       {view === 'pricing' && <Pricing />}
       {view === 'network' && <NetworkAdmin />}
+      {view === 'approvals' && <Approvals />}
     </motion.div>
   )
 }
@@ -91,6 +94,9 @@ function Overview({ onOpen }: { onOpen: (view: View) => void }) {
       <div className="plan-bill">
         <Panel title="Needs attention" action={<AlertTriangle size={17} className="muted-icon" />}>
           <div className="panel-pad attention-list">
+            {state.settings.subscription === 'Pending approval' && <button type="button" onClick={() => onOpen('approvals')}><b>New client application</b><span>{state.settings.name} · {MODULES.length - (state.settings.offModules ?? []).length} services</span></button>}
+            {state.platformInvoices.filter((item) => item.status === 'Payment review').map((item) => <button key={item.id} type="button" onClick={() => onOpen('approvals')}><b>Payment to confirm</b><span>{item.id} · {money(item.amount, state.pricing.currency)} by {item.method}</span></button>)}
+            {state.services.filter((item) => item.status === 'Pending approval').map((item) => <button key={item.id} type="button" onClick={() => onOpen('approvals')}><b>New service request</b><span>{state.settings.name} · {item.name}</span></button>)}
             {pending.map((item) => <button key={item.id} type="button" onClick={() => onOpen('network')}><b>Connection request</b><span>{state.settings.name} → {state.network.find((f) => f.id === item.facilityId)?.name}</span></button>)}
             {clients.filter((c) => c.status === 'Trial').map((c) => <button key={c.tenant.id} type="button" onClick={() => onOpen('clients')}><b>Trial</b><span>{c.name} · since {formatDate(c.tenant.since)} · would pay {money(c.bill.total, cur)}</span></button>)}
             {clients.filter((c) => c.status === 'Suspended').map((c) => <button key={c.tenant.id} type="button" onClick={() => onOpen('clients')}><b>Suspended</b><span>{c.name} · staff cannot sign in</span></button>)}
@@ -124,7 +130,7 @@ function Clients() {
                 <td><Chip tone={STATUS_TONE[status]}>{status}</Chip><small>since {formatDate(tenant.since)}</small></td>
                 <td className="wrap client-modules">{MODULES.length - off.length}/{MODULES.length}<small>{off.length ? `Off: ${off.slice(0, 3).map((id) => moduleById(id).name).join(', ')}${off.length > 3 ? ` +${off.length - 3}` : ''}` : 'Everything'}</small></td>
                 <td className="wrap">{bill.usage.users} staff · {bill.usage.beds} beds<small>{bill.usage.visits.toLocaleString()} visits · {bill.usage.labTests.toLocaleString()} tests · {bill.usage.imagingStudies.toLocaleString()} studies</small></td>
-                <td className="num"><b>{money(bill.total, cur)}</b>{tenant.discount > 0 && <small>{tenant.discount}% discount</small>}{status !== 'Active' && <small>{status === 'Trial' ? 'not billed during trial' : 'not billed while suspended'}</small>}</td>
+                <td className="num"><b>{money(bill.total, cur)}</b>{tenant.discount > 0 && <small>{tenant.discount}% discount</small>}{status !== 'Active' && <small>{status === 'Trial' ? 'not billed during trial' : status === 'Suspended' ? 'not billed while suspended' : `not live yet · ${status.toLowerCase()}`}</small>}</td>
                 <td className="row-actions"><Button size="sm" variant="secondary" icon={Settings2} onClick={() => setEditing(tenant.id)}>Manage</Button></td>
               </tr>
             ))}
@@ -150,7 +156,7 @@ function ClientModal({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <Modal open onClose={onClose} title={nameOf(tenant, state.settings.name)} subtitle={`${tenant.type} · ${tenant.city} · ${tenant.contact}`} size="lg">
       <div className="form-grid form-grid-3">
-        <div className="form-field"><span>Subscription</span><div className="segmented">{(['Active', 'Trial', 'Suspended'] as SubscriptionStatus[]).map((value) => <button key={value} type="button" className={status === value ? 'on' : ''} onClick={() => setStatus(value)}>{value}</button>)}</div>{status === 'Suspended' && <small className="muted-text">Staff cannot sign in while suspended. Data is kept.</small>}</div>
+        <div className="form-field"><span>Subscription</span><div className="segmented">{(['Setup', 'Active', 'Trial', 'Suspended'] as SubscriptionStatus[]).map((value) => <button key={value} type="button" className={status === value ? 'on' : ''} onClick={() => setStatus(value)}>{value}</button>)}</div>{status === 'Suspended' && <small className="muted-text">Staff cannot sign in while suspended. Data is kept.</small>}{status === 'Setup' && tenant.live && <small className="muted-text">The administrator chooses services again and re-applies.</small>}</div>
         <label className="form-field"><span>Discount %</span><input type="number" min={0} max={100} value={discount} onChange={(event) => setDiscount(Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /></label>
         <div className="form-field"><span>Monthly bill</span><strong className="client-bill">{money(bill.total, state.pricing.currency)}</strong></div>
       </div>
@@ -178,6 +184,7 @@ function Pricing() {
     <Panel title="Price list" action={<Button size="sm" icon={Save} disabled={!dirty} onClick={() => savePricing(form)}>Save price list</Button>}>
       <p className="table-footnote admin-note">Clients never type a price: their bill is calculated from these rates and what they switch on. Changes apply to every client from the next bill.</p>
       <div className="form-grid form-grid-3 admin-form">
+        <label className="form-field"><span>VAT included (%) <small className="muted-text">all prices are VAT inclusive</small></span><input type="number" min={0} max={50} value={form.vatRate} onChange={(event) => setForm({ ...form, vatRate: Math.max(0, Math.min(50, Number(event.target.value) || 0)) })} /></label>
         <label className="form-field"><span>Currency</span><select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value as PriceList['currency'] })}>{['USD', 'ETB', 'EUR'].map((value) => <option key={value}>{value}</option>)}</select></label>
         {RATES.map(([key, label, hint]) => <label key={key} className="form-field"><span>{label} <small className="muted-text">{hint}</small></span><input type="number" min={0} step={key.startsWith('included') ? 1 : 0.05} value={form[key]} onChange={(event) => setRate(key, event.target.value)} /></label>)}
       </div>
@@ -259,6 +266,72 @@ function NetworkAdmin() {
         <div className="modal-footer"><Button variant="ghost" onClick={() => setForm(null)}>Cancel</Button><Button icon={Save} disabled={form.name.trim().length < 3 || !form.services.length} onClick={() => { saveNetworkFacility({ ...form, id: form.id || `net-${form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`, name: form.name.trim() }); setForm(null) }}>Save</Button></div>
       </Modal>
     )}
+  </>
+}
+
+/** Applications, new service requests and payments waiting for the super admin. */
+function Approvals() {
+  const { state, reviewApplication, decideService, confirmPlatformPayment } = useHospital()
+  const [note, setNote] = useState('')
+  const [fees, setFees] = useState<Record<string, { setup: string; monthly: string; note: string }>>({})
+  const cur = state.pricing.currency
+  const application = state.settings.subscription === 'Pending approval'
+  const bill = tenantBill(state.tenants.find((item) => item.live)!, state, state.pricing)
+  const requests = state.services.filter((item) => item.status === 'Pending approval')
+  const payments = state.platformInvoices.filter((item) => item.status === 'Payment review')
+  const fee = (id: string) => fees[id] ?? { setup: '50', monthly: '15', note: '' }
+  const setFee = (id: string, key: 'setup' | 'monthly' | 'note', value: string) => setFees({ ...fees, [id]: { ...fee(id), [key]: value } })
+  return <>
+    <Panel title="New client applications" action={<Building2 size={17} className="muted-icon" />}>
+      <div className="panel-pad">
+        {!application ? <p className="record-hint">No applications waiting.</p> : (
+          <article className="invoice-card open">
+            <header><b>{state.settings.name}</b><Chip tone="warning">Pending approval</Chip></header>
+            <p className="record-hint">{state.settings.type} · {state.settings.city} · {MODULES.length - (state.settings.offModules ?? []).length} services: {MODULES.filter((item) => !(state.settings.offModules ?? []).includes(item.id)).map((item) => item.name).join(', ')}.</p>
+            <p><b>First month: {money(bill.total, cur)}</b> <small className="muted-text">incl. VAT {bill.vatRate}% ({money(bill.vat, cur)})</small></p>
+            <label className="form-field"><span>Note to the client (optional)</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="e.g. Welcome aboard / please add Emergency & triage" /></label>
+            <div className="panel-actions"><Button variant="ghost" onClick={() => { reviewApplication(false, note); setNote('') }}>Return for changes</Button><Button icon={Check} onClick={() => { reviewApplication(true, note); setNote('') }}>Approve and send invoice</Button></div>
+          </article>
+        )}
+      </div>
+    </Panel>
+    <Panel title="New service requests" action={<Plus size={17} className="muted-icon" />}>
+      <div className="panel-pad invoice-list">
+        {requests.length === 0 && <p className="record-hint">No service requests waiting.</p>}
+        {requests.map((item) => (
+          <article key={item.id} className="invoice-card open">
+            <header><b>{item.name}</b><Chip tone="warning">{state.settings.name}</Chip></header>
+            <p className="record-hint">{item.category} · {item.department ? state.departments.find((d) => d.id === item.department)?.name : 'All departments'} · patients pay {money(item.price, cur)} {item.unit}. {item.description}</p>
+            <div className="form-grid form-grid-3">
+              <label className="form-field"><span>Set-up fee incl. VAT</span><input type="number" min={0} value={fee(item.id).setup} onChange={(event) => setFee(item.id, 'setup', event.target.value)} /></label>
+              <label className="form-field"><span>Monthly fee incl. VAT</span><input type="number" min={0} value={fee(item.id).monthly} onChange={(event) => setFee(item.id, 'monthly', event.target.value)} /></label>
+              <label className="form-field"><span>Note</span><input value={fee(item.id).note} onChange={(event) => setFee(item.id, 'note', event.target.value)} /></label>
+            </div>
+            <div className="panel-actions"><Button variant="ghost" icon={X} onClick={() => decideService(item.id, false, 0, 0, fee(item.id).note)}>Decline</Button><Button icon={Check} onClick={() => decideService(item.id, true, Number(fee(item.id).setup) || 0, Number(fee(item.id).monthly) || 0, fee(item.id).note)}>Approve and invoice</Button></div>
+          </article>
+        ))}
+      </div>
+    </Panel>
+    <Panel title="Payments to confirm" action={<CircleDollarSign size={17} className="muted-icon" />}>
+      <div className="panel-pad invoice-list">
+        {payments.length === 0 && <p className="record-hint">No payments waiting.</p>}
+        {payments.map((item) => (
+          <article key={item.id} className="invoice-card open">
+            <header><b>{item.id} · {item.description}</b><strong>{money(item.amount, cur)}</strong></header>
+            <p className="record-hint">{state.settings.name} paid by {item.method}, reference {item.reference}. Includes VAT {item.vatRate}%.</p>
+            <div className="panel-actions"><Button variant="ghost" onClick={() => confirmPlatformPayment(item.id, false)}>Not received</Button><Button icon={Check} onClick={() => confirmPlatformPayment(item.id, true)}>Confirm payment</Button></div>
+          </article>
+        ))}
+      </div>
+    </Panel>
+    <Panel title="Invoice history">
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>Invoice</th><th>Client</th><th>For</th><th className="num">Amount incl. VAT</th><th>Status</th></tr></thead>
+          <tbody>{state.platformInvoices.map((item) => <tr key={item.id}><td className="mono">{item.id}<small>{formatDate(item.issuedAt)}</small></td><td>{state.settings.name}</td><td className="wrap">{item.description}</td><td className="num">{money(item.amount, cur)}<small>VAT {money(Math.round(item.amount * item.vatRate / (100 + item.vatRate) * 100) / 100, cur)}</small></td><td><Chip tone={item.status === 'Paid' ? 'success' : item.status === 'Issued' ? 'warning' : 'neutral'}>{item.status}</Chip></td></tr>)}</tbody>
+        </table>
+      </div>
+    </Panel>
   </>
 }
 

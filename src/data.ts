@@ -1,6 +1,9 @@
 import { DEFAULT_PRICES } from './lib/modules'
 import type {
   Connection,
+  HospitalService,
+  PlatformInvoice,
+  ServiceCategory,
   ModuleId,
   NetworkFacility,
   Tenant,
@@ -661,6 +664,7 @@ export const defaultSettings = (): FacilitySettings => ({
   phone: '',
   email: '',
   currency: 'USD',
+  vatRate: 15,
   disabledModules: [],
 })
 
@@ -796,6 +800,30 @@ const connectionSeed = (): Connection[] => [
   { id: 'CX-03', facilityId: 'net-meskel', services: ['Imaging'], status: 'Requested', requestedAt: ago(2 * 1440), requestedBy: 'Elena Rossi', note: 'For 3T MRI and PET-CT.' },
 ]
 
+const svc = (id: string, name: string, category: ServiceCategory, price: number, unit = 'each', extra: Partial<HospitalService> = {}): HospitalService => ({ id, name, category, price, unit, active: true, status: 'Live', ...extra })
+
+/** The facility's own price list (VAT inclusive), set by the administrator. */
+const serviceSeed = (): HospitalService[] => [
+  svc('SV-01', 'General consultation', 'Consultation', 20),
+  svc('SV-02', 'Specialist consultation', 'Consultation', 35),
+  svc('SV-03', 'Emergency assessment', 'Emergency', 40),
+  svc('SV-04', 'Room and nursing', 'Bed & nursing', 85, 'per day'),
+  svc('SV-05', 'Intensive care bed', 'Bed & nursing', 250, 'per day', { department: 'icu' }),
+  svc('SV-06', 'Minor procedure', 'Procedure', 60),
+  svc('SV-07', 'Major operation (theatre)', 'Procedure', 900, 'each', { department: 'or' }),
+  svc('SV-08', 'Physiotherapy session', 'Therapy', 25),
+  svc('SV-09', 'Dietitian consultation', 'Therapy', 20),
+  svc('SV-10', 'Antenatal visit', 'Consultation', 15, 'each', { department: 'obgyn' }),
+  svc('SV-11', 'Normal delivery', 'Procedure', 150, 'each', { department: 'obgyn' }),
+  svc('SV-12', 'Diabetic foot clinic', 'Consultation', 30, 'per visit', { department: 'endocrinology', custom: true, featured: true, description: 'Weekly foot screening, wound care and footwear advice for people with diabetes.', requestedAt: ago(40 * 1440), requestedBy: 'Elena Rossi', setupFee: 50, monthlyFee: 15, launchedAt: ago(30 * 1440) }),
+  svc('SV-13', 'Home dialysis follow-up', 'Therapy', 70, 'per visit', { department: 'internal-medicine', custom: true, status: 'Pending approval', active: false, description: 'Monthly home visit by a renal nurse with blood tests and dialysis review.', requestedAt: ago(1440), requestedBy: 'Elena Rossi' }),
+]
+
+const platformInvoiceSeed = (): PlatformInvoice[] => [
+  { id: 'NC-2026-0101', purpose: 'New service', description: 'Diabetic foot clinic — set-up and first month', serviceId: 'SV-12', amount: 65, vatRate: 15, status: 'Paid', issuedAt: ago(35 * 1440), method: 'telebirr', reference: 'TB8812734', paidAt: ago(33 * 1440), confirmedAt: ago(30 * 1440) },
+  { id: 'NC-2026-0142', purpose: 'Subscription', description: 'Platform subscription — October', amount: 1604.8, vatRate: 15, status: 'Paid', issuedAt: ago(20 * 1440), method: 'Bank transfer', reference: 'CBE-77310442', paidAt: ago(18 * 1440), confirmedAt: ago(17 * 1440) },
+]
+
 export function createInitialState(): HospitalState {
   const wards = wardSeed()
   const charts = chartSeed()
@@ -861,6 +889,8 @@ export function createInitialState(): HospitalState {
     network: networkSeed(),
     connections: connectionSeed(),
     externalReferrals: [],
+    services: serviceSeed(),
+    platformInvoices: platformInvoiceSeed(),
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },
@@ -920,8 +950,15 @@ export function departmentById(departments: Department[], id: DepartmentId) {
   return departments.find((department) => department.id === id) ?? departments[0]
 }
 
+let vatRate = 15
+/** Set by the store from the facility's VAT rate. */
+export const setVatRate = (rate: number) => { vatRate = rate }
+/** The VAT contained in a VAT-inclusive amount. */
+export const vatIn = (amount: number, rate = vatRate) => Math.round((amount * rate / (100 + rate)) * 100) / 100
+
+/** All prices are VAT inclusive: the total is what the patient pays; the VAT inside it is shown separately. */
 export function invoiceTotals(invoice: Invoice) {
   const subtotal = invoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const total = subtotal + invoice.tax - invoice.discount
-  return { subtotal, total, patientPayable: Math.max(0, total - invoice.insuranceCovered) }
+  const total = subtotal - invoice.discount
+  return { subtotal, total, vat: vatIn(total), vatRate, patientPayable: Math.max(0, total - invoice.insuranceCovered) }
 }

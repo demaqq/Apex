@@ -2,15 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { positionById, positionPrivileges } from '../lib/positions'
 import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
-import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
+import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
 import { setCurrency } from '../lib/format'
 import { PRINTOUT } from '../lib/diagnostics'
-import { DEFAULT_PRICES, isOn, moduleForRole } from '../lib/modules'
+import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
 import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
   Connection,
+  HospitalService,
+  PaymentMethod,
+  PlatformInvoice,
+  SubscriptionStatus,
   ConnectionStatus,
   ExternalReferral,
   ExternalReferralStatus,
@@ -174,6 +178,13 @@ interface HospitalContextValue {
   updateSettings: (changes: Partial<FacilitySettings>) => void
   setModules: (offModules: ModuleId[], what: string) => void
   savePricing: (pricing: PriceList) => void
+  submitApplication: (offModules: ModuleId[]) => void
+  reviewApplication: (approve: boolean, note: string) => void
+  payPlatformInvoice: (id: string, method: PaymentMethod, reference: string) => void
+  confirmPlatformPayment: (id: string, received: boolean) => void
+  saveService: (service: HospitalService) => void
+  requestService: (service: Pick<HospitalService, 'name' | 'category' | 'department' | 'price' | 'unit' | 'description'>) => void
+  decideService: (id: string, approve: boolean, setupFee: number, monthlyFee: number, note: string) => void
   updateTenant: (id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => void
   requestConnection: (facilityId: string, services: NetworkService[], note: string) => void
   setConnectionStatus: (id: string, status: ConnectionStatus | 'Removed') => void
@@ -248,6 +259,8 @@ function loadState(): HospitalState {
       network: mergeById(parsed.network, seed.network),
       connections: mergeById(parsed.connections, seed.connections),
       externalReferrals: Array.isArray(parsed.externalReferrals) ? parsed.externalReferrals : [],
+      services: mergeById(parsed.services, seed.services),
+      platformInvoices: mergeById(parsed.platformInvoices, seed.platformInvoices),
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -327,6 +340,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   setCurrency(state.settings.currency)
   liveDepartments = state.departments
   setReceptionGate(isOn(state.settings, 'reception'))
+  setVatRate(state.settings.vatRate ?? 15)
 
   useEffect(() => {
     const timers = toastTimers.current
@@ -1323,12 +1337,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
+      const price = (id: string, fallback: number) => previous.services.find((item) => item.id === id && item.active)?.price ?? fallback
       const tariff: Record<string, number> = { Laboratory: 85, Imaging: 420, Medication: 35, Procedure: 650, Physiotherapy: 110, Nutrition: 70, 'Blood bank': 480 }
       const items = [
-        { id: makeId('b'), description: 'Consultation', code: '99284', category: 'Consultation', quantity: 1, unitPrice: 320 },
+        { id: makeId('b'), description: 'Consultation', code: 'SV-01', category: 'Consultation', quantity: 1, unitPrice: price(patient.department === 'emergency' ? 'SV-03' : 'SV-02', 320) },
         ...previous.orders.filter((order) => order.patientId === patientId).map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}${order.externalProviderId ? ' (referred)' : ''}`, code: order.id, category: order.kind, quantity: 1, unitPrice: previous.investigations.find((item) => item.name === order.title.split(' — ')[0])?.price ?? tariff[order.kind] ?? 100 })),
-        ...((['admitted', 'observation'].includes(patient.status) || patient.encounterType === 'inpatient') ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: '99231', category: 'Room & nursing', quantity: 1, unitPrice: 850 }] : []),
-        ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: 4200 })),
+        ...((['admitted', 'observation'].includes(patient.status) || patient.encounterType === 'inpatient') ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: 'SV-04', category: 'Room & nursing', quantity: 1, unitPrice: price('SV-04', 850) }] : []),
+        ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: price('SV-07', 4200) })),
       ]
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
       const insured = Boolean(patient.insurance && patient.insurance !== 'Self-pay')
@@ -1381,7 +1396,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const member = stateRef.current.staff.find((item) => item.roleId === role)
     if (member?.suspended) return `${member.name}'s account is suspended. Ask the administrator to reactivate it.`
     if (member?.status === 'Pending approval') return `${member.name}'s account is waiting for administrator approval.`
-    if (role !== 'provider' && stateRef.current.settings.subscription === 'Suspended') return `${stateRef.current.settings.name}'s subscription is suspended. Please contact Northstar Cloud.`
+    const subscription = stateRef.current.settings.subscription ?? 'Active'
+    if (role !== 'provider' && subscription === 'Suspended') return `${stateRef.current.settings.name}'s subscription is suspended. Please contact Northstar Cloud.`
+    if (!['provider', 'administrator'].includes(role) && !['Active', 'Trial'].includes(subscription)) return `${stateRef.current.settings.name} is not live yet (${subscription.toLowerCase()}). The administrator completes set-up and payment first.`
     const needed = moduleForRole(role)
     if (needed && !isOn(stateRef.current.settings, needed.id)) return `${stateRef.current.settings.name} has not switched on ${needed.name}. The administrator can add it under Administration → Plan & modules.`
     return null
@@ -1400,6 +1417,94 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, offModules }, tenants: previous.tenants.map((item) => item.live ? { ...item, offModules } : item) }, actor, action: what, department: 'emergency' }))
     notify(what.charAt(0).toUpperCase() + what.slice(1))
   }, [actorName, can, commit, notify])
+
+  const syncLive = (previous: HospitalState, status: SubscriptionStatus, extra: Partial<FacilitySettings> = {}) => ({ settings: { ...previous.settings, subscription: status, ...extra }, tenants: previous.tenants.map((item) => item.live ? { ...item, status } : item) })
+  const nextInvoiceId = (previous: HospitalState) => `NC-${new Date().getFullYear()}-${String(Math.max(200, ...previous.platformInvoices.map((item) => Number(item.id.split('-').pop()) || 0)) + 1).padStart(4, '0')}`
+
+  /** First sign-in: the administrator chooses the services the facility is made of and applies. */
+  const submitApplication = useCallback((offModules: ModuleId[]) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, ...syncLive(previous, 'Pending approval', { offModules, applicationNote: undefined }), tenants: previous.tenants.map((item) => item.live ? { ...item, status: 'Pending approval' as SubscriptionStatus, offModules } : item) }, actor, action: `applied to run ${MODULES.length - offModules.length} modules`, department: 'emergency' }))
+    notify('Application sent to Northstar Cloud for approval')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin: approve (and issue the first invoice) or send the application back. */
+  const reviewApplication = useCallback((approve: boolean, note: string) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      if (!approve) return { next: { ...previous, ...syncLive(previous, 'Setup', { applicationNote: note.trim() || 'Please review your selection.' }) }, actor: 'Northstar Cloud', action: `returned the application of ${previous.settings.name}`, department: 'emergency' }
+      const bill = estimateBill(previous, previous.pricing)
+      const invoice: PlatformInvoice = { id: nextInvoiceId(previous), purpose: 'Subscription', description: 'Platform subscription — first month', amount: Math.round(bill.total * 100) / 100, vatRate: previous.pricing.vatRate, status: 'Issued', issuedAt: new Date().toISOString(), ...(note.trim() ? { note: note.trim() } : {}) }
+      return { next: { ...previous, ...syncLive(previous, 'Awaiting payment', { applicationNote: undefined }), platformInvoices: [invoice, ...previous.platformInvoices] }, actor: 'Northstar Cloud', action: `approved ${previous.settings.name} and issued invoice ${invoice.id}`, department: 'emergency' }
+    })
+    notify(approve ? 'Approved — invoice issued' : 'Application returned to the client')
+  }, [can, commit, notify])
+
+  /** Client administrator reports a payment for a platform invoice. */
+  const payPlatformInvoice = useCallback((id: string, method: PaymentMethod, reference: string) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const invoice = previous.platformInvoices.find((item) => item.id === id)
+      if (!invoice || invoice.status !== 'Issued') return null
+      const paid = { ...invoice, status: 'Payment review' as const, method, reference: reference.trim(), paidAt: new Date().toISOString() }
+      const subscription = invoice.purpose === 'Subscription' && previous.settings.subscription === 'Awaiting payment' ? syncLive(previous, 'Payment review') : {}
+      const services = invoice.serviceId ? previous.services.map((item) => item.id === invoice.serviceId ? { ...item, status: 'Payment review' as const } : item) : previous.services
+      return { next: { ...previous, ...subscription, services, platformInvoices: previous.platformInvoices.map((item) => item.id === id ? paid : item) }, actor, action: `paid platform invoice ${id} by ${method} (${reference.trim()})`, department: 'emergency' }
+    })
+    notify('Payment sent for confirmation')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin confirms (or rejects) a payment. Confirming activates the facility or launches the service. */
+  const confirmPlatformPayment = useCallback((id: string, received: boolean) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      const invoice = previous.platformInvoices.find((item) => item.id === id)
+      if (!invoice) return null
+      const now = new Date().toISOString()
+      const platformInvoices = previous.platformInvoices.map((item) => item.id === id ? (received ? { ...item, status: 'Paid' as const, confirmedAt: now } : { ...item, status: 'Issued' as const, note: 'Payment not found — please check the reference and pay again.' }) : item)
+      const subscription = invoice.purpose === 'Subscription' && previous.settings.subscription === 'Payment review' ? syncLive(previous, received ? 'Active' : 'Awaiting payment') : {}
+      const services = invoice.serviceId ? previous.services.map((item) => item.id === invoice.serviceId ? (received ? { ...item, status: 'Live' as const, active: true, featured: true, launchedAt: now } : { ...item, status: 'Awaiting payment' as const }) : item) : previous.services
+      return { next: { ...previous, ...subscription, services, platformInvoices }, actor: 'Northstar Cloud', action: `${received ? 'confirmed' : 'rejected'} payment for ${id}`, department: 'emergency' }
+    })
+    notify(received ? 'Payment confirmed' : 'Payment rejected')
+  }, [can, commit, notify])
+
+  /** Administrator edits the price or availability of a live service. */
+  const saveService = useCallback((service: HospitalService) => {
+    if (!can('manage')) { notify('Only the administrator sets prices', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, services: previous.services.map((item) => item.id === service.id ? service : item) }, actor, action: `updated ${service.name} (${service.price} incl. VAT${service.active ? '' : ', off'})`, department: service.department ?? 'emergency' }))
+  }, [actorName, can, commit, notify])
+
+  /** Administrator creates a service the facility doesn't have yet; it goes to the super admin. */
+  const requestService = useCallback((service: Pick<HospitalService, 'name' | 'category' | 'department' | 'price' | 'unit' | 'description'>) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const created: HospitalService = { ...service, id: nextNumber(previous.services.map((item) => item.id), 'SV', 1), active: false, status: 'Pending approval', custom: true, requestedAt: new Date().toISOString(), requestedBy: actor }
+      return { next: { ...previous, services: [...previous.services, created] }, actor, action: `asked to add the service ${service.name}`, department: service.department ?? 'emergency' }
+    })
+    notify('New service sent to Northstar Cloud for approval')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin approves a new service (setting its set-up and monthly fee) or declines it. */
+  const decideService = useCallback((id: string, approve: boolean, setupFee: number, monthlyFee: number, note: string) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      const service = previous.services.find((item) => item.id === id)
+      if (!service) return null
+      const now = new Date().toISOString()
+      if (!approve) return { next: { ...previous, services: previous.services.map((item) => item.id === id ? { ...item, status: 'Declined' as const, decisionNote: note.trim() || undefined } : item) }, actor: 'Northstar Cloud', action: `declined the service ${service.name}`, department: 'emergency' }
+      const amount = setupFee + monthlyFee
+      const free = amount <= 0
+      const updated: HospitalService = { ...service, setupFee, monthlyFee, decisionNote: note.trim() || undefined, ...(free ? { status: 'Live', active: true, featured: true, launchedAt: now } : { status: 'Awaiting payment' }) }
+      const invoice: PlatformInvoice | null = free ? null : { id: nextInvoiceId(previous), purpose: 'New service', description: `${service.name} — set-up and first month`, serviceId: id, amount, vatRate: previous.pricing.vatRate, status: 'Issued', issuedAt: now }
+      return { next: { ...previous, services: previous.services.map((item) => item.id === id ? updated : item), platformInvoices: invoice ? [invoice, ...previous.platformInvoices] : previous.platformInvoices }, actor: 'Northstar Cloud', action: `approved the service ${service.name}${invoice ? ` and issued ${invoice.id}` : ''}`, department: 'emergency' }
+    })
+    notify(approve ? 'Service approved' : 'Service declined')
+  }, [can, commit, notify])
 
   /** Super admin: change a client's status, modules or discount. This facility's settings follow its own record. */
   const updateTenant = useCallback((id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => {
@@ -1752,9 +1857,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, setModules, savePricing, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, setModules, savePricing, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

@@ -64,6 +64,7 @@ export function withRequirements(off: ModuleId[], turnOn: ModuleId): ModuleId[] 
 
 export const DEFAULT_PRICES: PriceList = {
   currency: 'USD',
+  vatRate: 15,
   platform: 150,
   modules: { reception: 60, appointments: 40, billing: 50, triage: 60, opd: 50, wards: 80, specialty: 60, review: 25, network: 30, laboratory: 90, imaging: 110, pharmacy: 80, theatres: 90, services: 40, operations: 30 },
   perDepartment: 15,
@@ -102,7 +103,7 @@ export function liveUsage(state: Pick<HospitalState, 'settings' | 'staff' | 'bed
 }
 
 /** The price follows automatically from the modules that are on, the usage and the super admin's price list. */
-export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: PriceList, discount = 0) {
+export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: PriceList, discount = 0, extras: Array<{ label: string; amount: number }> = []) {
   const on = MODULES.filter((item) => !offModules.includes(item.id))
   const has = (id: ModuleId) => !offModules.includes(id)
   const lines: BillLine[] = [
@@ -115,16 +116,20 @@ export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: Pric
     ...(has('laboratory') ? [{ label: 'Laboratory tests', detail: `${usage.labTests} done here in 30 days`, amount: usage.labTests * prices.perLabTest, kind: 'usage' as const }] : []),
     ...(has('imaging') ? [{ label: 'Imaging studies', detail: `${usage.imagingStudies} done here in 30 days`, amount: usage.imagingStudies * prices.perImagingStudy, kind: 'usage' as const }] : []),
   ]
+  extras.forEach((extra) => lines.push({ label: extra.label, detail: 'Custom service', amount: extra.amount, kind: 'module' }))
   const subtotal = lines.reduce((sum, line) => sum + line.amount, 0)
   const off = Math.round(subtotal * Math.min(100, Math.max(0, discount))) / 100
   if (off > 0) lines.push({ label: 'Discount', detail: `${discount}% agreed with the provider`, amount: -off, kind: 'platform' })
-  return { lines, subtotal, total: subtotal - off, usage: { ...usage, modules: on.length } }
+  const total = subtotal - off
+  const vatRate = prices.vatRate ?? 15
+  return { lines, subtotal, total, vat: Math.round(total * vatRate / (100 + vatRate) * 100) / 100, vatRate, usage: { ...usage, modules: on.length } }
 }
 
 /** This facility's monthly bill. */
-export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments' | 'tenants'>, prices: PriceList, now = Date.now()) {
+export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments' | 'tenants'> & Partial<Pick<HospitalState, 'services'>>, prices: PriceList, now = Date.now()) {
   const tenant = state.tenants?.find((item) => item.live)
-  return billFor(liveUsage(state, now), state.settings.offModules ?? [], prices, tenant?.discount ?? 0)
+  const extras = (state.services ?? []).filter((item) => item.custom && item.status === 'Live' && item.monthlyFee).map((item) => ({ label: item.name, amount: item.monthlyFee! }))
+  return billFor(liveUsage(state, now), state.settings.offModules ?? [], prices, tenant?.discount ?? 0, extras)
 }
 
 /** Any client's monthly bill (this facility's usage is counted live). */

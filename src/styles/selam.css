@@ -958,3 +958,30 @@ td.unit-row { padding-left: 34px !important; }
 .revenue-track i { background: var(--teal, #0f766e); }
 .client-modules { max-width: 260px; }
 .sidebar-brand + .sidebar-nav { margin-top: 14px; }
+
+/* ---------- Onboarding, services, platform invoices ---------- */
+.onboarding-steps { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.onboarding-steps li { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--paper); color: var(--muted); font-size: 13px; }
+.onboarding-steps li span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--sunken); font-size: 12px; font-weight: 600; }
+.onboarding-steps li.current { border-color: var(--teal, #0f766e); color: var(--text); font-weight: 600; }
+.onboarding-steps li.current span { background: var(--teal, #0f766e); color: #fff; }
+.onboarding-steps li.done span { background: var(--accent-soft); color: var(--accent-text); }
+.waiting { display: grid; justify-items: start; gap: 8px; }
+.pay-invoice { display: grid; gap: 12px; }
+.pay-amount { display: grid; gap: 2px; }
+.pay-amount span { color: var(--muted); font-size: 12.5px; }
+.pay-amount strong { font-size: 28px; }
+.pay-invoice.compact .pay-amount strong { font-size: 18px; }
+.pay-amount small { color: var(--muted); }
+.pay-amount em { color: var(--danger-text, #b91c1c); font-style: normal; font-size: 12.5px; }
+.pay-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.invoice-list { display: grid; gap: 10px; }
+.invoice-card { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--paper); }
+.invoice-card.open { border-color: color-mix(in srgb, var(--amber, #d97706) 45%, var(--line-soft)); }
+.invoice-card > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.featured-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; font-weight: 600; }
+.vat-setting { display: flex; align-items: end; gap: 10px; max-width: 420px; }
+.vat-setting .form-field { flex: 1; }
+.pending-services { display: grid; gap: 8px; margin-top: 16px; }
+.bill-vat { color: var(--accent-text) !important; font-weight: 600; }
+.vat-line dt, .vat-line dd { color: var(--muted); font-size: 12.5px; }

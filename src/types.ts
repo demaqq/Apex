@@ -576,8 +576,12 @@ export interface FacilitySettings {
   disabledModules: string[]
   /** Modules the client has switched off. Everything else is on and billed. */
   offModules?: ModuleId[]
-  /** Set by the super admin. A suspended subscription blocks staff sign-in. */
+  /** Set by the super admin. Anything but Active or Trial blocks staff sign-in. */
   subscription?: SubscriptionStatus
+  /** VAT included in every patient price (%). */
+  vatRate?: number
+  /** Note from the super admin on the latest application decision. */
+  applicationNote?: string
   /** Reception tariff. */
   fees?: ReceptionFees
   /** Consultation rooms per department OPD (default 3). */
@@ -751,6 +755,10 @@ export interface HospitalState {
   connections: Connection[]
   /** Patients referred to another hospital through the network. */
   externalReferrals: ExternalReferral[]
+  /** The facility's own services and prices (VAT inclusive). */
+  services: HospitalService[]
+  /** Invoices from the platform (subscription, new services). */
+  platformInvoices: PlatformInvoice[]
 }
 
 /* ---------- Subscription ---------- */
@@ -759,6 +767,8 @@ export type ModuleId = 'reception' | 'appointments' | 'billing' | 'triage' | 'op
 
 export interface PriceList {
   currency: 'USD' | 'ETB' | 'EUR'
+  /** Every price is VAT inclusive; this is the VAT share shown on bills (%). */
+  vatRate: number
   /** Monthly platform fee: records, staff, roles, audit, administration. */
   platform: number
   /** Monthly fee per switched-on module. */
@@ -773,7 +783,8 @@ export interface PriceList {
   perImagingStudy: number
 }
 
-export type SubscriptionStatus = 'Active' | 'Trial' | 'Suspended'
+/** Setup → Pending approval → Awaiting payment → Payment review → Active. */
+export type SubscriptionStatus = 'Setup' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Active' | 'Trial' | 'Suspended'
 
 export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number }
 
@@ -839,4 +850,49 @@ export interface ExternalReferral {
   /** What was shared with the receiving hospital. */
   shared: string[]
   response?: string
+}
+
+export type ServiceCategory = 'Consultation' | 'Emergency' | 'Bed & nursing' | 'Procedure' | 'Laboratory' | 'Imaging' | 'Pharmacy' | 'Therapy' | 'Other'
+
+/** A billable service. Standard services are live at once; new ones go to the super admin. */
+export interface HospitalService {
+  id: string
+  name: string
+  category: ServiceCategory
+  department?: DepartmentId
+  /** VAT inclusive. */
+  price: number
+  unit: string
+  active: boolean
+  status: 'Live' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Declined'
+  custom?: boolean
+  description?: string
+  /** Shown as a new, featured service once launched. */
+  featured?: boolean
+  requestedAt?: string
+  requestedBy?: string
+  /** Set by the super admin when approving a new service. */
+  setupFee?: number
+  monthlyFee?: number
+  decisionNote?: string
+  launchedAt?: string
+}
+
+export type PaymentMethod = 'telebirr' | 'CBE Birr' | 'Bank transfer' | 'Card'
+
+/** An invoice from the platform to the facility. Amounts include VAT. */
+export interface PlatformInvoice {
+  id: string
+  purpose: 'Subscription' | 'New service'
+  description: string
+  serviceId?: string
+  amount: number
+  vatRate: number
+  status: 'Issued' | 'Payment review' | 'Paid' | 'Rejected'
+  issuedAt: string
+  method?: PaymentMethod
+  reference?: string
+  paidAt?: string
+  confirmedAt?: string
+  note?: string
 }

@@ -9,11 +9,13 @@ import { nested } from '../lib/access'
 import { CatalogueEditor } from '../components/CatalogueEditor'
 import { BillSummary } from '../components/PlanBill'
 import { NetworkPanel } from '../components/NetworkPanel'
+import { ServicesEditor } from '../components/ServicesEditor'
+import { PlatformInvoices } from '../components/Onboarding'
 import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
 import type { ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
-type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
+type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
   pricing: 'Set platform prices (provider only)', 'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
@@ -44,13 +46,15 @@ export default function Admin() {
         { value: 'facility', label: 'Facility' },
         { value: 'users', label: 'Users & access', count: pending || undefined },
         { value: 'departments', label: 'Departments', count: state.departments.filter((item) => item.active !== false).length },
+        { value: 'services', label: 'Services & prices', count: state.services.filter((item) => item.status !== 'Live' && item.status !== 'Declined').length || undefined },
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
         { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
-        { value: 'modules', label: 'Plan & modules' },
+        { value: 'modules', label: 'Plan & modules', count: state.platformInvoices.filter((item) => item.status === 'Issued').length || undefined },
       ]} />
       {view === 'facility' && <FacilityTab />}
       {view === 'users' && <UsersTab />}
       {view === 'departments' && <DepartmentsTab />}
+      {view === 'services' && <ServicesEditor />}
       {view === 'investigations' && <InvestigationsTab />}
       {view === 'providers' && <ProvidersTab />}
       {view === 'modules' && <ModulesTab />}
@@ -432,7 +436,7 @@ function ModulesTab() {
           <p className="table-footnote"><Building2 size={13} /> Departments and units are added or deactivated under Departments; they count towards your price.</p>
         </Panel>
       </div>
-      <div className="plan-bill"><BillSummary collapsed /></div>
+      <div className="plan-bill"><BillSummary collapsed /><PlatformInvoices /></div>
       {chosen && (
         <Modal open onClose={() => setPkg(null)} title={`Switch to the ${chosen.name} package?`} subtitle={chosen.description} size="sm">
           <p className="record-hint">On: {chosen.on.map((id) => moduleById(id).name).join(', ')}.</p>
