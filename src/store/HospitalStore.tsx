@@ -5,7 +5,7 @@ import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visit
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
 import { PRINTOUT } from '../lib/diagnostics'
-import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
+import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
   ClinicalOrder,
@@ -209,7 +209,8 @@ function loadState(): HospitalState {
       prescriptions: mergeById(parsed.prescriptions, seed.prescriptions),
       invoices: mergeById(parsed.invoices, seed.invoices),
       appointments: mergeById(parsed.appointments, seed.appointments),
-      staff: mergeById(parsed.staff, seed.staff),
+      // Custom permission lists saved before history/examination writing became its own privilege keep that ability.
+      staff: mergeById(parsed.staff, seed.staff).map((member) => member.permissions && member.roleId && ROLE_PERMISSIONS[member.roleId]?.includes('clinical-notes') && member.permissions.includes('notes') && !member.permissions.includes('clinical-notes') ? { ...member, permissions: [...member.permissions, 'clinical-notes' as Permission] } : member),
       codes: mergeById(parsed.codes, seed.codes),
       wards: mergeById(parsed.wards, seed.wards),
       beds: mergeById(parsed.beds, seed.beds),
@@ -265,24 +266,26 @@ let liveDepartments = departmentSeed
 const unitName = (id: DepartmentId) => liveDepartments.find((department) => department.id === id)?.shortName ?? id
 
 export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
-  physician: ['triage', 'refer', 'transfer', 'notes', 'discharge', 'cosign', 'prescribe', 'vitals', 'register'],
-  nurse: ['triage', 'notes', 'vitals', 'administer', 'beds'],
-  consultant: ['refer', 'notes', 'discharge', 'cosign', 'prescribe'],
+  physician: ['triage', 'refer', 'transfer', 'notes', 'clinical-notes', 'discharge', 'cosign', 'prescribe', 'vitals', 'register'],
+  nurse: ['triage', 'notes', 'clinical-notes', 'vitals', 'administer', 'beds'],
+  consultant: ['refer', 'notes', 'clinical-notes', 'discharge', 'cosign', 'prescribe'],
+  // Diagnostic and pharmacy staff read the whole record but only write notes and their own work.
   diagnostics: ['results', 'notes'],
+  radiographer: ['notes'],
   laboratory: ['results', 'notes'],
   coordinator: ['transfer', 'notes', 'beds', 'records-export'],
   administrator: ['manage'],
-  intern: ['notes', 'vitals', 'prescribe', 'refer'],
+  intern: ['notes', 'clinical-notes', 'vitals', 'prescribe', 'refer'],
   pharmacist: ['dispense', 'notes'],
   receptionist: ['register'],
-  theatre: ['theatre', 'anaesthesia', 'notes', 'vitals'],
-  allied: ['services', 'notes'],
+  theatre: ['theatre', 'anaesthesia', 'notes', 'clinical-notes', 'vitals'],
+  allied: ['services', 'notes', 'clinical-notes'],
   billing: ['billing'],
 }
 
 /** Where each role lands after sign-in. */
 export const ROLE_HOME: Record<RoleId, string> = {
-  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard',
+  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', radiographer: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard',
   intern: '/patients', pharmacist: '/pharmacy', receptionist: '/front-desk', theatre: '/theatres', allied: '/services', billing: '/billing',
 }
 
@@ -355,6 +358,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, state.staff])
 
   const actorName = useCallback((fallback: string) => (currentRole ? roleProfiles[currentRole].name : fallback), [currentRole])
+
+  /** Writes are checked here as well as in the UI: anyone may read the record, but only roles with the privilege may write to it. */
+  const denied = useCallback((needs: Permission[], what: string) => {
+    if (!currentRole || needs.some((permission) => can(permission))) return false
+    notify(`Your role can read but not ${what}`, 'warning')
+    return true
+  }, [currentRole, can, notify])
 
   /**
    * Applies a change to the hospital state and records it in the activity log.
@@ -539,6 +549,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, notify])
 
   const addNote = useCallback((patientId: string, note: string, title?: string) => {
+    if (denied(['History', 'Examination', 'Plan'].includes(title ?? '') ? ['clinical-notes'] : ['notes', 'clinical-notes', 'vitals', 'prescribe'], 'write history, examination or plans')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -554,7 +565,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify(currentRole === 'intern' ? 'Note saved and sent for co-signature' : 'Note saved to the shared episode')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied])
 
   const dischargePatient = useCallback((patientId: string) => {
     const actor = actorName('Clinical team')
@@ -749,6 +760,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, state.staff])
 
   const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context: ObservationContext = 'Bedside') => {
+    if (denied(['vitals'], 'record vital signs')) return
     const actor = actorName('Nursing team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -762,7 +774,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Observations saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const escalatePatient = useCallback((patientId: string) => {
     const actor = actorName('Nursing team')
@@ -807,6 +819,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit])
 
   const advanceOrder = useCallback((orderId: string, result?: string, toStage?: number) => {
+    const target = stateRef.current.orders.find((item) => item.id === orderId)
+    if (target && currentRole && !canAdvanceOrder(target, currentRole)) { notify(target.kind === 'Imaging' && currentRole === 'radiographer' ? 'Only the radiologist reports imaging studies' : 'This step belongs to another role', 'warning'); return }
     const actor = actorName('Clinical team')
     commit((previous) => {
       const order = previous.orders.find((item) => item.id === orderId)
@@ -826,7 +840,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Order updated')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, currentRole])
 
   const setBedState = useCallback((bedId: string, bedState: BedState) => {
     const actor = actorName('Flow team')
@@ -1115,6 +1129,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, notify])
 
   const saveEvaluation = useCallback((patientId: string, evaluation: Omit<Evaluation, 'id' | 'at' | 'by'>) => {
+    if (denied(['clinical-notes'], 'write clinical evaluations')) return
     const actor = actorName('Clinical team')
     const pending = currentRole === 'intern'
     commit((previous) => {
@@ -1133,7 +1148,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify(pending ? 'Evaluation saved and sent for co-signature' : 'Evaluation saved')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied])
 
   const dischargeWithSummary = useCallback((patientId: string, summary: Omit<DischargeSummary, 'at' | 'by'>) => {
     const actor = actorName('Clinical team')
@@ -1173,6 +1188,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, notify])
 
   const addChartEntry = useCallback(<K extends ChartKey>(patientId: string, chart: K, input: ChartEntryInput<K>, summary: string) => {
+    if (denied(['vitals', 'clinical-notes'], 'add chart entries')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1182,9 +1198,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${CHART_TITLES[chart]} charted`, detail: summary, author: actor, department: patient.department }, { charts: { ...patient.charts, [chart]: list } }) }, actor, action: `updated the ${CHART_TITLES[chart].toLowerCase()} for ${patient.name}`, department: patient.department, patientId }
     })
     notify(`${CHART_TITLES[chart]} updated`)
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const saveRound = useCallback((patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => {
+    if (denied(['clinical-notes'], 'write round or bedside assessments')) return
     const actor = actorName('Clinical team')
     const kind = round.kind ?? 'Ward round'
     const nurseReview = kind === 'Junior nurse assessment' || kind === 'Intern nurse assessment'
@@ -1214,7 +1231,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify(doctorReview ? 'Saved — sent to a senior doctor for co-signature' : nurseReview ? 'Saved — waiting for a senior nurse to review' : 'Saved to the record')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied])
 
   const reviewRound = useCallback((patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => {
     const actor = actorName('Senior clinician')
@@ -1238,6 +1255,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, currentRole, notify])
 
   const saveAssessment = useCallback((patientId: string, values: Record<string, string>, summary: string) => {
+    if (denied(['clinical-notes'], 'write specialty assessments')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1246,9 +1264,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Specialty assessment', detail: summary, author: actor, department: patient.department }, { assessments: [entry, ...(patient.assessments ?? [])] }) }, actor, action: `recorded a specialty assessment for ${patient.name}`, department: patient.department, patientId }
     })
     notify('Assessment saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => {
+    if (denied(['vitals', 'clinical-notes'], 'record growth')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1256,7 +1275,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: previous.patients.map((item) => item.id === patientId ? { ...item, weightKg: entry.weightKg, growth: [...(item.growth ?? []), { ...entry, at: new Date().toISOString() }] } : item) }, actor, action: `recorded growth measurements for ${patient.name}`, department: patient.department, patientId }
     })
     notify('Growth measurement saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const recordPayment = useCallback((invoiceId: string, method: NonNullable<Invoice['payments']>[number]['method'], amount: number) => {
     const actor = actorName('Billing office')

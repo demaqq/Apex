@@ -14,14 +14,14 @@ import type { Department, DepartmentId, ExternalProvider, FacilitySettings, Rece
 type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
-  triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
+  'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
   refer: 'Refer to specialists', transfer: 'Transfer and admit', discharge: 'Discharge patients', cosign: 'Co-sign trainee notes', results: 'Report lab and imaging results',
   administer: 'Give medicines', dispense: 'Verify and dispense medicines', beds: 'Manage beds', theatre: 'Run theatre lists', anaesthesia: 'Anaesthesia records',
   services: 'Physio, nutrition and blood bank', billing: 'Billing and payments', manage: 'Facility administration',
   'stock-receive': 'Receive stock deliveries', 'stock-adjust': 'Write off and adjust stock', 'formulary-edit': 'Edit medicines and prices', 'controlled-drugs': 'Release controlled medicines', 'records-export': 'Export patient lists', 'lab-catalogue': 'Edit the laboratory test catalogue', 'imaging-catalogue': 'Edit the imaging study catalogue',
 }
 const PERMISSION_GROUPS: Array<[string, Permission[]]> = [
-  ['Clinical', ['triage', 'register', 'vitals', 'notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
+  ['Clinical', ['triage', 'register', 'vitals', 'notes', 'clinical-notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
   ['Services', ['results', 'administer', 'dispense', 'beds', 'theatre', 'anaesthesia', 'services']],
   ['Office', ['billing', 'manage']],
   ['Sensitive — grant with care', SENSITIVE],

@@ -97,6 +97,21 @@ export const roleProfiles: Record<RoleId, RoleProfile> = {
     focus: ['Urgent studies', 'Safety checks', 'Unreported studies'],
     accent: '#72569a',
   },
+  radiographer: {
+    id: 'radiographer',
+    name: 'Dawit Tesfaye',
+    title: 'Radiographer · Imaging Technologist',
+    shortTitle: 'Radiographer',
+    employeeId: 'RG-3318',
+    department: 'radiology',
+    initials: 'DT',
+    shift: '07:00 – 15:00',
+    workspace: 'Imaging worklist',
+    headline: 'Safe scans, first time.',
+    description: 'Schedule and acquire studies, run the safety checks and attach images. The radiologist reports.',
+    focus: ['Studies to schedule', 'Safety checks', 'Images to attach'],
+    accent: '#8a5aa8',
+  },
   laboratory: {
     id: 'laboratory',
     name: 'Dr. Priya Nair',
@@ -411,6 +426,7 @@ const staffSeed = (): StaffMember[] => [
 ]
 
 const extraStaff = (): StaffMember[] => [
+  { id: 'ST-25', roleId: 'radiographer', name: 'Dawit Tesfaye', role: 'Radiographer', department: 'radiology', specialty: 'CT and MRI', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-004', email: 'dawit.tesfaye@northstar.example', phone: 'x2324', license: 'RT-210448' },
   { id: 'ST-24', roleId: 'laboratory', name: 'Dr. Priya Nair', role: 'Clinical pathologist', department: 'laboratory', specialty: 'Laboratory medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'LAB-001', email: 'priya.nair@northstar.example', phone: 'x2351', license: 'MD-401553', positions: [{ id: 'lab-head', since: ago(500 * 1440), by: 'Elena Rossi', note: 'Laboratory head' }] },
   { id: 'ST-18', name: 'Dr. Selam Bekele', role: 'Medical officer', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: false, pager: 'MED-021', email: 'selam.bekele@northstar.example', phone: 'x2690', license: 'Not yet verified', status: 'Pending approval', roleId: 'physician' },
   { id: 'ST-12', roleId: 'intern', name: 'Dr. Leo Park', role: 'Foundation doctor', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-014', email: 'leo.park@northstar.example', phone: 'x2684', license: 'MD-501877' },

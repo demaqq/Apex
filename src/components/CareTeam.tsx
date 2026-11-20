@@ -17,7 +17,7 @@ export function CareTeam({ patient }: { patient: Patient }) {
   const [note, setNote] = useState('')
   const links = careLinks(patient, state.referrals, state.theatreCases)
   const departments = [...new Set(links.map((link) => link.department))]
-  const canEdit = can('notes') && patient.status !== 'discharged'
+  const canEdit = can('clinical-notes') && patient.status !== 'discharged'
   const options = state.departments.filter((d) => d.active !== false && !departments.includes(d.id) && !['laboratory', 'radiology', 'pharmacy'].includes(d.id))
 
   return (

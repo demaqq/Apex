@@ -208,7 +208,8 @@ export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'laboratory', 'receptionist'].includes(role)
   switch (order.kind) {
     case 'Laboratory': return role === 'laboratory' || (stage === 0 && role === 'nurse')
-    case 'Imaging': return role === 'diagnostics'
+    // Radiographers schedule and acquire; only the radiologist reports.
+    case 'Imaging': return role === 'diagnostics' || (role === 'radiographer' && stage < last - 1)
     case 'Medication': return stage === last - 1 ? role === 'nurse' : role === 'pharmacist'
     case 'Procedure': return ['physician', 'consultant', 'theatre'].includes(role)
     case 'Blood bank': return stage === last - 1 ? role === 'nurse' : role === 'allied' || role === 'laboratory'

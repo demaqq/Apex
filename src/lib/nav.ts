@@ -26,7 +26,7 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/front-desk', label: 'Reception', page: 'Reception & billing', icon: UserPlus, roles: ['receptionist', 'billing'], key: 'n' },
     { to: '/opd', label: 'OPD clinics', page: 'Outpatient clinics (OPD)', icon: DoorOpen, roles: ['physician', 'consultant', 'intern', 'nurse', 'receptionist', 'coordinator'], key: 'u' },
     { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant'], key: 't' },
-    { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'laboratory', 'theatre', 'allied'], key: 'p' },
+    { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'radiographer', 'laboratory', 'pharmacist', 'theatre', 'allied'], key: 'p' },
     { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },
     { to: '/telehealth', label: 'Appointments', page: 'Appointments & telehealth', icon: Video, roles: ['physician', 'consultant', 'intern', 'receptionist'], key: 'a' },
   ] },
@@ -37,7 +37,7 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
   ] },
   { label: 'Diagnostics & services', items: [
     { to: '/lab', label: 'Laboratory', page: 'Laboratory', icon: FlaskConical, roles: [...CLINICIANS, 'laboratory'], key: 'l' },
-    { to: '/imaging', label: 'Imaging', page: 'Imaging & radiology', icon: ScanLine, roles: [...CLINICIANS, 'diagnostics'], key: 'i' },
+    { to: '/imaging', label: 'Imaging', page: 'Imaging & radiology', icon: ScanLine, roles: [...CLINICIANS, 'diagnostics', 'radiographer'], key: 'i' },
     { to: '/pharmacy', label: 'Pharmacy', page: 'Pharmacy', icon: Pill, roles: [...CLINICIANS, 'pharmacist'], key: 'r' },
     { to: '/theatres', label: 'Operating theatres', page: 'Operating theatres', icon: Scissors, roles: ['theatre', 'physician', 'consultant', 'nurse', 'coordinator'], key: 'o' },
     { to: '/services', label: 'Therapy & blood bank', page: 'Service worklist', icon: Stethoscope, roles: ['allied', 'nurse', 'physician', 'intern'], key: 's' },

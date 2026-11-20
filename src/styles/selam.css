@@ -881,3 +881,4 @@ td.unit-row { padding-left: 34px !important; }
 .catalogue-table .inline-number { width: 72px; }
 .catalogue-table select.catalogue-input { min-width: 0; width: 132px; }
 .catalogue-table .catalogue-input { min-width: 96px; }
+.chat-readonly { margin: 0 0 8px; color: var(--muted); font-size: 12px; }

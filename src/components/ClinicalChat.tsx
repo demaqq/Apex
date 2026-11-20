@@ -60,7 +60,7 @@ function eventStyle(event: TimelineEvent): { icon: LucideIcon; label: string; to
 export default function ClinicalChat({ patient }: { patient: Patient }) {
   const { state, profile, can, addNote, addOrder, recordObservations, createPrescription } = useHospital()
   const canOrder = can('prescribe') || can('refer') || can('triage') || can('manage')
-  const modes = MODES.filter((mode) => (['labs', 'imaging'].includes(mode.id) ? canOrder : mode.id === 'medication' ? can('prescribe') || can('manage') : mode.id === 'vitals' ? can('vitals') || can('manage') : can('notes') || can('manage')))
+  const modes = MODES.filter((mode) => (['labs', 'imaging'].includes(mode.id) ? canOrder : mode.id === 'medication' ? can('prescribe') || can('manage') : mode.id === 'vitals' ? can('vitals') : mode.id === 'note' ? can('notes') : can('clinical-notes')))
   const [mode, setMode] = useState<Mode>(modes[0]?.id ?? 'note')
   const [text, setText] = useState('')
   const [picked, setPicked] = useState<string[]>([])
@@ -168,6 +168,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
 
       {!closed && modes.length > 0 && (
         <div className="chat-composer">
+          {!can('clinical-notes') && <p className="chat-readonly">You can read the whole record. History, examination, vitals and plans are written by the clinical team; add a note for them here.</p>}
           <div className="chat-modes" role="tablist" aria-label="Entry type">
             {modes.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={mode === id} className={mode === id ? 'active' : ''} onClick={() => { setMode(id); inputRef.current?.focus() }}><Icon size={14} />{label}</button>)}
           </div>
