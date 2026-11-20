@@ -856,3 +856,28 @@ tr.is-active-row td { background: color-mix(in srgb, var(--teal) 6%, transparent
 @keyframes lamp-turn { to { transform: rotate(360deg); } }
 .unit-branch { color: var(--faint); margin-right: 2px; }
 td.unit-row { padding-left: 34px !important; }
+
+/* ---------- Laboratory & imaging ---------- */
+.chip-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+.chip-filter button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--paper); color: var(--muted); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.chip-filter button:hover { color: var(--text); border-color: var(--line); }
+.chip-filter button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); font-weight: 600; }
+.chip-filter small { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--sunken); font-size: 11px; text-align: center; color: inherit; }
+.dx-meta, .dx-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 3px 0; }
+.dx-meta small { margin: 0; }
+.catalogue-table td { vertical-align: middle; }
+.catalogue-group th { padding-top: 14px; background: transparent; color: var(--accent-text); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; text-align: left; }
+.catalogue-input { width: 100%; min-width: 110px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 12.5px; }
+.catalogue-pair { display: grid; gap: 4px; min-width: 160px; }
+.catalogue-add { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.request-preview { width: 100%; height: min(60vh, 620px); margin: 8px 0; border: 1px solid var(--line-soft); border-radius: 10px; background: #fff; }
+.integration-note { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--sunken); }
+.integration-note > div { flex: 1; display: grid; gap: 2px; }
+.integration-note span { color: var(--muted); font-size: 12.5px; }
+.integration-note.planned { border-style: dashed; }
+.segmented button:disabled { opacity: .5; cursor: not-allowed; }
+.ops-page > * { min-width: 0; max-width: 100%; }
+.catalogue-panel { overflow: hidden; }
+.catalogue-table .inline-number { width: 72px; }
+.catalogue-table select.catalogue-input { min-width: 0; width: 132px; }
+.catalogue-table .catalogue-input { min-width: 96px; }

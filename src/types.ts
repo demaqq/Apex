@@ -1,4 +1,4 @@
-export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
+export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'laboratory' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
 
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
@@ -12,9 +12,9 @@ export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
 export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
-  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export'
+  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export' | 'lab-catalogue' | 'imaging-catalogue'
 
-export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer'
+export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer' | 'lab-head' | 'imaging-head'
 export interface PositionAssignment { id: PositionId; since: string; until?: string; by: string; note?: string }
 
 export interface Vitals {
@@ -593,15 +593,30 @@ export interface InvestigationItem {
   id: string
   name: string
   kind: 'Laboratory' | 'Imaging'
-  /** Available in this facility; otherwise it must be referred to an external provider. */
+  /** Available in this facility; otherwise a printed request (or, later, a partner facility). */
   inHouse: boolean
   price: number
   active: boolean
+  /** Laboratory section (e.g. Haematology) or imaging modality (e.g. CT). */
+  section?: string
+  /** Laboratory: sample type and tube. */
+  specimen?: string
+  container?: string
+  /** Laboratory: reference range shown with the result. */
+  refRange?: string
+  /** Expected turnaround in hours. */
+  tatHours?: number
+  /** Imaging: patient preparation and safety notes. */
+  prep?: string
 }
 
 export interface ExternalProvider {
   id: string
   name: string
+  /** Hospital, diagnostic centre, laboratory or imaging centre. */
+  type?: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre'
+  /** How requests reach them today. Electronic exchange is planned, not yet available. */
+  connection?: 'printout' | 'electronic'
   services: Array<'Laboratory' | 'Imaging'>
   notes: string
   phone: string

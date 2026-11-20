@@ -85,17 +85,32 @@ export const roleProfiles: Record<RoleId, RoleProfile> = {
   diagnostics: {
     id: 'diagnostics',
     name: 'Leah Morgan, FRCR',
-    title: 'Imaging & Laboratory Specialist',
-    shortTitle: 'Imaging / Lab',
+    title: 'Consultant Radiologist · Head of Imaging',
+    shortTitle: 'Imaging',
     employeeId: 'RA-3304',
     department: 'radiology',
     initials: 'LM',
     shift: '08:00 – 16:00',
-    workspace: 'Diagnostic worklist',
+    workspace: 'Imaging worklist',
     headline: 'Move critical answers forward.',
-    description: 'A modality-focused worklist with prioritisation, reporting and result handback.',
-    focus: ['Urgent diagnostics', 'Studies in progress', 'Unreported results'],
+    description: 'X-ray, ultrasound, CT, MRI and more: safety checks, scheduling, reporting and images back to the record.',
+    focus: ['Urgent studies', 'Safety checks', 'Unreported studies'],
     accent: '#72569a',
+  },
+  laboratory: {
+    id: 'laboratory',
+    name: 'Dr. Priya Nair',
+    title: 'Clinical Pathologist · Laboratory Head',
+    shortTitle: 'Laboratory',
+    employeeId: 'LB-2210',
+    department: 'laboratory',
+    initials: 'PN',
+    shift: '07:30 – 16:30',
+    workspace: 'Laboratory worklist',
+    headline: 'Return critical results, faster.',
+    description: 'Specimens by section, from collection to verified result, with the test catalogue the laboratory maintains.',
+    focus: ['Specimens to receive', 'In analysis', 'Results to verify'],
+    accent: '#378777',
   },
   coordinator: {
     id: 'coordinator',
@@ -385,7 +400,7 @@ const staffSeed = (): StaffMember[] => [
   { id: 'ST-01', roleId: 'physician', name: 'Dr. Maya Chen', role: 'Physician', department: 'emergency', specialty: 'Emergency medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EMG-001', email: 'maya.chen@northstar.example', phone: 'x2101', license: 'MD-448210' },
   { id: 'ST-02', roleId: 'nurse', name: 'Sarah Okafor, RN', role: 'Charge nurse', department: 'emergency', specialty: 'Triage nursing', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'TRI-001', email: 'sarah.okafor@northstar.example', phone: 'x2102', license: 'RN-220931' },
   { id: 'ST-03', roleId: 'consultant', name: 'Dr. Amir Rahman', role: 'Consultant', department: 'cardiology', specialty: 'Interventional cardiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'CAR-001', email: 'amir.rahman@northstar.example', phone: 'x2241', license: 'MD-391044' },
-  { id: 'ST-04', roleId: 'diagnostics', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876' },
+  { id: 'ST-04', roleId: 'diagnostics', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876', positions: [{ id: 'imaging-head', since: ago(400 * 1440), by: 'Elena Rossi', note: 'Head of the imaging department' }] },
   { id: 'ST-05', roleId: 'coordinator', name: 'Jon Bell', role: 'Patient flow coordinator', department: 'ward', specialty: 'Bed management', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'BED-001', email: 'jon.bell@northstar.example', phone: 'x2521', license: '—' },
   { id: 'ST-06', roleId: 'pharmacist', name: 'Nina Wallace, PharmD', role: 'Pharmacist', department: 'pharmacy', specialty: 'Clinical pharmacy', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHA-001', email: 'nina.wallace@northstar.example', phone: 'x2581', license: 'PH-118302', positions: [{ id: 'pharmacy-manager', since: ago(200 * 1440), by: 'Elena Rossi', note: 'Appointed head of pharmacy' }] },
   { id: 'ST-07', name: 'Dr. Ana Costa', role: 'Consultant', department: 'icu', specialty: 'Critical care', shift: 'Evening · 15:00–23:00', onDuty: false, pager: 'ICU-001', email: 'ana.costa@northstar.example', phone: 'x2401', license: 'MD-377210' },
@@ -396,6 +411,7 @@ const staffSeed = (): StaffMember[] => [
 ]
 
 const extraStaff = (): StaffMember[] => [
+  { id: 'ST-24', roleId: 'laboratory', name: 'Dr. Priya Nair', role: 'Clinical pathologist', department: 'laboratory', specialty: 'Laboratory medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'LAB-001', email: 'priya.nair@northstar.example', phone: 'x2351', license: 'MD-401553', positions: [{ id: 'lab-head', since: ago(500 * 1440), by: 'Elena Rossi', note: 'Laboratory head' }] },
   { id: 'ST-18', name: 'Dr. Selam Bekele', role: 'Medical officer', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: false, pager: 'MED-021', email: 'selam.bekele@northstar.example', phone: 'x2690', license: 'Not yet verified', status: 'Pending approval', roleId: 'physician' },
   { id: 'ST-12', roleId: 'intern', name: 'Dr. Leo Park', role: 'Foundation doctor', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-014', email: 'leo.park@northstar.example', phone: 'x2684', license: 'MD-501877' },
   { id: 'ST-13', roleId: 'receptionist', name: 'Grace Mwangi', role: 'Front desk coordinator', department: 'emergency', specialty: 'Registration', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'REG-001', email: 'grace.mwangi@northstar.example', phone: 'x2001', license: '—' },
@@ -612,44 +628,109 @@ export const defaultSettings = (): FacilitySettings => ({
   disabledModules: [],
 })
 
-const inv = (id: string, name: string, kind: InvestigationItem['kind'], inHouse: boolean, price: number): InvestigationItem => ({ id, name, kind, inHouse, price, active: true })
+type Extra = Partial<Pick<InvestigationItem, 'specimen' | 'container' | 'refRange' | 'tatHours' | 'prep'>>
+const lab = (id: string, name: string, section: string, price: number, specimen: string, container: string, tatHours: number, refRange = '', inHouse = true): InvestigationItem => ({ id, name, kind: 'Laboratory', section, inHouse, price, active: true, specimen, container, tatHours, ...(refRange ? { refRange } : {}) })
+const img = (id: string, name: string, section: string, price: number, tatHours: number, prep = '', inHouse = true, extra: Extra = {}): InvestigationItem => ({ id, name, kind: 'Imaging', section, inHouse, price, active: true, tatHours, ...(prep ? { prep } : {}), ...extra })
 
+/** Starting catalogue. The laboratory head and the head of imaging (or the administrator) add, price and switch items on and off. */
 const investigationSeed = (): InvestigationItem[] => [
-  inv('L01', 'Full blood count', 'Laboratory', true, 12),
-  inv('L02', 'U&E and creatinine', 'Laboratory', true, 15),
-  inv('L03', 'CRP', 'Laboratory', true, 10),
-  inv('L04', 'Liver function tests', 'Laboratory', true, 18),
-  inv('L05', 'High-sensitivity troponin I', 'Laboratory', true, 35),
-  inv('L06', 'Arterial blood gas', 'Laboratory', true, 25),
-  inv('L07', 'Blood cultures x2', 'Laboratory', true, 40),
-  inv('L08', 'Lactate', 'Laboratory', true, 12),
-  inv('L09', 'Coagulation screen', 'Laboratory', true, 20),
-  inv('L10', 'Glucose', 'Laboratory', true, 4),
-  inv('L11', 'Urinalysis', 'Laboratory', true, 5),
-  inv('L12', 'Group and save', 'Laboratory', true, 15),
-  inv('L13', 'HbA1c', 'Laboratory', false, 22),
-  inv('L14', 'Thyroid function tests', 'Laboratory', false, 30),
-  inv('L15', 'Viral load (HIV)', 'Laboratory', false, 60),
-  inv('L16', 'Histopathology', 'Laboratory', false, 85),
-  inv('I01', 'Chest X-ray', 'Imaging', true, 30),
-  inv('I02', 'X-ray limb', 'Imaging', true, 30),
-  inv('I03', 'Ultrasound abdomen', 'Imaging', true, 45),
-  inv('I04', 'Echocardiogram', 'Imaging', true, 80),
-  inv('I05', 'CT head without contrast', 'Imaging', true, 150),
-  inv('I06', 'CT pulmonary angiogram', 'Imaging', false, 220),
-  inv('I07', 'CT abdomen and pelvis', 'Imaging', false, 240),
-  inv('I08', 'MRI brain', 'Imaging', false, 320),
-  inv('I09', 'MRI spine', 'Imaging', false, 340),
-  inv('I10', 'Mammography', 'Imaging', false, 90),
+  // Haematology
+  lab('LB-001', 'Full blood count', 'Haematology', 12, 'Whole blood', 'EDTA (purple)', 2, 'Hb 12–16 g/dL · WBC 4–11 ×10⁹/L · Plt 150–400'),
+  lab('LB-002', 'ESR', 'Haematology', 5, 'Whole blood', 'EDTA (purple)', 2, '< 20 mm/h'),
+  lab('LB-003', 'Peripheral blood film', 'Haematology', 10, 'Whole blood', 'EDTA (purple)', 6),
+  lab('LB-004', 'Coagulation screen', 'Haematology', 20, 'Plasma', 'Citrate (blue)', 3, 'PT 11–14 s · INR 0.8–1.2 · APTT 25–35 s'),
+  lab('LB-005', 'Reticulocyte count', 'Haematology', 8, 'Whole blood', 'EDTA (purple)', 4, '0.5–2.5 %'),
+  // Clinical chemistry
+  lab('LB-010', 'U&E and creatinine', 'Clinical chemistry', 15, 'Serum', 'Plain / SST (gold)', 2, 'Na 135–145 · K 3.5–5.1 · Cr 0.6–1.2 mg/dL'),
+  lab('LB-011', 'Liver function tests', 'Clinical chemistry', 18, 'Serum', 'Plain / SST (gold)', 3),
+  lab('LB-012', 'CRP', 'Clinical chemistry', 10, 'Serum', 'Plain / SST (gold)', 2, '< 5 mg/L'),
+  lab('LB-013', 'Glucose', 'Clinical chemistry', 4, 'Plasma', 'Fluoride (grey)', 1, 'Fasting 70–100 mg/dL'),
+  lab('LB-014', 'HbA1c', 'Clinical chemistry', 22, 'Whole blood', 'EDTA (purple)', 24, '< 5.7 %'),
+  lab('LB-015', 'Lipid profile', 'Clinical chemistry', 20, 'Serum', 'Plain / SST (gold)', 24),
+  lab('LB-016', 'High-sensitivity troponin I', 'Clinical chemistry', 35, 'Serum', 'Plain / SST (gold)', 1, '< 26 ng/L'),
+  lab('LB-017', 'Arterial blood gas', 'Clinical chemistry', 25, 'Arterial blood', 'Heparinised syringe', 0.25),
+  lab('LB-018', 'Lactate', 'Clinical chemistry', 12, 'Plasma', 'Fluoride (grey)', 1, '0.5–2.0 mmol/L'),
+  lab('LB-019', 'Serum electrolytes (Ca, Mg, PO₄)', 'Clinical chemistry', 14, 'Serum', 'Plain / SST (gold)', 3),
+  // Hormones & tumour markers
+  lab('LB-030', 'Thyroid function tests', 'Hormones & tumour markers', 30, 'Serum', 'Plain / SST (gold)', 24, 'TSH 0.4–4.0 mIU/L', false),
+  lab('LB-031', 'Beta-hCG (quantitative)', 'Hormones & tumour markers', 18, 'Serum', 'Plain / SST (gold)', 4),
+  lab('LB-032', 'PSA', 'Hormones & tumour markers', 28, 'Serum', 'Plain / SST (gold)', 48, '< 4 ng/mL', false),
+  lab('LB-033', 'CA-125', 'Hormones & tumour markers', 40, 'Serum', 'Plain / SST (gold)', 72, '< 35 U/mL', false),
+  // Serology & immunology
+  lab('LB-040', 'HIV rapid test', 'Serology & immunology', 6, 'Whole blood', 'EDTA (purple)', 1),
+  lab('LB-041', 'HBsAg', 'Serology & immunology', 8, 'Serum', 'Plain / SST (gold)', 2),
+  lab('LB-042', 'HCV antibody', 'Serology & immunology', 10, 'Serum', 'Plain / SST (gold)', 2),
+  lab('LB-043', 'VDRL / RPR', 'Serology & immunology', 6, 'Serum', 'Plain / SST (gold)', 4),
+  lab('LB-044', 'Widal and Weil-Felix', 'Serology & immunology', 6, 'Serum', 'Plain / SST (gold)', 4),
+  // Microbiology
+  lab('LB-050', 'Blood cultures ×2', 'Microbiology', 40, 'Blood', 'Culture bottles (aerobic + anaerobic)', 72),
+  lab('LB-051', 'Urine culture and sensitivity', 'Microbiology', 20, 'Midstream urine', 'Sterile universal', 48),
+  lab('LB-052', 'Sputum AFB and GeneXpert', 'Microbiology', 25, 'Sputum', 'Sterile sputum pot', 24),
+  lab('LB-053', 'Wound swab culture', 'Microbiology', 18, 'Swab', 'Transport swab', 48),
+  // Parasitology
+  lab('LB-060', 'Malaria blood film / RDT', 'Parasitology', 5, 'Whole blood', 'EDTA (purple)', 1),
+  lab('LB-061', 'Stool examination', 'Parasitology', 5, 'Stool', 'Stool pot', 2),
+  // Urine & body fluids
+  lab('LB-070', 'Urinalysis', 'Urine & body fluids', 5, 'Urine', 'Universal container', 1),
+  lab('LB-071', 'CSF analysis', 'Urine & body fluids', 30, 'CSF', 'Sterile tubes ×3', 4),
+  // Blood bank
+  lab('LB-080', 'Group and save', 'Blood bank', 15, 'Whole blood', 'EDTA (pink)', 1),
+  lab('LB-081', 'Crossmatch', 'Blood bank', 20, 'Whole blood', 'EDTA (pink)', 1),
+  // Molecular
+  lab('LB-090', 'Viral load (HIV)', 'Molecular', 60, 'Plasma', 'EDTA (purple)', 168, '', false),
+  lab('LB-091', 'Hepatitis B viral load', 'Molecular', 70, 'Plasma', 'EDTA (purple)', 168, '', false),
+  // Histopathology & cytology
+  lab('LB-095', 'Histopathology', 'Histopathology & cytology', 85, 'Tissue', 'Formalin pot', 168, '', false),
+  lab('LB-096', 'Cervical cytology (Pap smear)', 'Histopathology & cytology', 25, 'Cervical cells', 'Slide / liquid medium', 120, '', false),
+  lab('LB-097', 'Fine-needle aspiration cytology', 'Histopathology & cytology', 45, 'Aspirate', 'Slides', 72, '', false),
+
+  // X-ray
+  img('IM-001', 'Chest X-ray', 'X-ray', 30, 2),
+  img('IM-002', 'X-ray limb', 'X-ray', 30, 2),
+  img('IM-003', 'X-ray spine', 'X-ray', 35, 2),
+  img('IM-004', 'X-ray abdomen', 'X-ray', 30, 2),
+  img('IM-005', 'X-ray pelvis and hips', 'X-ray', 32, 2),
+  // Ultrasound
+  img('IM-010', 'Ultrasound abdomen', 'Ultrasound', 45, 4, 'Fast 6 hours'),
+  img('IM-011', 'Ultrasound pelvis', 'Ultrasound', 40, 4, 'Full bladder: drink 1 L an hour before'),
+  img('IM-012', 'Obstetric ultrasound', 'Ultrasound', 40, 2),
+  img('IM-013', 'Ultrasound neck and thyroid', 'Ultrasound', 40, 4),
+  img('IM-014', 'Breast ultrasound', 'Ultrasound', 40, 4),
+  img('IM-015', 'Cranial ultrasound (neonatal)', 'Ultrasound', 40, 2),
+  // Echo & Doppler
+  img('IM-020', 'Echocardiogram', 'Echo & Doppler', 80, 24),
+  img('IM-021', 'Doppler lower-limb veins', 'Echo & Doppler', 60, 24),
+  img('IM-022', 'Carotid Doppler', 'Echo & Doppler', 60, 24),
+  // CT
+  img('IM-030', 'CT head without contrast', 'CT', 150, 1),
+  img('IM-031', 'CT pulmonary angiogram', 'CT', 220, 2, 'IV contrast: check kidney function'),
+  img('IM-032', 'CT abdomen and pelvis', 'CT', 240, 4, 'IV contrast; oral contrast 1 hour before'),
+  img('IM-033', 'CT chest', 'CT', 200, 4),
+  img('IM-034', 'CT spine', 'CT', 200, 4),
+  // MRI
+  img('IM-040', 'MRI brain', 'MRI', 320, 24, 'Metal and implant screening'),
+  img('IM-041', 'MRI spine', 'MRI', 340, 24, 'Metal and implant screening'),
+  img('IM-042', 'MRI knee', 'MRI', 300, 48, 'Metal and implant screening'),
+  img('IM-043', 'MRCP', 'MRI', 360, 48, 'Fast 4 hours; metal screening', false),
+  // PET-CT
+  img('IM-050', 'PET-CT (FDG) whole body', 'PET-CT', 1200, 72, 'Fast 6 hours; glucose below 200 mg/dL; no exercise for 24 h', false),
+  // Mammography
+  img('IM-060', 'Mammography', 'Mammography', 90, 48, 'No deodorant or powder on the day', false),
+  // Fluoroscopy
+  img('IM-070', 'Barium swallow', 'Fluoroscopy', 80, 24, 'Nil by mouth 6 hours', false),
+  img('IM-071', 'Hysterosalpingogram (HSG)', 'Fluoroscopy', 90, 24, 'Days 7–10 of the cycle', false),
+  // DEXA
+  img('IM-080', 'DEXA bone density', 'DEXA', 70, 48, 'No calcium tablets for 24 hours', false),
+  // Nuclear medicine
+  img('IM-090', 'Bone scan (Tc-99m)', 'Nuclear medicine', 400, 72, 'Return 3 hours after injection; drink plenty', false),
+  img('IM-091', 'Thyroid scan', 'Nuclear medicine', 250, 48, 'Stop thyroid medicines as advised', false),
+  // Interventional
+  img('IM-100', 'Ultrasound-guided biopsy', 'Interventional', 180, 72, 'Coagulation screen and consent first'),
+  img('IM-101', 'Image-guided drain insertion', 'Interventional', 220, 4, 'Coagulation screen and consent first', false),
 ]
 
-/** Diagnostic providers in Addis Ababa. Contact details are left for the administrator to fill in. */
-const providerSeed = (): ExternalProvider[] => [
-  { id: 'arsho', name: 'Arsho Advanced Medical Laboratories', services: ['Laboratory'], notes: 'Private medical laboratory', phone: '', address: '', active: true },
-  { id: 'icl', name: 'International Clinical Laboratories (ICL)', services: ['Laboratory'], notes: 'Private medical laboratory', phone: '', address: '', active: true },
-  { id: 'wudassie', name: 'Wudassie Diagnostic Center', services: ['Imaging', 'Laboratory'], notes: 'Diagnostic imaging centre', phone: '', address: '', active: true },
-  { id: 'icmc', name: 'ICMC General Hospital', services: ['Imaging', 'Laboratory'], notes: 'Referral hospital with diagnostic services', phone: '', address: '', active: true },
-]
+/** Partner hospitals and diagnostic centres are added by the administrator as agreements are made. Until then, tests not done here go out on a printed request. */
+const providerSeed = (): ExternalProvider[] => []
 
 export function createInitialState(): HospitalState {
   const wards = wardSeed()

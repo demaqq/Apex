@@ -72,7 +72,7 @@ export const ORDER_STAGES: Record<OrderKind, string[]> = {
   'Blood bank': ['Requested', 'Sample received', 'Crossmatched', 'Issued', 'Transfused'],
 }
 
-export const EXTERNAL_STAGES = ['Referred', 'Sample sent or booked', 'Result received']
+export const EXTERNAL_STAGES = ['Sent out', 'Done outside', 'Result entered']
 
 /** Stages for an order: investigations sent to a referral partner follow a shorter pipeline. */
 export function stagesFor(order: Pick<ClinicalOrder, 'kind' | 'externalProviderId'>) {
@@ -205,13 +205,13 @@ export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   // Outpatient tests start only once paid at reception.
   if (order.billing === 'Unpaid' && stage === 0) return false
   // Referred investigations are tracked by the ward team and laboratory/radiology staff.
-  if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'receptionist'].includes(role)
+  if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'laboratory', 'receptionist'].includes(role)
   switch (order.kind) {
-    case 'Laboratory': return role === 'diagnostics' || (stage === 0 && role === 'nurse')
+    case 'Laboratory': return role === 'laboratory' || (stage === 0 && role === 'nurse')
     case 'Imaging': return role === 'diagnostics'
     case 'Medication': return stage === last - 1 ? role === 'nurse' : role === 'pharmacist'
     case 'Procedure': return ['physician', 'consultant', 'theatre'].includes(role)
-    case 'Blood bank': return stage === last - 1 ? role === 'nurse' : role === 'allied' || role === 'diagnostics'
+    case 'Blood bank': return stage === last - 1 ? role === 'nurse' : role === 'allied' || role === 'laboratory'
     default: return role === 'allied'
   }
 }

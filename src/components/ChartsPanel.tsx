@@ -12,6 +12,7 @@ import { useHospital } from '../store/HospitalStore'
 import type { ObservationContext, ObservationSet, Patient } from '../types'
 import { OBSERVATION_CONTEXTS } from '../types'
 import { ObservationsPanel } from './RecordPanels'
+import { sentOutLabel } from '../lib/diagnostics'
 import { Button, Chip, Modal } from './ui'
 
 type CoreView = 'vitals' | 'medications' | 'procedures' | 'investigations' | 'rounds'
@@ -375,13 +376,12 @@ function InvestigationChart({ patient }: { patient: Patient }) {
           <h4>Day {day} · {formatDate(items[0].createdAt)}</h4>
           <ol className="history-list">
             {items.map((order) => {
-              const provider = order.externalProviderId ? state.providers.find((item) => item.id === order.externalProviderId) : undefined
               return (
                 <li key={order.id}>
                   <time>{formatTime(order.createdAt)}</time>
                   <div>
                     <b>{order.kind === 'Imaging' ? <ScanLine size={13} /> : <FlaskConical size={13} />} {order.title}</b>
-                    <small>{order.createdBy} · {provider ? `Referred to ${provider.name}` : 'In-house'} · <span className="mono">{order.id}</span></small>
+                    <small>{order.createdBy} · {order.externalProviderId ? sentOutLabel(order, state.providers) : 'In-house'} · <span className="mono">{order.id}</span></small>
                     {order.result ? <p className="result-line">{order.result}</p> : <p className="muted-text">Awaiting result</p>}<ImageStrip order={order} />
                   </div>
                   <Chip tone={order.status === 'completed' ? 'success' : order.priority === 'emergent' ? 'danger' : 'warning'}>{stagesFor(order)[orderStage(order)]}</Chip>

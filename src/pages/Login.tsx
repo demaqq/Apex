@@ -7,8 +7,7 @@ import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import type { DepartmentId, RoleId } from '../types'
 
-const diagnosticDepartments: DepartmentId[] = ['radiology', 'laboratory']
-const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator']
+const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator']
 
 /** A repeating ECG trace; the bright segment runs along it via CSS. */
 const ECG = 'M0 60 H78 L90 60 L98 26 L106 94 L114 42 L122 60 H198 L210 60 L218 26 L226 94 L234 42 L242 60 H318 L330 60 L338 26 L346 94 L354 42 L362 60 H438 L450 60 L458 26 L466 94 L474 42 L482 60 H600'
@@ -24,9 +23,9 @@ export default function Login() {
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState('')
   const profile = roleProfiles[selected]
-  const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern', 'diagnostics'].includes(selected)
+  const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern'].includes(selected)
   const live = state.departments.filter((item) => item.active !== false)
-  const options = selected === 'diagnostics' ? diagnosticDepartments.filter((id) => live.some((item) => item.id === id)) : live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
+  const options = live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
 
   if (currentRole) return <Navigate to={ROLE_HOME[currentRole]} replace />
 
@@ -83,7 +82,7 @@ export default function Login() {
 
           {canChooseDepartment && (
             <label className="form-field">
-              <span>{selected === 'diagnostics' ? 'Diagnostic service' : 'Department'}</span>
+              <span>Department</span>
               <div className="department-picker">
                 <DepartmentIcon id={department} size={16} />
                 <select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>

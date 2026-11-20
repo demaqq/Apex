@@ -4,6 +4,7 @@ import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
+import { PRINTOUT } from '../lib/diagnostics'
 import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
@@ -105,7 +106,8 @@ interface HospitalContextValue {
   retriage: (patientId: string, vitals: Vitals, esi: Patient['esi'], reason: string) => void
   addReferral: (patientId: string, to: DepartmentId, reason: string, priority: Priority) => void
   updateReferral: (id: string, status: ReferralStatus, recommendation?: string) => void
-  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => void
+  /** Returns the new order's id. `externalProviderId` is a partner id or PRINTOUT for a printed request. */
+  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => string | undefined
   updateOrder: (id: string, status: OrderStatus, result?: string) => void
   transferPatient: (patientId: string, to: DepartmentId, location: string) => void
   addNote: (patientId: string, note: string, title?: string) => void
@@ -162,6 +164,7 @@ interface HospitalContextValue {
   saveDepartment: (department: Department) => void
   removeDepartment: (id: DepartmentId) => void
   saveInvestigation: (item: InvestigationItem) => void
+  canEditCatalogue: (kind: InvestigationItem['kind']) => boolean
   removeInvestigation: (id: string) => void
   saveProvider: (provider: ExternalProvider) => void
   removeProvider: (id: string) => void
@@ -215,8 +218,10 @@ function loadState(): HospitalState {
       theatreCases: mergeById(parsed.theatreCases, seed.theatreCases),
       cosignNotes: mergeById(parsed.cosignNotes, seed.cosignNotes),
       settings: { ...defaultSettings(), ...(parsed.settings ?? {}) },
-      investigations: mergeById(parsed.investigations, seed.investigations),
-      providers: mergeById(parsed.providers, seed.providers),
+      // The catalogue was rebuilt with sections; earlier seed items (L01, I01…) give way to it. Items the hospital added are kept.
+      investigations: mergeById(Array.isArray(parsed.investigations) ? parsed.investigations.filter((item) => !/^[LI]\d\d$/.test(item.id)) : undefined, seed.investigations),
+      // The sample partner list was removed; partners the administrator added are kept.
+      providers: mergeById(Array.isArray(parsed.providers) ? parsed.providers.filter((item) => !['arsho', 'icl', 'wudassie', 'icmc'].includes(item.id)) : undefined, seed.providers),
       stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
       accessGrants: Array.isArray(parsed.accessGrants) ? parsed.accessGrants : [],
     }
@@ -264,6 +269,7 @@ export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
   nurse: ['triage', 'notes', 'vitals', 'administer', 'beds'],
   consultant: ['refer', 'notes', 'discharge', 'cosign', 'prescribe'],
   diagnostics: ['results', 'notes'],
+  laboratory: ['results', 'notes'],
   coordinator: ['transfer', 'notes', 'beds', 'records-export'],
   administrator: ['manage'],
   intern: ['notes', 'vitals', 'prescribe', 'refer'],
@@ -276,7 +282,7 @@ export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
 
 /** Where each role lands after sign-in. */
 export const ROLE_HOME: Record<RoleId, string> = {
-  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/dashboard', coordinator: '/dashboard', administrator: '/dashboard',
+  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard',
   intern: '/patients', pharmacist: '/pharmacy', receptionist: '/front-desk', theatre: '/theatres', allied: '/services', billing: '/billing',
 }
 
@@ -436,11 +442,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const addOrder = useCallback((patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => {
     const actor = actorName('Clinical team')
+    if (!stateRef.current.patients.some((item) => item.id === patientId)) return undefined
+    const id = nextNumber(stateRef.current.orders.map((item) => item.id), 'OR', 8100)
+    const sentOutTo = (providers: ExternalProvider[]) => externalProviderId === PRINTOUT ? 'an outside laboratory or centre (printed request)' : externalProviderId ? providers.find((item) => item.id === externalProviderId)?.name ?? 'a partner facility' : undefined
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return null
-      const id = nextNumber(previous.orders.map((item) => item.id), 'OR', 8100)
-      const external = externalProviderId ? previous.providers.find((item) => item.id === externalProviderId)?.name : undefined
+      if (!patient || previous.orders.some((item) => item.id === id)) return null
+      const external = sentOutTo(previous.providers)
       return {
         next: {
           ...previous,
@@ -450,7 +458,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
       }
     })
-    notify(externalProviderId ? `${kind} referred to ${stateRef.current.providers.find((item) => item.id === externalProviderId)?.name ?? 'external provider'}` : `${kind} order sent to ${unitName(department)}`)
+    notify(externalProviderId ? `${kind} sent to ${sentOutTo(stateRef.current.providers)}` : `${kind} order sent to ${unitName(department)}`)
+    return id
   }, [actorName, commit, notify])
 
   const updateReferral = useCallback((referralId: string, status: ReferralStatus, recommendation?: string) => {
@@ -1359,23 +1368,29 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(inUse ? 'Department has patients, staff or wards, so it was deactivated instead of removed' : 'Department removed', inUse ? 'warning' : 'info')
   }, [actorName, commit, notify])
 
+  /** The administrator, or the laboratory / imaging head for their own catalogue. */
+  const canEditCatalogue = useCallback((kind: InvestigationItem['kind']) => can('manage') || can(kind === 'Imaging' ? 'imaging-catalogue' : 'lab-catalogue'), [can])
+
   const saveInvestigation = useCallback((item: InvestigationItem) => {
+    if (!canEditCatalogue(item.kind)) { notify(`Only the administrator or the ${item.kind === 'Imaging' ? 'head of imaging' : 'laboratory head'} can change this catalogue`, 'warning'); return }
     const actor = actorName('Administrator')
     commit((previous) => {
       const exists = previous.investigations.some((candidate) => candidate.id === item.id)
       return { next: { ...previous, investigations: exists ? previous.investigations.map((candidate) => candidate.id === item.id ? item : candidate) : [...previous.investigations, item] }, actor, action: `${exists ? 'updated' : 'added'} investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
     })
-  }, [actorName, commit])
+  }, [actorName, commit, canEditCatalogue, notify])
 
   const removeInvestigation = useCallback((id: string) => {
     const actor = actorName('Administrator')
+    const target = stateRef.current.investigations.find((candidate) => candidate.id === id)
+    if (target && !canEditCatalogue(target.kind)) { notify('You cannot change this catalogue', 'warning'); return }
     commit((previous) => {
       const item = previous.investigations.find((candidate) => candidate.id === id)
       if (!item) return null
       return { next: { ...previous, investigations: previous.investigations.filter((candidate) => candidate.id !== id) }, actor, action: `removed investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
     })
     notify('Investigation removed', 'info')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, canEditCatalogue])
 
   const saveProvider = useCallback((provider: ExternalProvider) => {
     const actor = actorName('Administrator')
@@ -1506,7 +1521,6 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const specialtyProfile = { ...base, department: departmentId }
     if (currentRole === 'physician') return { ...specialtyProfile, title: `${department.shortName} Physician`, workspace: `${department.shortName} clinical command`, headline: `Your ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} patients, first.`, description: `Specialty-specific inpatient and outpatient review, diagnostics and referrals for ${department.name}.` }
     if (currentRole === 'nurse') return { ...specialtyProfile, title: `${department.shortName} Nurse`, workspace: `${department.shortName} nursing workspace`, headline: `Safe, coordinated ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} care.`, description: `A focused nursing census with inpatient observations, outpatient flow and shared handoffs across ${department.name}.` }
-    if (currentRole === 'diagnostics') return { ...specialtyProfile, title: `${department.name} Specialist`, workspace: `${department.shortName} worklist`, headline: departmentId === 'laboratory' ? 'Return critical results, faster.' : base.headline, description: departmentId === 'laboratory' ? 'Prioritised specimens, analytical progress and verified results returned directly to the clinical episode.' : base.description }
     return specialtyProfile
   }, [currentRole, currentDepartment, state.departments])
 
@@ -1590,9 +1604,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }
