@@ -5,9 +5,10 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { Brand, Button, DepartmentIcon, Modal } from '../components/ui'
 import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
+import { isOn, moduleForRole } from '../lib/modules'
 import type { DepartmentId, RoleId } from '../types'
 
-const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator']
+const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
 
 /** A repeating ECG trace; the bright segment runs along it via CSS. */
 const ECG = 'M0 60 H78 L90 60 L98 26 L106 94 L114 42 L122 60 H198 L210 60 L218 26 L226 94 L234 42 L242 60 H318 L330 60 L338 26 L346 94 L354 42 L362 60 H438 L450 60 L458 26 L466 94 L474 42 L482 60 H600'
@@ -74,6 +75,7 @@ export default function Login() {
                 <motion.button type="button" role="radio" aria-checked={selected === roleId} key={roleId} className={selected === roleId ? 'selected' : ''} onClick={() => choose(roleId)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} style={{ '--role': role.accent } as CSSProperties}>
                   <b>{role.name}</b>
                   <span>{role.title}</span>
+                  {moduleForRole(roleId) && !isOn(state.settings, moduleForRole(roleId)!.id) && <small className="role-tile-off">Not in this facility’s plan</small>}
                   {selected === roleId && <Check size={14} className="role-tile-check" />}
                 </motion.button>
               )
@@ -127,7 +129,7 @@ function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubm
       <div className="form-grid form-grid-2">
         <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="form-field"><span>Work email <b>*</b></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label className="form-field"><span>Profession</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{ROLE_ORDER.filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Profession</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{ROLE_ORDER.filter((id) => id !== 'administrator' && id !== 'provider').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field span-2"><span>Specialty, unit or licence number</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
       </div>

@@ -1,4 +1,4 @@
-export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'radiographer' | 'laboratory' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
+export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'radiographer' | 'laboratory' | 'coordinator' | 'administrator' | 'provider' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
 
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
@@ -11,7 +11,7 @@ export type Priority = 'routine' | 'urgent' | 'emergent'
 export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
-export type Permission = 'clinical-notes' | 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
+export type Permission = 'pricing' | 'clinical-notes' | 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
   | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export' | 'lab-catalogue' | 'imaging-catalogue'
 
 export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer' | 'lab-head' | 'imaging-head'
@@ -572,8 +572,10 @@ export interface FacilitySettings {
   phone: string
   email: string
   currency: 'ETB' | 'USD' | 'EUR' | 'GBP' | 'KES'
-  /** Paths of modules switched off for this facility. */
+  /** Paths of modules switched off for this facility (older setting; see offModules). */
   disabledModules: string[]
+  /** Modules the client has switched off. Everything else is on and billed. */
+  offModules?: ModuleId[]
   /** Reception tariff. */
   fees?: ReceptionFees
   /** Consultation rooms per department OPD (default 3). */
@@ -737,4 +739,26 @@ export interface HospitalState {
   providers: ExternalProvider[]
   stockMovements: StockMovement[]
   accessGrants: AccessGrant[]
+  /** The SaaS provider's price list, set from the platform console. */
+  pricing: PriceList
+}
+
+/* ---------- Subscription ---------- */
+
+export type ModuleId = 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
+
+export interface PriceList {
+  currency: 'USD' | 'ETB' | 'EUR'
+  /** Monthly platform fee: records, staff, roles, audit, administration. */
+  platform: number
+  /** Monthly fee per switched-on module. */
+  modules: Record<ModuleId, number>
+  perDepartment: number
+  includedDepartments: number
+  perUser: number
+  includedUsers: number
+  perBed: number
+  perVisit: number
+  perLabTest: number
+  perImagingStudy: number
 }

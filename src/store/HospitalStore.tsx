@@ -5,9 +5,13 @@ import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visit
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
 import { setCurrency } from '../lib/format'
 import { PRINTOUT } from '../lib/diagnostics'
+import { DEFAULT_PRICES, isOn, moduleForRole } from '../lib/modules'
+import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
+  ModuleId,
+  PriceList,
   ClinicalOrder,
   DepartmentId,
   HospitalState,
@@ -161,6 +165,8 @@ interface HospitalContextValue {
   /** Why the given role cannot sign in (pending approval or suspended), or null. */
   signInBlock: (role: RoleId) => string | null
   updateSettings: (changes: Partial<FacilitySettings>) => void
+  setModules: (offModules: ModuleId[], what: string) => void
+  savePricing: (pricing: PriceList) => void
   saveDepartment: (department: Department) => void
   removeDepartment: (id: DepartmentId) => void
   saveInvestigation: (item: InvestigationItem) => void
@@ -225,6 +231,7 @@ function loadState(): HospitalState {
       providers: mergeById(Array.isArray(parsed.providers) ? parsed.providers.filter((item) => !['arsho', 'icl', 'wudassie', 'icmc'].includes(item.id)) : undefined, seed.providers),
       stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
       accessGrants: Array.isArray(parsed.accessGrants) ? parsed.accessGrants : [],
+      pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
     return seed
@@ -275,6 +282,7 @@ export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
   laboratory: ['results', 'notes'],
   coordinator: ['transfer', 'notes', 'beds', 'records-export'],
   administrator: ['manage'],
+  provider: ['pricing'],
   intern: ['notes', 'clinical-notes', 'vitals', 'prescribe', 'refer'],
   pharmacist: ['dispense', 'notes'],
   receptionist: ['register'],
@@ -285,7 +293,7 @@ export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
 
 /** Where each role lands after sign-in. */
 export const ROLE_HOME: Record<RoleId, string> = {
-  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', radiographer: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard',
+  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', radiographer: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard', provider: '/platform',
   intern: '/patients', pharmacist: '/pharmacy', receptionist: '/front-desk', theatre: '/theatres', allied: '/services', billing: '/billing',
 }
 
@@ -301,6 +309,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   stateRef.current = state
   setCurrency(state.settings.currency)
   liveDepartments = state.departments
+  setReceptionGate(isOn(state.settings, 'reception'))
 
   useEffect(() => {
     const timers = toastTimers.current
@@ -1355,6 +1364,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const member = stateRef.current.staff.find((item) => item.roleId === role)
     if (member?.suspended) return `${member.name}'s account is suspended. Ask the administrator to reactivate it.`
     if (member?.status === 'Pending approval') return `${member.name}'s account is waiting for administrator approval.`
+    const needed = moduleForRole(role)
+    if (needed && !isOn(stateRef.current.settings, needed.id)) return `${stateRef.current.settings.name} has not switched on ${needed.name}. The administrator can add it under Administration → Plan & modules.`
     return null
   }, [])
 
@@ -1363,6 +1374,21 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, ...changes } }, actor, action: `updated facility settings (${Object.keys(changes).join(', ')})`, department: 'emergency' }))
     notify('Settings saved')
   }, [actorName, commit, notify])
+
+  /** The client switches modules on or off. Data is kept; switched-off parts are hidden and not billed. */
+  const setModules = useCallback((offModules: ModuleId[], what: string) => {
+    if (!can('manage')) { notify('Only the administrator can change the plan', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, offModules } }, actor, action: what, department: 'emergency' }))
+    notify(what.charAt(0).toUpperCase() + what.slice(1))
+  }, [actorName, can, commit, notify])
+
+  /** The SaaS provider's price list. */
+  const savePricing = useCallback((pricing: PriceList) => {
+    if (!can('pricing')) { notify('Only the platform provider sets prices', 'warning'); return }
+    commit((previous) => ({ next: { ...previous, pricing }, actor: 'Northstar Cloud', action: 'updated the price list', department: 'emergency' }))
+    notify('Price list saved')
+  }, [can, commit, notify])
 
   const saveDepartment = useCallback((department: Department) => {
     const actor = actorName('Administrator')
@@ -1618,14 +1644,14 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<HospitalContextValue>(() => ({
     state: scopedState, currentRole, profile, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
-    login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : guardedSelect,
+    login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, setModules, savePricing, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

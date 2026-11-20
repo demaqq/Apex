@@ -198,12 +198,17 @@ export const ESI_TARGET_MINUTES: Record<number, number> = { 1: 0, 2: 10, 3: 30, 
 
 /* ---------------- Who may move an order forward ---------------- */
 
+let receptionGate = true
+/** Set by the store: without the reception module there is no cashier, so unpaid tests are not held. */
+export const setReceptionGate = (on: boolean) => { receptionGate = on }
+
 export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   const stage = orderStage(order)
   const last = stagesFor(order).length - 1
   if (stage >= last || role === 'administrator') return false
   // Outpatient tests start only once paid at reception.
-  if (order.billing === 'Unpaid' && stage === 0) return false
+  if (receptionGate && order.billing === 'Unpaid' && stage === 0) return false
+  if (role === 'provider') return false
   // Referred investigations are tracked by the ward team and laboratory/radiology staff.
   if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'laboratory', 'receptionist'].includes(role)
   switch (order.kind) {

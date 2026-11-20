@@ -43,6 +43,7 @@ const Theatres = lazy(() => import('./pages/Theatres'))
 const Services = lazy(() => import('./pages/Services'))
 const Review = lazy(() => import('./pages/Review'))
 const Admin = lazy(() => import('./pages/Admin'))
+const Platform = lazy(() => import('./pages/Platform'))
 const SpecialtyDashboard = lazy(() => import('./pages/SpecialtyDashboard'))
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
             <Route path="/services" element={<Services />} />
             <Route path="/review" element={<Review />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/platform" element={<Platform />} />
             <Route path="/specialty" element={<SpecialtyDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Route>

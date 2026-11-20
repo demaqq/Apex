@@ -1,3 +1,4 @@
+import { DEFAULT_PRICES } from './lib/modules'
 import type {
   ExternalProvider,
   FacilitySettings,
@@ -111,6 +112,21 @@ export const roleProfiles: Record<RoleId, RoleProfile> = {
     description: 'Schedule and acquire studies, run the safety checks and attach images. The radiologist reports.',
     focus: ['Studies to schedule', 'Safety checks', 'Images to attach'],
     accent: '#8a5aa8',
+  },
+  provider: {
+    id: 'provider',
+    name: 'Northstar Cloud',
+    title: 'Platform owner · SaaS provider',
+    shortTitle: 'Provider',
+    employeeId: 'NC-0001',
+    department: 'emergency',
+    initials: 'NC',
+    shift: '24/7',
+    workspace: 'Platform console',
+    headline: 'Prices and plans for your clients.',
+    description: 'Set the price list, see each client’s modules and usage, and preview the monthly invoice.',
+    focus: ['Price list', 'Client plan', 'Monthly invoice'],
+    accent: '#334155',
   },
   laboratory: {
     id: 'laboratory',
@@ -808,6 +824,7 @@ export function createInitialState(): HospitalState {
     investigations: investigationSeed(),
     providers: providerSeed(),
     stockMovements: [],
+    pricing: { ...DEFAULT_PRICES, modules: { ...DEFAULT_PRICES.modules } },
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },

@@ -7,6 +7,7 @@ import { formatCurrency, formatTime, minutesSince } from '../lib/format'
 import { useNow } from '../lib/hooks'
 import { BILLING_TONE, DEFAULT_FEES, opdDepartments, PAYERS, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { useHospital } from '../store/HospitalStore'
+import { doneHere } from '../lib/diagnostics'
 import type { DepartmentId, Patient, Payer, Vitals, VisitType } from '../types'
 
 const METHODS = [['Cash', Banknote], ['Card', CreditCard], ['Mobile money', Smartphone]] as const
@@ -121,7 +122,7 @@ function CheckInPanel() {
     return state.patients.filter((p) => p.name.toLowerCase().includes(q) || p.mrn.toLowerCase().includes(q) || (p.phone ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, ''))).slice(0, 6)
   }, [search, state.patients, existing])
   const active = existing && !['discharged'].includes(existing.status) && existing.visit && existing.status !== 'awaiting-payment'
-  const catalogue = state.investigations.filter((item) => item.active && item.inHouse)
+  const catalogue = state.investigations.filter((item) => item.active && doneHere(item, state.settings))
   const priced = tests.map((t) => ({ name: t, price: catalogue.find((c) => c.name === t)?.price ?? 0 }))
   const effectiveDept = type === 'Emergency' ? 'emergency' : type === 'Investigation' ? (priced.length && catalogue.find((c) => c.name === tests[0])?.kind === 'Imaging' ? 'radiology' : 'laboratory') : department
   const charges = visitCharges({ returning: Boolean(existing), type, department: effectiveDept, tests: type === 'Investigation' ? priced : [] }, fees)

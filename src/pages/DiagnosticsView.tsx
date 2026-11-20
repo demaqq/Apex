@@ -124,7 +124,7 @@ export default function DiagnosticsView({ kind }: { kind: Kind }) {
                         <span className="dx-meta"><Chip tone="neutral">{groupOf(order)}</Chip>{!imaging && item?.specimen && <small>{item.specimen}{item.container ? ` · ${item.container}` : ''}</small>}{item?.tatHours && <small>TAT {item.tatHours < 1 ? `${Math.round(item.tatHours * 60)} min` : `${item.tatHours} h`}</small>}</span>
                         {imaging && modality && !isSentOut(order) && order.status !== 'completed' && <span className="dx-checks">{imagingChecks(patient, modality, state.orders, item?.prep).map((check) => <Chip key={check.text} tone={check.tone}>{check.text}</Chip>)}</span>}
                         <small>{order.id}{isSentOut(order) ? ` · ${sentOutLabel(order, state.providers)}` : ''}</small>
-                        {order.billing === 'Unpaid' && <Chip tone="warning">Awaiting payment at reception</Chip>}
+                        {order.billing === 'Unpaid' && !(state.settings.offModules ?? []).includes('reception') && <Chip tone="warning">Awaiting payment at reception</Chip>}
                         {imaging && <ImageStrip order={order} compact />}
                       </td>
                       <td>{patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}</td>

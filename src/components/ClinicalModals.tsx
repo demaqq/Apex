@@ -5,7 +5,7 @@ import { stagesFor } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, DepartmentId, Patient, Priority, Referral, Vitals } from '../types'
 import { Button, EsiBadge, Modal } from './ui'
-import { catalogueItem, PRINTOUT, sentOutLabel } from '../lib/diagnostics'
+import { catalogueItem, doneHere, PRINTOUT, sentOutLabel } from '../lib/diagnostics'
 import { RequestFormModal } from './RequestForm'
 import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 
@@ -186,7 +186,7 @@ const orderTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; depart
 export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient; open: boolean; onClose: () => void; kind?: ClinicalOrder['kind'] }) {
   const { state, addOrder } = useHospital()
   // Lab and imaging come from the administrator's catalogue; other services keep their templates.
-  const catalogue = state.investigations.filter((item) => item.active).map((item) => ({ title: item.name, kind: item.kind as ClinicalOrder['kind'], department: (item.kind === 'Imaging' ? 'radiology' : 'laboratory') as DepartmentId, inHouse: item.inHouse, group: item.section ?? 'Other', prep: item.prep }))
+  const catalogue = state.investigations.filter((item) => item.active).map((item) => ({ title: item.name, kind: item.kind as ClinicalOrder['kind'], department: (item.kind === 'Imaging' ? 'radiology' : 'laboratory') as DepartmentId, inHouse: doneHere(item, state.settings), group: item.section ?? 'Other', prep: item.prep }))
   const allTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; department: DepartmentId; inHouse: boolean; group?: string; prep?: string }> = [...catalogue, ...orderTemplates.filter((item) => !['Laboratory', 'Imaging'].includes(item.kind)).map((item) => ({ ...item, inHouse: true }))]
   const templates = kind ? allTemplates.filter((item) => item.kind === kind) : allTemplates
   const [performAt, setPerformAt] = useState('in-house')

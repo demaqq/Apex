@@ -10,6 +10,9 @@ export type Modality = (typeof MODALITIES)[number]
 /** Value stored in `externalProviderId` for a test sent out on a printed request form. */
 export const PRINTOUT = 'printout'
 
+/** Done here only if the item is offered in-house and the facility has the laboratory / imaging module switched on. */
+export const doneHere = (item: Pick<InvestigationItem, 'inHouse' | 'kind'>, settings: Pick<FacilitySettings, 'offModules'>) => item.inHouse && !(settings.offModules ?? []).includes(item.kind === 'Imaging' ? 'imaging' : 'laboratory')
+
 export const isSentOut = (order: Pick<ClinicalOrder, 'externalProviderId'>) => Boolean(order.externalProviderId)
 
 /** Where a sent-out test went, in words. */

@@ -7,7 +7,7 @@ import { news2, newsTone, prescribingWarnings } from '../lib/clinical'
 import { formatDate, formatTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { Patient, Priority, TimelineEvent, Vitals } from '../types'
-import { PRINTOUT, sentOutLabel } from '../lib/diagnostics'
+import { doneHere, PRINTOUT, sentOutLabel } from '../lib/diagnostics'
 import { RequestFormModal } from './RequestForm'
 import { Avatar, Chip, OrderStepper } from './ui'
 
@@ -94,7 +94,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
   const providerFor = (title: string) => {
     const item = fullCatalogue.find((entry) => entry.name === title)
     if (partner !== 'auto') return partner
-    return item && !item.inHouse ? PRINTOUT : undefined
+    return item && !doneHere(item, state.settings) ? PRINTOUT : undefined
   }
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' }) }, [events.length])
@@ -178,7 +178,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
               {mode === 'history' && HISTORY_PROMPTS.map((prompt) => <button key={prompt} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(prompt)}>+ {prompt.replace(': ', '')}</button>)}
               {mode === 'exam' && EXAM_NORMALS.map(([label, line]) => <button key={label} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(line)}>+ {label} normal</button>)}
               {(mode === 'labs' || mode === 'imaging') && <>
-                {catalogue.map(({ name: item, inHouse }) => <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''} ${inHouse ? '' : 'external'}`} aria-pressed={picked.includes(item)} title={inHouse ? 'Done here' : 'Not done here: printed request for an outside lab or centre'} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}{!inHouse && <span className="pick-tag">outside</span>}</button>)}
+                {catalogue.map(({ name: item, ...entry }) => { const inHouse = doneHere(entry, state.settings); return <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''} ${inHouse ? '' : 'external'}`} aria-pressed={picked.includes(item)} title={inHouse ? 'Done here' : 'Not done here: printed request for an outside lab or centre'} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}{!inHouse && <span className="pick-tag">outside</span>}</button> })}
                 <span className="pick-sep" />
                 {(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} type="button" className={`pick priority ${priority === value ? `on ${value}` : ''}`} onClick={() => setPriority(value)}>{value}</button>)}
                 <label className="pick-select"><span>{orderKind === 'Imaging' ? 'Modality' : 'Section'}</span><select value={section} onChange={(event) => setSection(event.target.value)}><option value="All">All</option>{sections.map((name) => <option key={name}>{name}</option>)}</select></label>

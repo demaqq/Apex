@@ -1,4 +1,4 @@
-import { DoorOpen, ScanLine, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
+import { Cloud, DoorOpen, ScanLine, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
 import type { RoleId } from '../types'
 
 export interface NavItem {
@@ -51,15 +51,17 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/billing', label: 'Billing & claims', page: 'Billing & claims', icon: Receipt, roles: ['billing'] },
     { to: '/audit', label: 'Codes & audit', page: 'Emergency codes & audit', icon: ShieldAlert, roles: 'all' },
     { to: '/admin', label: 'Administration', page: 'Administration', icon: ShieldCheck, roles: ['administrator'], key: 'x' },
+    { to: '/platform', label: 'Platform console', page: 'Platform console', icon: Cloud, roles: ['provider'] },
   ] },
 ]
 
 export const ALL_NAV = NAV_SECTIONS.flatMap((section) => section.items)
 
-export const canSee = (item: NavItem, role: RoleId) => item.roles === 'all' || item.roles.includes(role)
+/** The SaaS provider works only in the platform console and never sees hospital pages. */
+export const canSee = (item: NavItem, role: RoleId) => item.roles === 'all' ? role !== 'provider' : item.roles.includes(role)
 
 /** Modules the administrator can never switch off. */
-export const CORE_MODULES = ['/dashboard', '/admin', '/audit', '/staff']
+export const CORE_MODULES = ['/dashboard', '/admin', '/audit', '/staff', '/platform', '/patients', '/flow']
 
 export const moduleEnabled = (path: string, disabled: string[]) => CORE_MODULES.includes(path) || !disabled.includes(path)
 

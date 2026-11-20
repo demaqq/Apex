@@ -3,18 +3,19 @@ import { motion } from 'framer-motion'
 import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Network, Plus, Printer, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
 import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
-import { ALL_NAV, CORE_MODULES } from '../lib/nav'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
 import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
 import { nested } from '../lib/access'
 import { CatalogueEditor } from '../components/CatalogueEditor'
+import { BillSummary } from '../components/PlanBill'
+import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
-import type { Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import type { ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
 type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
-  'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
+  pricing: 'Set platform prices (provider only)', 'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
   refer: 'Refer to specialists', transfer: 'Transfer and admit', discharge: 'Discharge patients', cosign: 'Co-sign trainee notes', results: 'Report lab and imaging results',
   administer: 'Give medicines', dispense: 'Verify and dispense medicines', beds: 'Manage beds', theatre: 'Run theatre lists', anaesthesia: 'Anaesthesia records',
   services: 'Physio, nutrition and blood bank', billing: 'Billing and payments', manage: 'Facility administration',
@@ -44,7 +45,7 @@ export default function Admin() {
         { value: 'departments', label: 'Departments', count: state.departments.filter((item) => item.active !== false).length },
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
         { value: 'providers', label: 'Partner facilities', count: state.providers.filter((item) => item.active).length || undefined },
-        { value: 'modules', label: 'Modules' },
+        { value: 'modules', label: 'Plan & modules' },
       ]} />
       {view === 'facility' && <FacilityTab />}
       {view === 'users' && <UsersTab />}
@@ -248,7 +249,7 @@ function AddUserModal({ onClose, onSave }: { onClose: () => void; onSave: (input
     <Modal open onClose={onClose} title="Add a user" subtitle="Accounts you add are approved straight away" size="md">
       <div className="form-grid form-grid-2">
         <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator' && id !== 'provider' && (!moduleForRole(id) || isOn(state.settings, moduleForRole(id)!.id))).map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field"><span>Specialty or unit</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
       </div>
@@ -391,26 +392,55 @@ function ProviderModal({ provider, onClose, onSave }: { provider: ExternalProvid
 /* ---------------- Modules ---------------- */
 
 function ModulesTab() {
-  const { state, updateSettings } = useHospital()
-  const disabled = state.settings.disabledModules
-  const toggle = (path: string) => updateSettings({ disabledModules: disabled.includes(path) ? disabled.filter((item) => item !== path) : [...disabled, path] })
+  const { state, setModules } = useHospital()
+  const off = state.settings.offModules ?? []
+  const prices = state.pricing
+  const locks = lockedOn(state.settings)
+  const [pkg, setPkg] = useState<string | null>(null)
+  const toggle = (id: ModuleId) => {
+    const name = moduleById(id).name
+    if (off.includes(id)) {
+      const next = withRequirements(off, id)
+      const extra = (moduleById(id).requires ?? []).filter((need) => off.includes(need)).map((need) => moduleById(need).name)
+      setModules(next, `switched on ${name}${extra.length ? ` (and ${extra.join(', ')})` : ''}`)
+    } else if (!locks[id]) setModules([...off, id], `switched off ${name}`)
+  }
+  const chosen = PACKAGES.find((item) => item.id === pkg)
   return (
-    <Panel title="Modules" action={<LayoutGrid size={17} className="muted-icon" />}>
-      <p className="table-footnote admin-note">Switch off anything your facility doesn’t use — for example a clinic without theatres or inpatient beds. Switched-off modules disappear for everyone.</p>
-      <div className="module-grid">
-        {ALL_NAV.filter((item) => !CORE_MODULES.includes(item.to)).map((item) => {
-          const Icon = item.icon
-          const on = !disabled.includes(item.to)
-          return (
-            <label key={item.to} className={`module-tile ${on ? 'on' : ''}`}>
-              <span className="module-icon"><Icon size={18} /></span>
-              <span><b>{item.label}</b><small>{item.page}</small></span>
-              <span className="switch"><input type="checkbox" checked={on} onChange={() => toggle(item.to)} aria-label={`${item.label} ${on ? 'on' : 'off'}`} /><span /></span>
-            </label>
-          )
-        })}
+    <div className="plan-layout">
+      <div className="plan-modules">
+        <Panel title="Plan & modules" action={<LayoutGrid size={17} className="muted-icon" />}>
+          <p className="table-footnote admin-note">Choose the parts of the system your facility uses. Each module adds its pages, sign-in accounts and a monthly fee; switched-off modules disappear for everyone and stop being billed. Patient records, staff, roles, audit and administration are always included. Your data is kept when you switch something off.</p>
+          <div className="package-row">{PACKAGES.map((item) => <button key={item.id} type="button" className="package-card" onClick={() => setPkg(item.id)}><b>{item.name}</b><span>{item.description}</span><small>{item.on.length} modules</small></button>)}</div>
+          {MODULE_GROUPS.map((group) => (
+            <div key={group} className="module-group">
+              <span className="detail-heading">{group}</span>
+              <div className="module-grid">
+                {MODULES.filter((item) => item.group === group).map((item) => {
+                  const on = !off.includes(item.id)
+                  const lock = on ? locks[item.id] : undefined
+                  return (
+                    <label key={item.id} className={`module-tile ${on ? 'on' : ''} ${lock ? 'locked' : ''}`} title={lock}>
+                      <span><b>{item.name}</b><small>{item.description}</small>{lock && <em className="module-lock">{lock}</em>}{!on && item.requires?.length ? <em className="module-lock">Also switches on {item.requires.map((need) => moduleById(need).name).join(', ')}</em> : null}</span>
+                      <span className="module-price">{money(prices.modules[item.id] ?? 0, prices.currency)}<small>/month</small></span>
+                      <span className="switch"><input type="checkbox" checked={on} disabled={Boolean(lock)} onChange={() => toggle(item.id)} aria-label={`${item.name} ${on ? 'on' : 'off'}`} /><span /></span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <p className="table-footnote"><Building2 size={13} /> Departments and units are added or deactivated under Departments; each active clinical department beyond the first {prices.includedDepartments} adds {money(prices.perDepartment, prices.currency)} a month.</p>
+        </Panel>
       </div>
-      <p className="table-footnote"><Building2 size={13} /> Overview, roster and pagers, codes and audit, and administration are always on.</p>
-    </Panel>
+      <div className="plan-bill"><BillSummary /></div>
+      {chosen && (
+        <Modal open onClose={() => setPkg(null)} title={`Switch to the ${chosen.name} package?`} subtitle={chosen.description} size="sm">
+          <p className="record-hint">On: {chosen.on.map((id) => moduleById(id).name).join(', ')}.</p>
+          {MODULES.some((item) => !chosen.on.includes(item.id)) && <p className="record-hint">Off: {MODULES.filter((item) => !chosen.on.includes(item.id)).map((item) => item.name).join(', ')}.</p>}
+          <div className="modal-footer"><Button variant="ghost" onClick={() => setPkg(null)}>Cancel</Button><Button onClick={() => { setModules(MODULES.filter((item) => !chosen.on.includes(item.id)).map((item) => item.id), `chose the ${chosen.name} package`); setPkg(null) }}>Use this package</Button></div>
+        </Modal>
+      )}
+    </div>
   )
 }
