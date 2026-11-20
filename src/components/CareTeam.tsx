@@ -6,7 +6,7 @@ import { useHospital } from '../store/HospitalStore'
 import type { DepartmentId, Patient } from '../types'
 import { Button, Chip, DepartmentIcon } from './ui'
 
-const REASON_TONE: Record<LinkReason, 'accent' | 'success' | 'warning' | 'neutral' | 'danger'> = { Assigned: 'accent', OPD: 'accent', Consultation: 'warning', Comorbidity: 'success', 'Shared care': 'neutral', 'Emergency access': 'danger' }
+const REASON_TONE: Record<LinkReason, 'accent' | 'success' | 'warning' | 'neutral' | 'danger'> = { Assigned: 'accent', OPD: 'accent', Consultation: 'warning', Comorbidity: 'success', 'Shared care': 'neutral', 'Theatre list': 'warning', 'Emergency access': 'danger' }
 
 /** Which departments can see this patient, and why. */
 export function CareTeam({ patient }: { patient: Patient }) {
@@ -15,7 +15,7 @@ export function CareTeam({ patient }: { patient: Patient }) {
   const [department, setDepartment] = useState<DepartmentId>('internal-medicine')
   const [reason, setReason] = useState<'Comorbidity' | 'Shared care'>('Comorbidity')
   const [note, setNote] = useState('')
-  const links = careLinks(patient, state.referrals)
+  const links = careLinks(patient, state.referrals, state.theatreCases)
   const departments = [...new Set(links.map((link) => link.department))]
   const canEdit = can('notes') && patient.status !== 'discharged'
   const options = state.departments.filter((d) => d.active !== false && !departments.includes(d.id) && !['laboratory', 'radiology', 'pharmacy'].includes(d.id))

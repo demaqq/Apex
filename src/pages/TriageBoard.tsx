@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, ArrowDownUp, Check, ChevronRight, Clock3, Filt
 import { useEffect, useMemo, useState } from 'react'
 import { RetriageModal, TriageModal } from '../components/ClinicalModals'
 import { Avatar, Button, EmptyState, EsiBadge, Metric, PageHeader, Panel, StatusBadge } from '../components/ui'
-import { esiLabels } from '../data'
+import { departmentById, esiLabels } from '../data'
 import { formatWait, minutesSince, relativeTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { Patient } from '../types'
@@ -43,7 +43,7 @@ export default function TriageBoard() {
   return <motion.div className="triage-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
     <PageHeader eyebrow="EMERGENCY MEDICINE · LIVE SAFETY BOARD" title="Triage & waiting room" description="Prioritise arrivals, monitor deterioration and keep every reassessment visible." actions={<><Button variant="secondary" icon={RefreshCw} className={refreshing ? 'is-spinning' : ''} onClick={refresh}>Refresh</Button>{canEmergencyTriage && <Button icon={Plus} onClick={() => setTriageOpen(true)}>New patient triage</Button>}</>} />
     {registered.length > 0 && <Panel title="Registered, awaiting triage" className="awaiting-panel" action={<span className="panel-count">{registered.length} WAITING</span>}>
-      <div className="card-grid" style={{ padding: 14 }}>{registered.map((patient) => <article key={patient.id} className="work-card priority-urgent"><header><b>{patient.name}</b><span className="mono muted-text">{patient.mrn}</span><span className="muted-text">{minutesSince(patient.arrival, now)} min</span></header><p className="work-card-reason">{patient.complaint}</p><footer><small>{patient.age} y · {patient.insurance ?? 'Self-pay'}</small>{can('triage') && <Button size="sm" icon={Plus} onClick={() => setEvaluating(patient)}>Evaluate</Button>}</footer></article>)}</div>
+      <div className="card-grid" style={{ padding: 14 }}>{registered.map((patient) => <article key={patient.id} className="work-card priority-urgent"><header><b>{patient.name}</b>{patient.visit && <span className="mono opd-token">{patient.visit.queueNo}</span>}<span className="mono muted-text">{patient.mrn}</span><span className="muted-text">{minutesSince(patient.arrival, now)} min</span></header><p className="work-card-reason">{patient.complaint}</p><footer><small>{patient.age} y · {patient.visit ? `${patient.visit.type === 'OPD' ? `to ${departmentById(state.departments, patient.visit.department).shortName} OPD` : patient.visit.type} · ${patient.visit.billing === 'Deferred' ? 'bill later' : patient.visit.billing.toLowerCase()}` : patient.insurance ?? 'Self-pay'}</small>{can('triage') && <Button size="sm" icon={Plus} onClick={() => setEvaluating(patient)}>Evaluate</Button>}</footer></article>)}</div>
     </Panel>}
     <div className="metrics-grid triage-metrics">
       <Metric label="Waiting now" value={waiting.length} detail={`${emergency.length} total active in Emergency`} icon={UsersRound} tone="blue" />

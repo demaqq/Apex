@@ -23,9 +23,9 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
   { label: 'Clinical', items: [
     { to: '/dashboard', label: 'Overview', page: 'Overview', icon: LayoutDashboard, roles: CLASSIC, key: 'g' },
     { to: '/specialty', label: 'Department dashboard', page: 'Department dashboard', icon: Stethoscope, roles: ['physician', 'consultant', 'intern', 'nurse'], key: 'y', specialty: true },
-    { to: '/front-desk', label: 'Reception', page: 'Reception & billing', icon: UserPlus, roles: ['receptionist', 'physician', 'nurse', 'billing', 'coordinator'], key: 'n' },
+    { to: '/front-desk', label: 'Reception', page: 'Reception & billing', icon: UserPlus, roles: ['receptionist', 'billing'], key: 'n' },
     { to: '/opd', label: 'OPD clinics', page: 'Outpatient clinics (OPD)', icon: DoorOpen, roles: ['physician', 'consultant', 'intern', 'nurse', 'receptionist', 'coordinator'], key: 'u' },
-    { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant', 'receptionist'], key: 't' },
+    { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant'], key: 't' },
     { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'theatre', 'allied'], key: 'p' },
     { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },
     { to: '/telehealth', label: 'Appointments', page: 'Appointments & telehealth', icon: Video, roles: ['physician', 'consultant', 'intern', 'receptionist'], key: 'a' },

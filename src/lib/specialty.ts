@@ -247,11 +247,85 @@ const oncology: SpecialtyConfig = {
   summary: (v) => `${v.diagnosis}${v.cycle ? `, cycle ${v.cycle}` : ''}, ECOG ${v.ecog}${v.anc ? `, ANC ${v.anc}` : ''}`,
 }
 
+const endocrine: SpecialtyConfig = {
+  title: 'Diabetes and endocrine review',
+  worklist: 'Diabetes and thyroid patients: control, hypoglycaemia and treatment',
+  fields: [
+    { key: 'type', label: 'Condition', type: 'select', options: ['Type 1', 'Type 2', 'Gestational', 'Hypothyroid', 'Hyperthyroid', 'Other endocrine'], required: true },
+    { key: 'hba1c', label: 'HbA1c (%)', type: 'number', min: 3, max: 20 },
+    { key: 'fasting', label: 'Fasting glucose (mg/dL)', type: 'number', min: 20, max: 700 },
+    { key: 'hypos', label: 'Hypos in the last week', type: 'number', min: 0, max: 50 },
+    { key: 'regimen', label: 'Treatment', type: 'select', options: ['Diet only', 'Metformin', 'Oral agents', 'Basal insulin', 'Basal-bolus insulin', 'Premixed insulin', 'Levothyroxine', 'Carbimazole'] },
+    { key: 'tsh', label: 'TSH (mIU/L)', type: 'number', min: 0, max: 200 },
+  ],
+  calc: (v) => {
+    const chips: Array<[string, Tone]> = [[v.type, 'accent']]
+    const alerts: string[] = []
+    const a1c = num(v.hba1c)
+    const fasting = num(v.fasting)
+    const hypos = num(v.hypos)
+    const tsh = num(v.tsh)
+    if (a1c !== undefined) chips.push([`HbA1c ${a1c}%`, a1c >= 9 ? 'danger' : a1c > 7 ? 'warning' : 'success'])
+    if (fasting !== undefined) chips.push([`FBS ${fasting}`, fasting > 180 || fasting < 70 ? 'danger' : fasting > 130 ? 'warning' : 'success'])
+    if (hypos) chips.push([`${hypos} hypo${hypos > 1 ? 's' : ''}`, 'danger'])
+    if (tsh !== undefined) chips.push([`TSH ${tsh}`, tsh > 4.5 || tsh < 0.4 ? 'warning' : 'success'])
+    if (a1c !== undefined && a1c >= 9) alerts.push(`Poor glucose control (HbA1c ${a1c}%): review doses, adherence and diet.`)
+    if (hypos && hypos >= 1) alerts.push(`${hypos} hypoglycaemic episode${hypos > 1 ? 's' : ''} this week: check insulin timing and teach hypo treatment.`)
+    if (tsh !== undefined && (tsh > 10 || tsh < 0.1)) alerts.push(`Markedly abnormal TSH (${tsh}): adjust thyroid treatment.`)
+    return { chips, alerts }
+  },
+  summary: (v) => `${v.type}${v.hba1c ? `, HbA1c ${v.hba1c}%` : ''}${v.hypos ? `, ${v.hypos} hypos` : ''}`,
+}
+
+const neonatal: SpecialtyConfig = {
+  title: 'Neonatal assessment',
+  worklist: 'Newborns in NICU: maturity, weight, breathing support and jaundice',
+  fields: [
+    { key: 'ga', label: 'Gestation at birth (weeks)', type: 'number', min: 22, max: 44, required: true },
+    { key: 'birthWeight', label: 'Birth weight (g)', type: 'number', min: 300, max: 6000, required: true },
+    { key: 'weight', label: 'Today’s weight (g)', type: 'number', min: 300, max: 6000 },
+    { key: 'day', label: 'Day of life', type: 'number', min: 0, max: 120 },
+    { key: 'temp', label: 'Temperature (°C)', type: 'number', min: 30, max: 42 },
+    { key: 'spo2', label: 'SpO₂ (%)', type: 'number', min: 50, max: 100 },
+    { key: 'support', label: 'Breathing support', type: 'select', options: ['None', 'Nasal oxygen', 'CPAP', 'Ventilator'] },
+    { key: 'bilirubin', label: 'Bilirubin (mg/dL)', type: 'number', min: 0, max: 40 },
+    { key: 'feeds', label: 'Feeding', type: 'select', options: ['Breastfeeding', 'Cup feeds', 'Tube feeds', 'IV fluids only'] },
+  ],
+  calc: (v) => {
+    const chips: Array<[string, Tone]> = []
+    const alerts: string[] = []
+    const ga = Number(v.ga)
+    const birth = Number(v.birthWeight)
+    const weight = num(v.weight)
+    const temp = num(v.temp)
+    const spo2 = num(v.spo2)
+    const bili = num(v.bilirubin)
+    chips.push([`${ga} weeks`, ga < 32 ? 'danger' : ga < 37 ? 'warning' : 'success'])
+    chips.push([`${birth} g at birth`, birth < 1500 ? 'danger' : birth < 2500 ? 'warning' : 'success'])
+    if (weight !== undefined) {
+      const change = Math.round(((weight - birth) / birth) * 1000) / 10
+      chips.push([`${change > 0 ? '+' : ''}${change}% since birth`, change <= -10 ? 'danger' : change < 0 ? 'warning' : 'success'])
+      if (change <= -10) alerts.push(`Weight down ${Math.abs(change)}% from birth weight: review feeds and fluids.`)
+    }
+    if (v.support && v.support !== 'None') chips.push([v.support, v.support === 'Ventilator' ? 'danger' : 'warning'])
+    if (bili !== undefined) chips.push([`Bilirubin ${bili}`, bili >= 15 ? 'danger' : bili >= 10 ? 'warning' : 'success'])
+    if (ga < 32) alerts.push(`Very preterm (${ga} weeks): thermal care, apnoea monitoring and careful feeding.`)
+    if (temp !== undefined && temp < 36.5) alerts.push(`Hypothermia (${temp} °C): warm in incubator or skin-to-skin, recheck in 30 minutes.`)
+    if (spo2 !== undefined && spo2 < 90) alerts.push(`SpO₂ ${spo2}%: increase support and review.`)
+    if (bili !== undefined && bili >= 15) alerts.push(`High bilirubin (${bili} mg/dL): phototherapy — check the threshold chart for age and gestation.`)
+    return { chips, alerts }
+  },
+  summary: (v) => `${v.ga} weeks, ${v.birthWeight} g at birth${v.weight ? `, now ${v.weight} g` : ''}${v.support && v.support !== 'None' ? `, on ${v.support}` : ''}`,
+}
+
 /** Specialty assessment for each department id; administrators can add “ophthalmology” to enable the eye exam. */
 export const SPECIALTY: Record<string, SpecialtyConfig> = {
   obgyn: obstetric,
   pediatrics: nutrition,
   oncology,
+  endocrinology: endocrine,
+  orthopedics: fracture,
+  nicu: neonatal,
   cardiology: cardiac,
   emergency: critical,
   icu: critical,

@@ -7,12 +7,12 @@ export const PAYERS: Payer[] = ['Self-pay', 'CBHI', 'Health insurance (EHIS)', '
 /** Share of the bill the payer covers. CBHI and EHIS members are covered at public facilities. */
 export const payerCover = (payer: Payer) => payer === 'CBHI' || payer === 'Health insurance (EHIS)' || payer === 'Employer / credit' ? 1 : payer === 'Private insurance' ? 0.8 : 0
 
-export const SPECIALIST = new Set(['cardiology', 'neurology', 'oncology', 'ophthalmology', 'ent', 'dermatology', 'obgyn', 'surgery'])
+export const SPECIALIST = new Set(['cardiology', 'neurology', 'oncology', 'ophthalmology', 'ent', 'dermatology', 'obgyn', 'surgery', 'endocrinology', 'orthopedics'])
 
 export const VISIT_LABEL: Record<VisitType, string> = { OPD: 'Outpatient clinic (OPD)', Emergency: 'Emergency', Admission: 'Ward admission', Investigation: 'Lab or imaging only' }
 
 /** Departments that run an OPD clinic: every clinical department except emergency, intensive care, the general ward and the service departments. */
-export const opdDepartments = (departments: Department[]) => departments.filter((item) => item.active !== false && !['laboratory', 'radiology', 'pharmacy', 'emergency', 'icu', 'ward'].includes(item.id))
+export const opdDepartments = (departments: Department[]) => departments.filter((item) => item.active !== false && !['laboratory', 'radiology', 'pharmacy', 'emergency', 'icu', 'ward', 'nicu', 'or'].includes(item.id))
 
 export const queuePrefix = (department: Department) => department.shortName.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase() || 'OPD'
 

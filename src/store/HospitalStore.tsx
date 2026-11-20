@@ -1495,8 +1495,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const department = state.departments.find((item) => item.id === departmentId)
     if (!department) return base
     const specialtyProfile = { ...base, department: departmentId }
-    if (currentRole === 'physician') return { ...specialtyProfile, title: `${department.shortName} Physician`, workspace: `${department.shortName} clinical command`, headline: `Your ${department.shortName.toLowerCase()} patients, first.`, description: `Specialty-specific inpatient and outpatient review, diagnostics and referrals for ${department.name}.` }
-    if (currentRole === 'nurse') return { ...specialtyProfile, title: `${department.shortName} Nurse`, workspace: `${department.shortName} nursing workspace`, headline: `Safe, coordinated ${department.shortName.toLowerCase()} care.`, description: `A focused nursing census with inpatient observations, outpatient flow and shared handoffs across ${department.name}.` }
+    if (currentRole === 'physician') return { ...specialtyProfile, title: `${department.shortName} Physician`, workspace: `${department.shortName} clinical command`, headline: `Your ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} patients, first.`, description: `Specialty-specific inpatient and outpatient review, diagnostics and referrals for ${department.name}.` }
+    if (currentRole === 'nurse') return { ...specialtyProfile, title: `${department.shortName} Nurse`, workspace: `${department.shortName} nursing workspace`, headline: `Safe, coordinated ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} care.`, description: `A focused nursing census with inpatient observations, outpatient flow and shared handoffs across ${department.name}.` }
     if (currentRole === 'diagnostics') return { ...specialtyProfile, title: `${department.name} Specialist`, workspace: `${department.shortName} worklist`, headline: departmentId === 'laboratory' ? 'Return critical results, faster.' : base.headline, description: departmentId === 'laboratory' ? 'Prioritised specimens, analytical progress and verified results returned directly to the clinical episode.' : base.description }
     return specialtyProfile
   }, [currentRole, currentDepartment, state.departments])
@@ -1508,8 +1508,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const visibleIds = useMemo(() => {
     if (!scoped) return null
     const viewer = { role: currentRole, department: viewerDepartment, name: viewerName, canTriage, grants: state.accessGrants ?? [] }
-    return new Set(state.patients.filter((patient) => canSeePatient(patient, viewer, state.referrals)).map((patient) => patient.id))
-  }, [scoped, currentRole, viewerDepartment, viewerName, canTriage, state.patients, state.referrals, state.accessGrants])
+    return new Set(state.patients.filter((patient) => canSeePatient(patient, viewer, state.referrals, state.theatreCases)).map((patient) => patient.id))
+  }, [scoped, currentRole, viewerDepartment, viewerName, canTriage, state.patients, state.referrals, state.theatreCases, state.accessGrants])
 
   /** What the screens see: for department-scoped clinicians, only their patients and the records attached to them. */
   const scopedState = useMemo<HospitalState>(() => {

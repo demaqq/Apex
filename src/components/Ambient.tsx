@@ -71,6 +71,17 @@ export const Ambient = memo(function Ambient({ kind }: { kind: AmbientKind }) {
         <svg key={c.i} className={`cross ${c.alt ? 'alt' : ''}`} viewBox="0 0 24 24" style={v({ left: `${c.x}%`, top: `${c.y}%`, '--size': `${14 + c.s * 22}px`, '--dur': `${12 + c.d * 14}s`, '--delay': `${-c.d * 14}s` })}><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" /></svg>
       ))}
 
+      {kind === 'drops' && items.slice(0, 16).map((d) => <i key={d.i} className={`drop ${d.alt ? 'alt' : ''}`} style={v({ left: `${d.x}%`, '--size': `${8 + d.s * 12}px`, '--dur': `${10 + d.d * 12}s`, '--delay': `${-d.d * 20}s` })} />)}
+
+      {kind === 'beams' && [0, 1, 2, 3, 4].map((n) => <span key={n} className={`beam b${n}`} />)}
+
+      {kind === 'night' && <>
+        <svg className="moon" viewBox="0 0 100 100"><path d="M64 10a40 40 0 1 0 26 66A34 34 0 0 1 64 10z" /></svg>
+        {items.map((st) => <svg key={st.i} className="star night-star" viewBox="0 0 24 24" style={v({ left: `${st.x}%`, top: `${st.y * 0.7}%`, '--dur': `${4 + st.d * 5}s`, '--delay': `${-st.s * 8}s` })}><path d="M12 2l2.9 6.9L22 10l-5.5 4.7L18.2 22 12 18.3 5.8 22l1.7-7.3L2 10l7.1-1.1z" /></svg>)}
+      </>}
+
+      {kind === 'lamp' && <><span className="lamp-glow" /><span className="lamp-ring" /></>}
+
       {kind === 'scan' && <><span className="scan-grid" /><span className="scan-bar" /></>}
 
       {kind === 'molecules' && items.slice(0, 14).map((m) => (

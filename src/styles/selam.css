@@ -528,7 +528,7 @@ svg.flow-map { width: 100%; height: auto; }
 :root[data-ambient-off] .ambient .orb { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .ambient *, .ambient { animation: none !important; }
-  .ambient .bubble, .ambient .petal, .ambient .hex, .ambient .star, .ambient .scan-bar, .ambient .ripple-set, .ambient .siren { display: none; }
+  .ambient .bubble, .ambient .petal, .ambient .hex, .ambient .star, .ambient .scan-bar, .ambient .ripple-set, .ambient .siren, .ambient .drop { display: none; }
 }
 @media (max-width: 760px) { .ambient .orb { filter: blur(50px); } .ambient .bubble:nth-child(n + 12), .ambient .hex:nth-child(n + 10) { display: none; } }
 
@@ -818,3 +818,28 @@ tr.is-active-row td { background: color-mix(in srgb, var(--teal) 6%, transparent
 .care-team li > b { color: var(--ink); font-size: 13px; }
 .care-reasons { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
 @media (max-width: 640px) { .scope-banner { flex-wrap: wrap; } }
+
+/* Endocrinology: falling drops */
+.ambient .drop { top: -30px; width: var(--size); height: calc(var(--size) * 1.35); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: color-mix(in srgb, var(--teal) 45%, transparent); opacity: calc(var(--amb) * .55); animation: drop-fall var(--dur) ease-in var(--delay) infinite; }
+.ambient .drop.alt { background: color-mix(in srgb, var(--a-2) 45%, transparent); }
+@keyframes drop-fall { 0% { transform: translateY(0); opacity: 0; } 10% { opacity: calc(var(--amb) * .55); } 100% { transform: translateY(110vh); opacity: 0; } }
+
+/* Orthopaedics: slow structural beams */
+.ambient .beam { left: -20%; width: 140%; height: 2px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--teal) 70%, transparent), transparent); opacity: calc(var(--amb) * .5); transform-origin: center; animation: beam-sway 30s ease-in-out infinite alternate; }
+.ambient .beam.b0 { top: 18%; transform: rotate(-8deg); }
+.ambient .beam.b1 { top: 38%; transform: rotate(5deg); animation-duration: 38s; }
+.ambient .beam.b2 { top: 58%; transform: rotate(-3deg); animation-duration: 26s; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--a-2) 60%, transparent), transparent); }
+.ambient .beam.b3 { top: 76%; transform: rotate(9deg); animation-duration: 44s; }
+.ambient .beam.b4 { top: 90%; transform: rotate(-6deg); animation-duration: 34s; }
+@keyframes beam-sway { to { translate: 4vw 2vh; rotate: 3deg; } }
+
+/* NICU: a calm night sky */
+.ambient .moon { right: 6vw; top: 8vh; width: 80px; height: 80px; fill: color-mix(in srgb, var(--a-2) 55%, transparent); opacity: calc(var(--amb) * .7); filter: drop-shadow(0 0 18px var(--a-2)); animation: moon-float 12s ease-in-out infinite alternate; }
+.ambient .night-star { width: 10px; height: 10px; fill: var(--teal); }
+@keyframes moon-float { to { transform: translateY(12px) rotate(-6deg); } }
+
+/* O.R.: theatre lamp glow */
+.ambient .lamp-glow { left: 50%; top: -30vmax; width: 70vmax; height: 70vmax; margin-left: -35vmax; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, #ffffff 40%, var(--teal)) 0%, color-mix(in srgb, var(--teal) 30%, transparent) 30%, transparent 62%); opacity: calc(var(--amb) * .5); animation: lamp 9s ease-in-out infinite; }
+.ambient .lamp-ring { left: 50%; top: -12vmax; width: 34vmax; height: 34vmax; margin-left: -17vmax; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--teal) 45%, transparent); opacity: calc(var(--amb) * .5); animation: lamp-turn 80s linear infinite; }
+@keyframes lamp { 50% { opacity: calc(var(--amb) * .28); transform: scale(.96); } }
+@keyframes lamp-turn { to { transform: rotate(360deg); } }
