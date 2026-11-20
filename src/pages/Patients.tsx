@@ -7,6 +7,7 @@ import { Avatar, Button, EmptyState, EsiBadge, Modal, PageHeader, Panel, StatusB
 import { departmentById } from '../data'
 import { getEncounterType, patientCsv, statusLabels } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
+import { withUnits } from '../lib/access'
 import type { DepartmentId } from '../types'
 
 type RecordView = 'active' | 'critical' | 'inpatient' | 'outpatient' | 'discharged' | 'all'
@@ -36,7 +37,7 @@ export default function Patients() {
     if (view === 'critical' && patient.esi > 2) return false
     if (['inpatient', 'outpatient'].includes(view) && (patient.status === 'discharged' || getEncounterType(patient) !== view)) return false
     if (view === 'discharged' && patient.status !== 'discharged') return false
-    if (department !== 'all' && patient.department !== department) return false
+    if (department !== 'all' && !withUnits(department as DepartmentId, state.departments).includes(patient.department)) return false
     if (acuity !== 'all' && patient.esi !== Number(acuity)) return false
     if (status !== 'all' && patient.status !== status) return false
     if (query && !`${patient.name} ${patient.mrn} ${patient.complaint} ${patient.location} ${patient.assignedTo}`.toLowerCase().includes(query.toLowerCase())) return false

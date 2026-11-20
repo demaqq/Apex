@@ -843,3 +843,5 @@ tr.is-active-row td { background: color-mix(in srgb, var(--teal) 6%, transparent
 .ambient .lamp-ring { left: 50%; top: -12vmax; width: 34vmax; height: 34vmax; margin-left: -17vmax; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--teal) 45%, transparent); opacity: calc(var(--amb) * .5); animation: lamp-turn 80s linear infinite; }
 @keyframes lamp { 50% { opacity: calc(var(--amb) * .28); transform: scale(.96); } }
 @keyframes lamp-turn { to { transform: rotate(360deg); } }
+.unit-branch { color: var(--faint); margin-right: 2px; }
+td.unit-row { padding-left: 34px !important; }

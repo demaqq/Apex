@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { AlertTriangle, ClipboardList, Stethoscope, Timer, Utensils, UsersRound } from 'lucide-react'
 import { partograph, samSummary } from '../lib/charts'
+import { withUnits } from '../lib/access'
 import type { Patient } from '../types'
 import { Chip, EmptyState, Metric, NewsChip, PageHeader, Panel, PersonCell } from '../components/ui'
 import { departmentById } from '../data'
@@ -17,7 +18,8 @@ export default function SpecialtyDashboard() {
   const department = departmentById(state.departments, departmentId)
   if (!config) return <Panel><EmptyState icon={Stethoscope} title="No specialty assessment for this department" text="Obstetrics, cardiology, emergency, intensive care, surgery, ENT and ophthalmology have department dashboards." /></Panel>
 
-  const patients = state.patients.filter((patient) => patient.department === departmentId && patient.status !== 'discharged')
+  const scope = withUnits(departmentId, state.departments)
+  const patients = state.patients.filter((patient) => scope.includes(patient.department) && patient.status !== 'discharged')
   const rows = patients.map((patient) => ({ patient, alerts: patientAlerts(patient, state.orders), specialty: specialtyFor(patient) }))
     .sort((a, b) => b.alerts.length - a.alerts.length)
   const openOrders = state.orders.filter((order) => order.status !== 'completed' && patients.some((patient) => patient.id === order.patientId)).length

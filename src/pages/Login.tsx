@@ -87,7 +87,10 @@ export default function Login() {
               <div className="department-picker">
                 <DepartmentIcon id={department} size={16} />
                 <select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>
-                  {options.map((id) => <option key={id} value={id}>{state.departments.find((item) => item.id === id)?.name}</option>)}
+                  {options.filter((id) => !state.departments.find((item) => item.id === id)?.parent || !options.includes(state.departments.find((item) => item.id === id)!.parent!)).map((id) => {
+                    const units = options.filter((unit) => state.departments.find((item) => item.id === unit)?.parent === id)
+                    return [<option key={id} value={id}>{state.departments.find((item) => item.id === id)?.name}</option>, ...units.map((unit) => <option key={unit} value={unit}>{'\u00a0\u00a0\u00a0↳ '}{state.departments.find((item) => item.id === unit)?.name}</option>)]
+                  })}
                 </select>
               </div>
               {['physician', 'nurse', 'consultant', 'intern'].includes(selected) && <small className="muted-text">You’ll see patients in this department’s wards and OPD, plus consults and comorbidity links.</small>}

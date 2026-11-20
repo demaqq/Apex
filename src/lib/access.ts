@@ -1,4 +1,4 @@
-import type { AccessGrant, DepartmentId, Patient, Referral, RoleId, TheatreCase } from '../types'
+import type { AccessGrant, Department, DepartmentId, Patient, Referral, RoleId, TheatreCase } from '../types'
 
 /** Clinical roles whose view is limited to patients connected to the department they signed in with. */
 export const SCOPED_ROLES: RoleId[] = ['physician', 'nurse', 'consultant', 'intern']
@@ -37,7 +37,15 @@ export function careLinks(patient: Patient, referrals: Referral[], theatreCases:
   return links.filter((link, i) => links.findIndex((other) => other.department === link.department && other.reason === link.reason) === i)
 }
 
-export interface Viewer { role: RoleId | null; department: DepartmentId | undefined; name: string; canTriage: boolean; grants: AccessGrant[] }
+export interface Viewer { role: RoleId | null; department: DepartmentId | undefined; name: string; canTriage: boolean; grants: AccessGrant[]; departments?: Department[] }
+
+/** The department itself plus every unit inside it. */
+export function withUnits(departmentId: DepartmentId | undefined, departments: Department[] = []): DepartmentId[] {
+  if (!departmentId) return []
+  return [departmentId, ...departments.filter((d) => d.parent === departmentId).map((d) => d.id)]
+}
+
+export const parentOf = (departmentId: DepartmentId, departments: Department[]) => departments.find((d) => d.id === departments.find((x) => x.id === departmentId)?.parent)
 
 export function canSeePatient(patient: Patient, viewer: Viewer, referrals: Referral[], theatreCases: TheatreCase[] = []) {
   if (!viewer.role || !SCOPED_ROLES.includes(viewer.role)) return true
@@ -45,7 +53,14 @@ export function canSeePatient(patient: Patient, viewer: Viewer, referrals: Refer
   // Before triage nobody owns the patient yet: triage staff need to see them.
   if ((patient.status === 'awaiting-triage') && viewer.canTriage) return true
   if (viewer.grants.some((g) => g.patientId === patient.id && g.role === viewer.role && g.department === viewer.department && new Date(g.until).getTime() > Date.now())) return true
-  return careLinks(patient, referrals, theatreCases).some((link) => link.department === viewer.department)
+  const scope = withUnits(viewer.department, viewer.departments)
+  return careLinks(patient, referrals, theatreCases).some((link) => scope.includes(link.department))
 }
 
 export const BREAK_GLASS_HOURS = 4
+
+/** Departments ordered so each unit sits right after its parent. */
+export function nested(departments: Department[]): Department[] {
+  const tops = departments.filter((d) => !d.parent || !departments.some((p) => p.id === d.parent))
+  return tops.flatMap((d) => [d, ...departments.filter((u) => u.parent === d.id)])
+}

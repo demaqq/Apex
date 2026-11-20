@@ -7,6 +7,7 @@ import { formatCurrency } from '../lib/format'
 import { ALL_NAV, CORE_MODULES } from '../lib/nav'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
 import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
+import { nested } from '../lib/access'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
 import type { Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
@@ -271,9 +272,9 @@ function DepartmentsTab() {
         <table className="data-table">
           <thead><tr><th>Department</th><th>Units</th><th className="num">Beds</th><th className="num">Active patients</th><th>Status</th><th aria-label="Actions" /></tr></thead>
           <tbody>
-            {state.departments.map((item) => (
+            {nested(state.departments).map((item) => (
               <tr key={item.id} className={item.active === false ? 'muted-row' : ''}>
-                <td><span className="inline-icon"><DepartmentIcon id={item.id} size={15} /><b>{item.name}</b></span><small>{[item.zone, item.lead && `lead ${item.lead}`].filter(Boolean).join(' · ')}</small></td>
+                <td className={item.parent ? 'unit-row' : ''}><span className="inline-icon">{item.parent && <span className="unit-branch">↳</span>}<DepartmentIcon id={item.id} size={15} /><b>{item.name}</b></span><small>{[item.parent && `unit of ${state.departments.find((d) => d.id === item.parent)?.name}`, item.zone, item.lead && `lead ${item.lead}`].filter(Boolean).join(' · ')}</small></td>
                 <td className="wrap">{item.services.map((service) => <Chip key={service} tone="neutral">{service}</Chip>)}</td>
                 <td className="num">{item.capacity}</td>
                 <td className="num">{patientsIn(item.id)}</td>
@@ -319,7 +320,9 @@ function DepartmentModal({ department, onClose, onSave }: { department: Departme
         <label className="form-field"><span>Extension</span><input value={form.phone} onChange={(event) => set('phone', event.target.value)} /></label>
         <label className="form-field span-2"><span>Units <small className="muted-text">comma separated</small></span><input value={units} onChange={(event) => setUnits(event.target.value)} placeholder="Outpatient clinic, Procedure room" /></label>
         <label className="form-field"><span>Colour</span><input type="color" value={form.color} onChange={(event) => set('color', event.target.value)} /></label>
+        <label className="form-field"><span>Part of <small className="muted-text">for a unit inside a department</small></span><select value={form.parent ?? ''} onChange={(event) => set('parent', (event.target.value || undefined) as DepartmentId | undefined)}><option value="">— A department on its own —</option>{state.departments.filter((item) => item.id !== form.id && !item.parent && item.active !== false && !['laboratory', 'radiology', 'pharmacy'].includes(item.id)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       </div>
+      {form.parent && <p className="table-footnote">Staff signed in to {state.departments.find((item) => item.id === form.parent)?.name} will also see this unit’s patients.</p>}
       {clash && <div className="inline-error" role="alert"><AlertTriangle size={16} />A department with this name already exists.</div>}
       <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} disabled={!valid} onClick={() => onSave({ ...form, id, name: form.name.trim(), shortName: form.shortName.trim() || form.name.trim(), description: form.description || form.name.trim(), services: units.split(',').map((unit) => unit.trim()).filter(Boolean) })}>{isNew ? 'Add department' : 'Save'}</Button></div>
     </Modal>

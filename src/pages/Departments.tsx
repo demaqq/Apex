@@ -6,6 +6,7 @@ import { CompleteReferralModal, TransferModal } from '../components/ClinicalModa
 import { Avatar, Button, DepartmentIcon, EmptyState, EsiBadge, Metric, PageHeader, Panel, StatusBadge } from '../components/ui'
 import { departmentById } from '../data'
 import { downloadCsv, relativeTime } from '../lib/format'
+import { nested } from '../lib/access'
 import { useHospital } from '../store/HospitalStore'
 import type { Department, Patient, Referral } from '../types'
 
@@ -20,7 +21,7 @@ export default function Departments() {
   const [completeReferral, setCompleteReferral] = useState<Referral | null>(null)
   const selected = departmentById(state.departments, selectedId)
 
-  const departments = useMemo(() => state.departments.filter((department) => {
+  const departments = useMemo(() => nested(state.departments).filter((department) => {
     if (filter === 'inpatient' && ['radiology', 'laboratory', 'pharmacy'].includes(department.id)) return false
     if (filter === 'diagnostic' && !['radiology', 'laboratory', 'pharmacy'].includes(department.id)) return false
     if (filter === 'pressure' && department.occupied / department.capacity < 0.85) return false
@@ -54,7 +55,7 @@ export default function Departments() {
         const percent = Math.round(department.occupied / department.capacity * 100)
         return <motion.button layout key={department.id} className={`department-card ${selected.id === department.id ? 'selected' : ''}`} onClick={() => selectDepartment(department)} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}>
           <div className="department-card-top"><span className="department-large-icon" style={{ color: department.color, background: `${department.color}12` }}><DepartmentIcon id={department.id} size={22} /></span><span className={`capacity-state ${percent >= 90 ? 'critical' : percent >= 85 ? 'warning' : ''}`}><i />{percent >= 90 ? 'Critical' : percent >= 85 ? 'Pressure' : 'Available'}</span></div>
-          <h3>{department.name}</h3><p>{department.zone}</p>
+          <h3>{department.name}</h3><p>{department.parent ? `Unit of ${state.departments.find((item) => item.id === department.parent)?.shortName} · ` : ''}{department.zone}</p>
           <div className="department-card-numbers"><strong>{department.capacity - department.occupied}</strong><span>available<small>of {department.capacity} spaces</small></span><b className={percent >= 90 ? 'danger-text' : ''}>{percent}%</b></div>
           <div className="department-capacity-track"><motion.i initial={{ width: 0 }} animate={{ width: `${percent}%` }} style={{ background: percent >= 90 ? '#c65757' : department.color }} /></div>
           <div className="department-card-foot"><span><Clock3 size={13} />{department.averageWait}m avg wait</span><ChevronRight size={16} /></div>

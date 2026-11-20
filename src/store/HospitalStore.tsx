@@ -1507,9 +1507,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const canTriage = can('triage')
   const visibleIds = useMemo(() => {
     if (!scoped) return null
-    const viewer = { role: currentRole, department: viewerDepartment, name: viewerName, canTriage, grants: state.accessGrants ?? [] }
+    const viewer = { role: currentRole, department: viewerDepartment, name: viewerName, canTriage, grants: state.accessGrants ?? [], departments: state.departments }
     return new Set(state.patients.filter((patient) => canSeePatient(patient, viewer, state.referrals, state.theatreCases)).map((patient) => patient.id))
-  }, [scoped, currentRole, viewerDepartment, viewerName, canTriage, state.patients, state.referrals, state.theatreCases, state.accessGrants])
+  }, [scoped, currentRole, viewerDepartment, viewerName, canTriage, state.patients, state.referrals, state.theatreCases, state.accessGrants, state.departments])
 
   /** What the screens see: for department-scoped clinicians, only their patients and the records attached to them. */
   const scopedState = useMemo<HospitalState>(() => {

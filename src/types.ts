@@ -315,6 +315,8 @@ export interface Department {
   zone: string
   /** Deactivated departments are hidden from new work but kept for history. */
   active?: boolean
+  /** Set for a unit inside another department (e.g. NICU in Paediatrics). The parent's staff also see the unit's patients. */
+  parent?: DepartmentId
 }
 
 export interface Referral {
