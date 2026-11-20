@@ -1,5 +1,8 @@
 import { DEFAULT_PRICES } from './lib/modules'
+import { COMPETENCIES } from './lib/teaching'
 import type {
+  Assessment,
+  Profession,
   Connection,
   HospitalService,
   PlatformInvoice,
@@ -436,26 +439,35 @@ const appointmentSeed = (): Appointment[] => [
 
 const staffSeed = (): StaffMember[] => [
   { id: 'ST-01', grade: 'Senior specialist', roleId: 'physician', name: 'Dr. Maya Chen', role: 'Physician', department: 'emergency', specialty: 'Emergency medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EMG-001', email: 'maya.chen@northstar.example', phone: 'x2101', license: 'MD-448210' },
-  { id: 'ST-02', roleId: 'nurse', name: 'Sarah Okafor, RN', role: 'Charge nurse', department: 'emergency', specialty: 'Triage nursing', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'TRI-001', email: 'sarah.okafor@northstar.example', phone: 'x2102', license: 'RN-220931' },
+  { id: 'ST-02', level: 'Senior nurse', roleId: 'nurse', name: 'Sarah Okafor, RN', role: 'Charge nurse', department: 'emergency', specialty: 'Triage nursing', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'TRI-001', email: 'sarah.okafor@northstar.example', phone: 'x2102', license: 'RN-220931' },
   { id: 'ST-03', grade: 'Subspecialist', roleId: 'consultant', name: 'Dr. Amir Rahman', role: 'Consultant', department: 'cardiology', specialty: 'Interventional cardiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'CAR-001', email: 'amir.rahman@northstar.example', phone: 'x2241', license: 'MD-391044' },
-  { id: 'ST-04', roleId: 'diagnostics', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876', positions: [{ id: 'imaging-head', since: ago(400 * 1440), by: 'Elena Rossi', note: 'Head of the imaging department' }] },
+  { id: 'ST-04', level: 'Radiologist', roleId: 'diagnostics', name: 'Dr. Leah Morgan', role: 'Radiologist', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-001', email: 'leah.morgan@northstar.example', phone: 'x2321', license: 'MD-402876', positions: [{ id: 'imaging-head', since: ago(400 * 1440), by: 'Elena Rossi', note: 'Head of the imaging department' }] },
   { id: 'ST-05', roleId: 'coordinator', name: 'Jon Bell', role: 'Patient flow coordinator', department: 'ward', specialty: 'Bed management', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'BED-001', email: 'jon.bell@northstar.example', phone: 'x2521', license: '—' },
-  { id: 'ST-06', roleId: 'pharmacist', name: 'Nina Wallace, PharmD', role: 'Pharmacist', department: 'pharmacy', specialty: 'Clinical pharmacy', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHA-001', email: 'nina.wallace@northstar.example', phone: 'x2581', license: 'PH-118302', positions: [{ id: 'pharmacy-manager', since: ago(200 * 1440), by: 'Elena Rossi', note: 'Appointed head of pharmacy' }] },
+  { id: 'ST-06', level: 'Pharmacy manager', roleId: 'pharmacist', name: 'Nina Wallace, PharmD', role: 'Pharmacist', department: 'pharmacy', specialty: 'Clinical pharmacy', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'PHA-001', email: 'nina.wallace@northstar.example', phone: 'x2581', license: 'PH-118302', positions: [{ id: 'pharmacy-manager', since: ago(200 * 1440), by: 'Elena Rossi', note: 'Appointed head of pharmacy' }] },
   { id: 'ST-07', grade: 'Consultant', name: 'Dr. Ana Costa', role: 'Consultant', department: 'icu', specialty: 'Critical care', shift: 'Evening · 15:00–23:00', onDuty: false, pager: 'ICU-001', email: 'ana.costa@northstar.example', phone: 'x2401', license: 'MD-377210' },
   { id: 'ST-08', grade: 'Senior specialist', name: 'Ms. Keiko Sato', role: 'Surgeon', department: 'surgery', specialty: 'Orthopaedic surgery', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'SUR-001', email: 'keiko.sato@northstar.example', phone: 'x2461', license: 'MD-365519' },
   { id: 'ST-09', grade: 'Consultant', name: 'Dr. Tomas Reid', role: 'Consultant', department: 'neurology', specialty: 'Stroke medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'NEU-001', email: 'tomas.reid@northstar.example', phone: 'x2281', license: 'MD-410983' },
   { id: 'ST-10', grade: 'Resident', residentYear: 3, name: 'Dr. Hannah Reid', role: 'Physician', department: 'obgyn', specialty: 'Obstetrics', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'OBS-001', email: 'hannah.reid@northstar.example', phone: 'x2641', license: 'MD-428801' },
-  { id: 'ST-11', name: 'Dr. Felix Adeyemi', role: 'Pathologist', department: 'laboratory', specialty: 'Clinical biochemistry', shift: 'Night · 23:00–07:00', onDuty: false, pager: 'LAB-002', email: 'felix.adeyemi@northstar.example', phone: 'x2352', license: 'MD-399127' },
+  { id: 'ST-11', level: 'Pathologist', name: 'Dr. Felix Adeyemi', role: 'Pathologist', department: 'laboratory', specialty: 'Clinical biochemistry', shift: 'Night · 23:00–07:00', onDuty: false, pager: 'LAB-002', email: 'felix.adeyemi@northstar.example', phone: 'x2352', license: 'MD-399127' },
 ]
 
 const extraStaff = (): StaffMember[] => [
+  { id: 'ST-31', name: 'Meron Assefa', level: 'Intern nurse', role: 'Intern nurse', department: 'internal-medicine', specialty: 'Medical ward', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-31', email: 'meron.assefa@northstar.example', phone: 'x2531', license: 'TR-310451' },
+  { id: 'ST-32', name: 'Kidus Mekonnen', level: 'Student nurse', role: 'Student nurse', department: 'pediatrics', specialty: 'Paediatric ward', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-32', email: 'kidus.mekonnen@northstar.example', phone: 'x2532', license: 'TR-320451' },
+  { id: 'ST-33', name: 'Hiwot Lemma', level: 'Junior nurse', role: 'Junior nurse', department: 'emergency', specialty: 'Emergency department', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-33', email: 'hiwot.lemma@northstar.example', phone: 'x2533', license: 'TR-330451' },
+  { id: 'ST-34', name: 'Nahom Bekele', level: 'Pharmacy intern', role: 'Pharmacy intern', department: 'pharmacy', specialty: 'Dispensary', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-34', email: 'nahom.bekele@northstar.example', phone: 'x2534', license: 'TR-340451' },
+  { id: 'ST-35', name: 'Saba Tesfaye', level: 'Laboratory intern', role: 'Laboratory intern', department: 'laboratory', specialty: 'Haematology bench', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-35', email: 'saba.tesfaye@northstar.example', phone: 'x2535', license: 'TR-350451' },
+  { id: 'ST-36', name: 'Ermias Haile', level: 'Radiography intern', role: 'Radiography intern', department: 'radiology', specialty: 'X-ray and CT', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-36', email: 'ermias.haile@northstar.example', phone: 'x2536', license: 'TR-360451' },
+  { id: 'ST-37', name: 'Dr. Yared Alemu', level: 'Radiology resident', role: 'Radiology resident', department: 'radiology', specialty: 'Diagnostic radiology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-37', email: 'yared.alemu@northstar.example', phone: 'x2537', license: 'TR-370451' },
+  { id: 'ST-38', name: 'Dr. Feven Girma', grade: 'Resident', residentYear: 4, role: 'Resident (R4)', department: 'internal-medicine', specialty: 'Internal medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-38', email: 'feven.girma@northstar.example', phone: 'x2538', license: 'TR-380451' },
+  { id: 'ST-39', name: 'Dr. Daniel Abebe', grade: 'Resident', residentYear: 5, role: 'Resident (R5)', department: 'surgery', specialty: 'General surgery', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'EDU-39', email: 'daniel.abebe@northstar.example', phone: 'x2539', license: 'TR-390451' },
   { id: 'ST-26', name: 'Dr. Bethlehem Kassa', grade: 'Resident', residentYear: 1, role: 'Resident (R1)', department: 'internal-medicine', specialty: 'Internal medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-021', email: 'bethlehem.kassa@northstar.example', phone: 'x2461', license: 'MD-411902' },
   { id: 'ST-27', name: 'Dr. Henok Girma', grade: 'Chief resident', role: 'Chief resident', department: 'internal-medicine', specialty: 'Internal medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-002', email: 'henok.girma@northstar.example', phone: 'x2462', license: 'MD-405510' },
   { id: 'ST-28', name: 'Dr. Tsion Alemayehu', grade: 'Resident', residentYear: 2, role: 'Resident (R2)', department: 'pediatrics', specialty: 'Paediatrics', shift: 'Evening · 15:00–23:00', onDuty: false, pager: 'PED-014', email: 'tsion.alemayehu@northstar.example', phone: 'x2463', license: 'MD-410377' },
   { id: 'ST-29', name: 'Prof. Getachew Worku', grade: 'Professor', role: 'Professor of medicine', department: 'internal-medicine', specialty: 'Nephrology', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-100', email: 'getachew.worku@northstar.example', phone: 'x2400', license: 'MD-300118' },
   { id: 'ST-30', name: 'Dr. Lidya Tadesse', grade: 'GP', role: 'General practitioner', department: 'emergency', specialty: 'General practice', shift: 'Night · 23:00–07:00', onDuty: false, pager: 'ED-031', email: 'lidya.tadesse@northstar.example', phone: 'x2131', license: 'MD-415220' },
-  { id: 'ST-25', roleId: 'radiographer', name: 'Dawit Tesfaye', role: 'Radiographer', department: 'radiology', specialty: 'CT and MRI', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-004', email: 'dawit.tesfaye@northstar.example', phone: 'x2324', license: 'RT-210448' },
-  { id: 'ST-24', roleId: 'laboratory', name: 'Dr. Priya Nair', role: 'Clinical pathologist', department: 'laboratory', specialty: 'Laboratory medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'LAB-001', email: 'priya.nair@northstar.example', phone: 'x2351', license: 'MD-401553', positions: [{ id: 'lab-head', since: ago(500 * 1440), by: 'Elena Rossi', note: 'Laboratory head' }] },
+  { id: 'ST-25', level: 'Radiographer', roleId: 'radiographer', name: 'Dawit Tesfaye', role: 'Radiographer', department: 'radiology', specialty: 'CT and MRI', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'RAD-004', email: 'dawit.tesfaye@northstar.example', phone: 'x2324', license: 'RT-210448' },
+  { id: 'ST-24', level: 'Pathologist', roleId: 'laboratory', name: 'Dr. Priya Nair', role: 'Clinical pathologist', department: 'laboratory', specialty: 'Laboratory medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'LAB-001', email: 'priya.nair@northstar.example', phone: 'x2351', license: 'MD-401553', positions: [{ id: 'lab-head', since: ago(500 * 1440), by: 'Elena Rossi', note: 'Laboratory head' }] },
   { id: 'ST-18', grade: 'GP', name: 'Dr. Selam Bekele', role: 'Medical officer', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: false, pager: 'MED-021', email: 'selam.bekele@northstar.example', phone: 'x2690', license: 'Not yet verified', status: 'Pending approval', roleId: 'physician' },
   { id: 'ST-12', grade: 'Intern', roleId: 'intern', name: 'Dr. Leo Park', role: 'Foundation doctor', department: 'internal-medicine', specialty: 'General medicine', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'MED-014', email: 'leo.park@northstar.example', phone: 'x2684', license: 'MD-501877' },
   { id: 'ST-13', roleId: 'receptionist', name: 'Grace Mwangi', role: 'Front desk coordinator', department: 'emergency', specialty: 'Registration', shift: 'Day · 07:00–15:00', onDuty: true, pager: 'REG-001', email: 'grace.mwangi@northstar.example', phone: 'x2001', license: '—' },
@@ -670,6 +682,7 @@ export const defaultSettings = (): FacilitySettings => ({
   email: '',
   currency: 'USD',
   vatRate: 15,
+  teaching: { kind: 'Teaching hospital', affiliation: 'Northstar College of Health Sciences', professions: ['Medicine', 'Nursing', 'Pharmacy', 'Laboratory', 'Imaging'] },
   disabledModules: [],
 })
 
@@ -787,16 +800,16 @@ const networkSeed = (): NetworkFacility[] => [
   { id: 'net-fasil', name: 'Fasil Regional Hospital', kind: 'Hospital', city: 'Gondar', services: ['Referrals'], link: 'Platform', capabilities: 'Trauma, orthopaedics, burns' },
 ]
 
-const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
+const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['teaching', 'reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
 
 /** Clients subscribed to the platform (the first is this facility). */
 const tenantSeed = (): Tenant[] => [
   { id: 't-northstar', name: 'Northstar General', type: 'Hospital', city: 'Addis Ababa', status: 'Active', since: ago(420 * 1440), contact: 'Elena Rossi · Administrator', offModules: [], discount: 0, usage: { users: 0, beds: 0, visits: 0, labTests: 0, imagingStudies: 0, departments: 0 }, live: true },
-  { id: 't-abay', name: 'Abay Referral Hospital', type: 'Hospital', city: 'Addis Ababa', status: 'Active', since: ago(610 * 1440), contact: 'Dr. Selam Getachew · Medical director', offModules: [], discount: 10, usage: { users: 182, beds: 320, visits: 5400, labTests: 21000, imagingStudies: 3100, departments: 18 }, facilityId: 'net-abay' },
-  { id: 't-entoto', name: 'Entoto Diagnostic Centre', type: 'Diagnostic centre', city: 'Addis Ababa', status: 'Active', since: ago(300 * 1440), contact: 'Hanna Mulugeta · Operations manager', offModules: ALL_OFF_BUT(['reception', 'appointments', 'billing', 'laboratory', 'imaging']), discount: 0, usage: { users: 34, beds: 0, visits: 2600, labTests: 9800, imagingStudies: 2400, departments: 1 }, facilityId: 'net-entoto' },
-  { id: 't-hawassa', name: 'Hawassa Lakeside Hospital', type: 'Hospital', city: 'Hawassa', status: 'Trial', since: ago(12 * 1440), contact: 'Dr. Abebe Tolosa · Hospital manager', offModules: ['theatres', 'operations', 'specialty', 'services'], discount: 0, usage: { users: 58, beds: 90, visits: 1300, labTests: 4200, imagingStudies: 0, departments: 7 }, facilityId: 'net-hawassa' },
+  { id: 't-abay', name: 'Abay Referral Hospital', type: 'Hospital', city: 'Addis Ababa', status: 'Active', since: ago(610 * 1440), contact: 'Dr. Selam Getachew · Medical director', offModules: [], discount: 10, usage: { users: 182, beds: 320, visits: 5400, labTests: 21000, imagingStudies: 3100, departments: 18, trainees: 140 }, facilityId: 'net-abay' },
+  { id: 't-entoto', name: 'Entoto Diagnostic Centre', type: 'Diagnostic centre', city: 'Addis Ababa', status: 'Active', since: ago(300 * 1440), contact: 'Hanna Mulugeta · Operations manager', offModules: ALL_OFF_BUT(['reception', 'appointments', 'billing', 'laboratory', 'imaging', 'teaching']), discount: 0, usage: { users: 34, beds: 0, visits: 2600, labTests: 9800, imagingStudies: 2400, departments: 1, trainees: 12 }, facilityId: 'net-entoto' },
+  { id: 't-hawassa', name: 'Hawassa Lakeside Hospital', type: 'Hospital', city: 'Hawassa', status: 'Trial', since: ago(12 * 1440), contact: 'Dr. Abebe Tolosa · Hospital manager', offModules: ['theatres', 'operations', 'specialty', 'services', 'teaching'], discount: 0, usage: { users: 58, beds: 90, visits: 1300, labTests: 4200, imagingStudies: 0, departments: 7 }, facilityId: 'net-hawassa' },
   { id: 't-adama', name: 'Adama Family Clinic', type: 'Clinic', city: 'Adama', status: 'Active', since: ago(150 * 1440), contact: 'Dr. Meron Asfaw · Owner', offModules: ALL_OFF_BUT(['reception', 'appointments', 'opd', 'laboratory', 'pharmacy', 'billing']), discount: 5, usage: { users: 12, beds: 0, visits: 900, labTests: 1800, imagingStudies: 0, departments: 2 } },
-  { id: 't-fasil', name: 'Fasil Regional Hospital', type: 'Hospital', city: 'Gondar', status: 'Suspended', since: ago(380 * 1440), contact: 'Yared Alemayehu · Finance', offModules: ['operations', 'specialty'], discount: 0, usage: { users: 120, beds: 210, visits: 0, labTests: 0, imagingStudies: 0, departments: 12 }, facilityId: 'net-fasil' },
+  { id: 't-fasil', name: 'Fasil Regional Hospital', type: 'Hospital', city: 'Gondar', status: 'Suspended', since: ago(380 * 1440), contact: 'Yared Alemayehu · Finance', offModules: ['operations', 'specialty', 'teaching'], discount: 0, usage: { users: 120, beds: 210, visits: 0, labTests: 0, imagingStudies: 0, departments: 12 }, facilityId: 'net-fasil' },
 ]
 
 const connectionSeed = (): Connection[] => [
@@ -827,6 +840,18 @@ const serviceSeed = (): HospitalService[] => [
 const platformInvoiceSeed = (): PlatformInvoice[] => [
   { id: 'NC-2026-0101', purpose: 'New service', description: 'Diabetic foot clinic — set-up and first month', serviceId: 'SV-12', amount: 65, vatRate: 15, status: 'Paid', issuedAt: ago(35 * 1440), method: 'telebirr', reference: 'TB8812734', paidAt: ago(33 * 1440), confirmedAt: ago(30 * 1440) },
   { id: 'NC-2026-0142', purpose: 'Subscription', description: 'Platform subscription — October', amount: 1604.8, vatRate: 15, status: 'Paid', issuedAt: ago(20 * 1440), method: 'Bank transfer', reference: 'CBE-77310442', paidAt: ago(18 * 1440), confirmedAt: ago(17 * 1440) },
+]
+
+const sc = (profession: Profession, values: number[]) => Object.fromEntries(COMPETENCIES[profession].map((name, index) => [name, values[index % values.length]]))
+
+/** Past workplace-based assessments in the teaching programme. */
+const assessmentSeed = (): Assessment[] => [
+  { id: 'AS-01', traineeId: 'ST-12', assessor: 'Dr. Henok Girma', assessorLevel: 'Chief resident', profession: 'Medicine', tool: 'Mini-CEX', at: ago(20 * 1440), scores: sc('Medicine', [3, 3, 2, 3, 4, 4, 4]), entrustment: 2, strengths: 'Thorough history; kind and clear with families.', development: 'Commit to a working diagnosis and a dated plan.', patientId: 'p1014', acknowledgedAt: ago(19 * 1440) },
+  { id: 'AS-02', traineeId: 'ST-26', assessor: 'Dr. Henok Girma', assessorLevel: 'Chief resident', profession: 'Medicine', tool: 'Case-based discussion', at: ago(9 * 1440), scores: sc('Medicine', [4, 3, 3, 3, 4, 4, 5]), entrustment: 3, strengths: 'Good grasp of sepsis pathway and fluid strategy.', development: 'Antibiotic stewardship: review cultures at 48 h.' },
+  { id: 'AS-03', traineeId: 'ST-38', assessor: 'Prof. Getachew Worku', assessorLevel: 'Professor', profession: 'Medicine', tool: 'End-of-rotation', at: ago(4 * 1440), scores: sc('Medicine', [5, 4, 4, 4, 4, 5, 5]), entrustment: 4, strengths: 'Leads the ward round confidently; excellent teaching of interns.', development: 'Prepare for the specialty exam: renal physiology.', acknowledgedAt: ago(3 * 1440) },
+  { id: 'AS-04', traineeId: 'ST-31', assessor: 'Sarah Okafor, RN', assessorLevel: 'Senior nurse', profession: 'Nursing', tool: 'DOPS', at: ago(6 * 1440), scores: sc('Nursing', [4, 3, 3, 4, 3, 4, 4]), entrustment: 3, strengths: 'Accurate observations and early escalation.', development: 'Double-check high-alert medicines.' },
+  { id: 'AS-05', traineeId: 'ST-34', assessor: 'Nina Wallace, PharmD', assessorLevel: 'Pharmacy manager', profession: 'Pharmacy', tool: 'DOPS', at: ago(11 * 1440), scores: sc('Pharmacy', [4, 5, 3, 3, 4, 4]), entrustment: 3, strengths: 'No dispensing errors this month.', development: 'Counselling on inhaler technique.' },
+  { id: 'AS-06', traineeId: 'ST-36', assessor: 'Dawit Tesfaye', assessorLevel: 'Radiographer', profession: 'Imaging', tool: 'DOPS', at: ago(14 * 1440), scores: sc('Imaging', [4, 3, 4, 3, 4, 4]), entrustment: 2, strengths: 'Careful pregnancy and implant checks.', development: 'Positioning for lateral c-spine.' },
 ]
 
 export function createInitialState(): HospitalState {
@@ -896,6 +921,7 @@ export function createInitialState(): HospitalState {
     externalReferrals: [],
     services: serviceSeed(),
     platformInvoices: platformInvoiceSeed(),
+    assessments: assessmentSeed(),
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },

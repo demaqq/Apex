@@ -12,9 +12,10 @@ import { DEFAULT_GRADE, gradeLabel, gradesFor, RESIDENT_YEARS } from '../lib/gra
 import { NetworkPanel } from '../components/NetworkPanel'
 import { ServicesEditor } from '../components/ServicesEditor'
 import { PlatformInvoices } from '../components/Onboarding'
-import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, PACKAGES, withRequirements } from '../lib/modules'
+import { PROFESSIONS } from '../lib/teaching'
+import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
-import type { Grade, ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import type { Grade, ModuleId, Profession, TeachingSettings, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
 type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules'
 
@@ -52,7 +53,7 @@ export default function Admin() {
         { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
         { value: 'modules', label: 'Plan & modules', count: state.platformInvoices.filter((item) => item.status === 'Issued').length || undefined },
       ]} />
-      {view === 'facility' && <FacilityTab />}
+      {view === 'facility' && <><TeachingSetting /><FacilityTab /></>}
       {view === 'users' && <UsersTab />}
       {view === 'departments' && <DepartmentsTab />}
       {view === 'services' && <ServicesEditor />}
@@ -64,6 +65,33 @@ export default function Admin() {
 }
 
 /* ---------------- Facility ---------------- */
+
+const TEACHING_KINDS: TeachingSettings['kind'][] = ['Teaching hospital', 'University hospital', 'Teaching diagnostic centre', 'Teaching clinic']
+
+/** The main switch: is this a teaching institution? Turning it on adds trainee ladders and assessments (billed per trainee). */
+function TeachingSetting() {
+  const { state, updateSettings, setModules } = useHospital()
+  const on = isOn(state.settings, 'teaching')
+  const off = state.settings.offModules ?? []
+  const [form, setForm] = useState<TeachingSettings>(state.settings.teaching ?? { kind: state.settings.type === 'Hospital' ? 'Teaching hospital' : 'Teaching clinic', affiliation: '', professions: ['Medicine', 'Nursing'] })
+  const dirty = JSON.stringify(form) !== JSON.stringify(state.settings.teaching)
+  const toggleProfession = (profession: Profession) => setForm({ ...form, professions: form.professions.includes(profession) ? form.professions.filter((item) => item !== profession) : [...form.professions, profession] })
+  return (
+    <Panel className={`teaching-switch ${on ? 'on' : ''}`} title="Teaching institution" action={<label className="switch big-switch"><input type="checkbox" checked={on} onChange={() => { if (!on && !state.settings.teaching) updateSettings({ teaching: form }); setModules(on ? [...off, 'teaching'] : off.filter((id) => id !== 'teaching'), on ? 'switched off teaching' : 'switched on teaching') }} aria-label={`Teaching institution ${on ? 'on' : 'off'}`} /><span />{on ? 'On' : 'Off'}</label>}>
+      <div className="panel-pad">
+        <p className="table-footnote admin-note">For teaching hospitals, university hospitals and teaching diagnostic centres. Seniors assess the trainees below them in their own profession — residents assess interns, chief residents assess residents R1–R5, senior nurses assess junior and student nurses, and so on — with evidence taken from each trainee’s work in the records. Billed as the Teaching module plus {money(state.pricing.perTrainee ?? 0, state.pricing.currency)} per trainee assessed each month (incl. VAT).</p>
+        {on && <>
+          <div className="form-grid form-grid-3">
+            <label className="form-field"><span>Type</span><select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as TeachingSettings['kind'] })}>{TEACHING_KINDS.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="form-field span-2"><span>Affiliated university or college</span><input value={form.affiliation} onChange={(event) => setForm({ ...form, affiliation: event.target.value })} placeholder="e.g. College of Health Sciences" /></label>
+          </div>
+          <div className="form-field"><span>Professions trained here</span><div className="segmented wrap-segmented">{PROFESSIONS.map((profession) => <button key={profession} type="button" className={form.professions.includes(profession) ? 'on' : ''} onClick={() => toggleProfession(profession)}>{profession}</button>)}</div></div>
+          <div className="panel-actions"><Button icon={Save} disabled={!dirty || !form.professions.length} onClick={() => updateSettings({ teaching: form })}>Save teaching set-up</Button></div>
+        </>}
+      </div>
+    </Panel>
+  )
+}
 
 function FacilityTab() {
   const { state, updateSettings } = useHospital()

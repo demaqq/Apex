@@ -18,7 +18,7 @@ export interface GradeDef {
 export const GRADES: GradeDef[] = [
   { id: 'Intern', role: 'intern', rank: 1, short: 'Intern', description: 'Medical intern in rotation. Every note is co-signed.', rounds: ['Intern assessment', 'Resident round'], supervised: true },
   { id: 'GP', role: 'physician', rank: 2, short: 'GP', description: 'General practitioner (medical officer). Practises independently.', rounds: ['GP assessment', 'Ward round'], supervised: false },
-  { id: 'Resident', role: 'physician', rank: 3, short: 'Resident', description: 'Specialty trainee, years R1–R4. Rounds are co-signed by a chief resident or a specialist.', rounds: ['Resident round', 'Ward round'], supervised: true },
+  { id: 'Resident', role: 'physician', rank: 3, short: 'Resident', description: 'Specialty trainee, years R1–R5. Rounds are co-signed by a chief resident or a specialist.', rounds: ['Resident round', 'Ward round'], supervised: true },
   { id: 'Chief resident', role: 'physician', rank: 4, short: 'Chief resident', description: 'Senior trainee leading the residents. Co-signs interns’ and residents’ notes.', rounds: ['Chief resident round', 'Ward round'], supervised: false },
   { id: 'Senior specialist', role: 'physician', rank: 5, short: 'Specialist', description: 'Board-certified specialist (senior physician).', rounds: ['Ward round', 'Senior specialist review'], supervised: false },
   { id: 'Consultant', role: 'consultant', rank: 6, short: 'Consultant', description: 'Consultant specialist responsible for the team’s patients.', rounds: ['Consultant review', 'Ward round'], supervised: false },
@@ -31,7 +31,7 @@ export const gradeById = (id?: Grade) => GRADES.find((item) => item.id === id)
 export const gradesFor = (role: RoleId) => GRADES.filter((item) => item.role === role)
 /** The grade a workspace starts with when none is chosen. */
 export const DEFAULT_GRADE: Partial<Record<RoleId, Grade>> = { intern: 'Intern', physician: 'Senior specialist', consultant: 'Consultant' }
-export const RESIDENT_YEARS = [1, 2, 3, 4]
+export const RESIDENT_YEARS = [1, 2, 3, 4, 5]
 
 export const gradeLabel = (grade?: Grade, year?: number) => grade === 'Resident' && year ? `Resident (R${year})` : grade ?? ''
 export const rankOf = (grade?: Grade) => gradeById(grade)?.rank ?? 0

@@ -21,6 +21,7 @@ const RATES: Array<[Rate, string, string]> = [
   ['perVisit', 'Per patient visit', 'each visit in the month'],
   ['perLabTest', 'Per laboratory test', 'done in-house'],
   ['perImagingStudy', 'Per imaging study', 'done in-house'],
+  ['perTrainee', 'Per trainee assessed', 'teaching institutions, per month'],
 ]
 const STATUS_TONE: Record<SubscriptionStatus, 'success' | 'warning' | 'danger' | 'neutral'> = { Active: 'success', Trial: 'warning', Suspended: 'danger', Setup: 'neutral', 'Pending approval': 'warning', 'Awaiting payment': 'warning', 'Payment review': 'warning' }
 
@@ -129,7 +130,7 @@ function Clients() {
                 <td className="wrap"><b>{name}</b>{tenant.live && <Chip tone="accent">This demo</Chip>}<small>{tenant.type} · {tenant.city} · {tenant.contact}</small></td>
                 <td><Chip tone={STATUS_TONE[status]}>{status}</Chip><small>since {formatDate(tenant.since)}</small></td>
                 <td className="wrap client-modules">{MODULES.length - off.length}/{MODULES.length}<small>{off.length ? `Off: ${off.slice(0, 3).map((id) => moduleById(id).name).join(', ')}${off.length > 3 ? ` +${off.length - 3}` : ''}` : 'Everything'}</small></td>
-                <td className="wrap">{bill.usage.users} staff · {bill.usage.beds} beds<small>{bill.usage.visits.toLocaleString()} visits · {bill.usage.labTests.toLocaleString()} tests · {bill.usage.imagingStudies.toLocaleString()} studies</small></td>
+                <td className="wrap">{bill.usage.users} staff · {bill.usage.beds} beds<small>{bill.usage.visits.toLocaleString()} visits · {bill.usage.labTests.toLocaleString()} tests · {bill.usage.imagingStudies.toLocaleString()} studies{!off.includes('teaching') ? ` · ${bill.usage.trainees ?? 0} trainees assessed` : ''}</small></td>
                 <td className="num"><b>{money(bill.total, cur)}</b>{tenant.discount > 0 && <small>{tenant.discount}% discount</small>}{status !== 'Active' && <small>{status === 'Trial' ? 'not billed during trial' : status === 'Suspended' ? 'not billed while suspended' : `not live yet · ${status.toLowerCase()}`}</small>}</td>
                 <td className="row-actions"><Button size="sm" variant="secondary" icon={Settings2} onClick={() => setEditing(tenant.id)}>Manage</Button></td>
               </tr>

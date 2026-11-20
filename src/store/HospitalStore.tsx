@@ -3,6 +3,7 @@ import { positionById, positionPrivileges } from '../lib/positions'
 import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
+import { canAssess, levelOf, professionOf } from '../lib/teaching'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
 import { setCurrency } from '../lib/format'
 import { PRINTOUT } from '../lib/diagnostics'
@@ -11,6 +12,7 @@ import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
+  Assessment,
   Grade,
   Connection,
   HospitalService,
@@ -185,6 +187,9 @@ interface HospitalContextValue {
   setModules: (offModules: ModuleId[], what: string) => void
   savePricing: (pricing: PriceList) => void
   submitApplication: (offModules: ModuleId[]) => void
+  meAsStaff: () => StaffMember | undefined
+  addAssessment: (input: Omit<Assessment, 'id' | 'at' | 'assessor' | 'assessorLevel' | 'profession'>) => void
+  acknowledgeAssessment: (id: string, comment: string) => void
   reviewApplication: (approve: boolean, note: string) => void
   payPlatformInvoice: (id: string, method: PaymentMethod, reference: string) => void
   confirmPlatformPayment: (id: string, received: boolean) => void
@@ -267,6 +272,7 @@ function loadState(): HospitalState {
       externalReferrals: Array.isArray(parsed.externalReferrals) ? parsed.externalReferrals : [],
       services: mergeById(parsed.services, seed.services),
       platformInvoices: mergeById(parsed.platformInvoices, seed.platformInvoices),
+      assessments: mergeById(parsed.assessments, seed.assessments),
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -1533,6 +1539,38 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(approve ? 'Service approved' : 'Service declined')
   }, [can, commit, notify])
 
+  /** The signed-in person as a member of staff, with a doctor's chosen grade applied. */
+  const meAsStaff = useCallback((): StaffMember | undefined => {
+    const member = stateRef.current.staff.find((item) => item.roleId === currentRole)
+    if (!member) return undefined
+    return myGrade ? { ...member, grade: myGrade.grade, residentYear: myGrade.year } : member
+  }, [currentRole, myGrade])
+
+  /** Workplace-based assessment of a more junior colleague in the same profession. */
+  const addAssessment = useCallback((input: Omit<Assessment, 'id' | 'at' | 'assessor' | 'assessorLevel' | 'profession'>) => {
+    const me = meAsStaff()
+    const trainee = stateRef.current.staff.find((item) => item.id === input.traineeId)
+    if (!isOn(stateRef.current.settings, 'teaching')) { notify('Teaching is not switched on for this facility', 'warning'); return }
+    if (!me || !trainee || !canAssess(levelOf(me), professionOf(me), trainee)) { notify('You can assess only more junior colleagues in your own profession', 'warning'); return }
+    const level = levelOf(me)!
+    commit((previous) => {
+      const assessment: Assessment = { ...input, id: nextNumber(previous.assessments.map((item) => item.id), 'AS', 1), at: new Date().toISOString(), assessor: me.name, assessorLevel: level.id, profession: professionOf(trainee)! }
+      return { next: { ...previous, assessments: [assessment, ...previous.assessments] }, actor: me.name, action: `assessed ${trainee.name} (${input.tool})`, department: trainee.department }
+    })
+    notify(`Assessment of ${trainee.name} saved`)
+  }, [commit, meAsStaff, notify])
+
+  /** The trainee reads and accepts an assessment, with an optional reflection. */
+  const acknowledgeAssessment = useCallback((id: string, comment: string) => {
+    const me = meAsStaff()
+    commit((previous) => {
+      const assessment = previous.assessments.find((item) => item.id === id)
+      if (!assessment || !me || assessment.traineeId !== me.id) return null
+      return { next: { ...previous, assessments: previous.assessments.map((item) => item.id === id ? { ...item, acknowledgedAt: new Date().toISOString(), ...(comment.trim() ? { traineeComment: comment.trim() } : {}) } : item) }, actor: me.name, action: `acknowledged assessment ${id}`, department: me.department }
+    })
+    notify('Assessment acknowledged')
+  }, [commit, meAsStaff, notify])
+
   /** Super admin: change a client's status, modules or discount. This facility's settings follow its own record. */
   const updateTenant = useCallback((id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => {
     if (!can('pricing')) { notify('Only the super admin manages clients', 'warning'); return }
@@ -1892,9 +1930,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, setModules, savePricing, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

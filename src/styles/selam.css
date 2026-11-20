@@ -987,3 +987,40 @@ td.unit-row { padding-left: 34px !important; }
 .vat-line dt, .vat-line dd { color: var(--muted); font-size: 12.5px; }
 .grade-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
 .grade-picker > small { grid-column: 1 / -1; }
+
+/* ---------- Teaching & assessment ---------- */
+.me-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-text); }
+.me-strip > div { display: grid; flex: 1; min-width: 180px; }
+.me-strip span { color: var(--muted); font-size: 12.5px; }
+.trainee-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.trainee-card > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.trainee-card > header > div { display: grid; }
+.trainee-card > header small { color: var(--muted); font-size: 12px; }
+.trainee-card.overdue { border-color: color-mix(in srgb, var(--amber, #d97706) 45%, var(--line-soft)); }
+.trainee-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
+.trainee-stats span { display: grid; padding: 8px; border-radius: 8px; background: var(--sunken); color: var(--muted); font-size: 11.5px; }
+.trainee-stats b { color: var(--text); font-size: 18px; }
+.evidence-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.evidence-row span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11.5px; }
+.evidence-row b { color: var(--text); }
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.tool-grid button { display: grid; gap: 2px; padding: 10px 12px; text-align: left; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--paper); color: var(--text); cursor: pointer; }
+.tool-grid button span { color: var(--muted); font-size: 11.5px; }
+.tool-grid button.on { border-color: var(--teal, #0f766e); background: var(--accent-soft); }
+.score-grid { display: grid; gap: 6px; margin: 12px 0; }
+.score-row { display: grid; grid-template-columns: minmax(150px, 1fr) auto minmax(120px, 0.6fr); align-items: center; gap: 10px; font-size: 13px; }
+.score-row small { color: var(--muted); font-size: 11.5px; }
+.competency-bars { display: grid; gap: 8px; }
+.competency-bars > div { display: grid; grid-template-columns: minmax(150px, 1fr) 2fr 36px; align-items: center; gap: 10px; font-size: 13px; }
+.competency-bars i.low { background: var(--amber, #d97706); }
+.portfolio { display: grid; gap: 14px; }
+.ladder-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.ladder { display: grid; gap: 2px; align-content: start; }
+.ladder > b { margin-bottom: 6px; }
+.ladder-step { display: flex; justify-content: space-between; gap: 6px; padding: 6px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--paper); font-size: 12.5px; }
+.ladder-step.trainee { background: var(--accent-soft); border-color: transparent; }
+.ladder-step small { color: var(--muted); }
+.ladder-arrow { display: block; margin: 1px auto; color: var(--muted); }
+.teaching-switch.on { border-color: color-mix(in srgb, var(--teal, #0f766e) 45%, var(--line-soft)); }
+.wrap-segmented { flex-wrap: wrap; }
+@media (max-width: 700px) { .score-row { grid-template-columns: 1fr; } .competency-bars > div { grid-template-columns: 1fr 1fr 30px; } }

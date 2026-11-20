@@ -568,6 +568,8 @@ export interface StaffMember {
   /** Doctors: grade and, for residents, training year. */
   grade?: Grade
   residentYear?: number
+  /** Other professions: level on their training ladder (see lib/teaching). */
+  level?: string
 }
 
 /* ---------- Administration ---------- */
@@ -589,6 +591,8 @@ export interface FacilitySettings {
   subscription?: SubscriptionStatus
   /** VAT included in every patient price (%). */
   vatRate?: number
+  /** Teaching institution details (the switch itself is the Teaching module). */
+  teaching?: TeachingSettings
   /** Note from the super admin on the latest application decision. */
   applicationNote?: string
   /** Reception tariff. */
@@ -771,11 +775,13 @@ export interface HospitalState {
   services: HospitalService[]
   /** Invoices from the platform (subscription, new services). */
   platformInvoices: PlatformInvoice[]
+  /** Workplace-based assessments of trainees (teaching institutions). */
+  assessments: Assessment[]
 }
 
 /* ---------- Subscription ---------- */
 
-export type ModuleId = 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
+export type ModuleId = 'teaching' | 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
 
 export interface PriceList {
   currency: 'USD' | 'ETB' | 'EUR'
@@ -793,12 +799,14 @@ export interface PriceList {
   perVisit: number
   perLabTest: number
   perImagingStudy: number
+  /** Teaching institutions: per trainee assessed in the month. */
+  perTrainee: number
 }
 
 /** Setup → Pending approval → Awaiting payment → Payment review → Active. */
 export type SubscriptionStatus = 'Setup' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Active' | 'Trial' | 'Suspended'
 
-export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number }
+export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number; trainees?: number }
 
 /** A client facility subscribed to the platform. */
 export interface Tenant {
@@ -907,4 +915,38 @@ export interface PlatformInvoice {
   paidAt?: string
   confirmedAt?: string
   note?: string
+}
+
+/* ---------- Teaching ---------- */
+
+export type Profession = 'Medicine' | 'Nursing' | 'Pharmacy' | 'Laboratory' | 'Imaging'
+
+export interface TeachingSettings {
+  kind: 'Teaching hospital' | 'University hospital' | 'Teaching diagnostic centre' | 'Teaching clinic'
+  affiliation: string
+  professions: Profession[]
+}
+
+export type AssessmentTool = 'Mini-CEX' | 'DOPS' | 'Case-based discussion' | 'Multi-source feedback' | 'End-of-rotation' | 'Logbook review'
+
+/** Entrustment: how much supervision the trainee needs for this kind of work. */
+export type Entrustment = 1 | 2 | 3 | 4 | 5
+
+export interface Assessment {
+  id: string
+  traineeId: string
+  assessor: string
+  assessorLevel: string
+  profession: Profession
+  tool: AssessmentTool
+  at: string
+  /** Competency → score 1–5. */
+  scores: Record<string, number>
+  entrustment: Entrustment
+  strengths: string
+  development: string
+  patientId?: string
+  /** The trainee has read and accepted it. */
+  acknowledgedAt?: string
+  traineeComment?: string
 }
