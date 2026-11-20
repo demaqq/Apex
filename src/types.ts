@@ -43,7 +43,11 @@ export interface ObservationSet extends Vitals {
 }
 
 export type RoundKind = 'Ward round' | 'Intern assessment' | 'Resident round' | 'Consultant review' | 'Consultant round'
+  | 'GP assessment' | 'Chief resident round' | 'Senior specialist review' | 'Subspecialty consult' | 'Professor round'
   | 'Bedside assessment' | 'Nurse round' | 'Senior nurse assessment' | 'Junior nurse assessment' | 'Intern nurse assessment'
+
+/** Medical career grade, most junior first. */
+export type Grade = 'Intern' | 'GP' | 'Resident' | 'Chief resident' | 'Senior specialist' | 'Consultant' | 'Subspecialist' | 'Super-specialist' | 'Professor'
 
 export interface NoteReview { at: string; by: string; role: string; outcome: 'Agreed' | 'Amended'; comment: string }
 
@@ -67,6 +71,8 @@ export interface RoundNote {
   status: 'Improving' | 'Stable' | 'Deteriorating'
   /** Intern and junior notes wait for a senior's co-signature. */
   cosign?: 'Pending review' | 'Co-signed'
+  /** Seniority of the author; only a higher rank may co-sign. */
+  authorRank?: number
   /** Who has to review it: a senior doctor or a senior nurse. */
   reviewer?: 'Senior doctor' | 'Senior nurse'
   reviews?: NoteReview[]
@@ -559,6 +565,9 @@ export interface StaffMember {
   permissions?: Permission[]
   /** Sensitive posts (pharmacy manager, store keeper…) assigned by the administrator. */
   positions?: PositionAssignment[]
+  /** Doctors: grade and, for residents, training year. */
+  grade?: Grade
+  residentYear?: number
 }
 
 /* ---------- Administration ---------- */
@@ -703,6 +712,9 @@ export interface CosignNote {
   status: 'Pending review' | 'Co-signed'
   cosignedBy?: string
   evaluationId?: string
+  /** Seniority of the author (see lib/grades); only a higher rank may co-sign. */
+  authorRank?: number
+  authorGrade?: string
 }
 
 /* ---------- Emergency codes ---------- */

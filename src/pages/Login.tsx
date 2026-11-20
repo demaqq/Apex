@@ -6,7 +6,8 @@ import { Brand, Button, DepartmentIcon, Modal } from '../components/ui'
 import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { isOn, moduleForRole } from '../lib/modules'
-import type { DepartmentId, RoleId } from '../types'
+import { DEFAULT_GRADE, gradeById, gradesFor, RESIDENT_YEARS } from '../lib/grades'
+import type { DepartmentId, Grade, RoleId } from '../types'
 
 const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
 
@@ -19,6 +20,8 @@ export default function Login() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<RoleId>('physician')
   const [department, setDepartment] = useState<DepartmentId>('emergency')
+  const [grade, setGrade] = useState<Grade | undefined>(DEFAULT_GRADE.physician)
+  const [year, setYear] = useState(1)
   const [accessKey, setAccessKey] = useState('NORTHSTAR')
   const [remember, setRemember] = useState(true)
   const [showKey, setShowKey] = useState(false)
@@ -30,13 +33,14 @@ export default function Login() {
 
   if (currentRole) return <Navigate to={ROLE_HOME[currentRole]} replace />
 
-  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setError('') }
+  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setGrade(DEFAULT_GRADE[role]); setError('') }
+  const grades = gradesFor(selected)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (accessKey.trim().toUpperCase() !== 'NORTHSTAR') { setError('Use the demo access key NORTHSTAR to sign in.'); return }
     const blocked = signInBlock(selected)
     if (blocked) { setError(blocked); return }
-    login(selected, remember, canChooseDepartment ? department : undefined)
+    login(selected, remember, canChooseDepartment ? department : undefined, grade, year)
     navigate(ROLE_HOME[selected])
   }
 
@@ -96,6 +100,17 @@ export default function Login() {
               </div>
               {['physician', 'nurse', 'consultant', 'intern'].includes(selected) && <small className="muted-text">You’ll see patients in this department’s wards and OPD, plus consults and comorbidity links.</small>}
             </label>
+          )}
+
+          {grades.length > 1 && (
+            <div className="grade-picker">
+              <label className="form-field">
+                <span>Grade</span>
+                <select value={grade} onChange={(event) => setGrade(event.target.value as Grade)} aria-label="Grade">{grades.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select>
+              </label>
+              {grade === 'Resident' && <label className="form-field"><span>Year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))} aria-label="Residency year">{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
+              <small className="muted-text">{gradeById(grade)?.description}</small>
+            </div>
           )}
 
           <label className="form-field">

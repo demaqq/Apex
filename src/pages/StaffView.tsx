@@ -5,6 +5,7 @@ import { Avatar, Button, Chip, DepartmentIcon, DetailGrid, EmptyState, FilterSel
 import { departmentById } from '../data'
 import { downloadCsv, today } from '../lib/format'
 import { matches } from '../lib/hooks'
+import { gradeLabel } from '../lib/grades'
 import { useHospital } from '../store/HospitalStore'
 
 export default function StaffView() {
@@ -25,7 +26,7 @@ export default function StaffView() {
   const filtered = state.staff.filter((member) => !member.suspended &&
     (department === 'all' || member.department === department) &&
     (duty === 'all' || (duty === 'on' ? member.onDuty : !member.onDuty)) &&
-    matches(query, member.name, member.role, member.specialty, departmentById(state.departments, member.department).name, member.pager))
+    matches(query, member.name, member.role, member.grade, member.specialty, departmentById(state.departments, member.department).name, member.pager))
 
   const exportStaff = () => downloadCsv(`staff-${today()}.csv`, [
     ['ID', 'Name', 'Role', 'Department', 'Specialty', 'Shift', 'On duty', 'Pager', 'Phone', 'Email', 'Licence'],
@@ -60,7 +61,7 @@ export default function StaffView() {
             <tbody>
               {filtered.map((member) => (
                 <tr key={member.id} className="clickable-row" onClick={() => setSelectedId(member.id)}>
-                  <td><PersonCell name={member.name} detail={`${member.role} · ${member.specialty}`} /></td>
+                  <td><PersonCell name={member.name} detail={`${member.grade ? `${gradeLabel(member.grade, member.residentYear)} · ` : ''}${member.role === gradeLabel(member.grade, member.residentYear) ? '' : `${member.role} · `}${member.specialty}`} /></td>
                   <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
                   <td>{member.shift}</td>
                   <td><b>{member.pager}</b><small>{member.phone}</small></td>

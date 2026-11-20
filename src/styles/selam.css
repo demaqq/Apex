@@ -985,3 +985,5 @@ td.unit-row { padding-left: 34px !important; }
 .pending-services { display: grid; gap: 8px; margin-top: 16px; }
 .bill-vat { color: var(--accent-text) !important; font-weight: 600; }
 .vat-line dt, .vat-line dd { color: var(--muted); font-size: 12.5px; }
+.grade-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+.grade-picker > small { grid-column: 1 / -1; }

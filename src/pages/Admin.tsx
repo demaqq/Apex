@@ -8,12 +8,13 @@ import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
 import { nested } from '../lib/access'
 import { CatalogueEditor } from '../components/CatalogueEditor'
 import { BillSummary } from '../components/PlanBill'
+import { DEFAULT_GRADE, gradeLabel, gradesFor, RESIDENT_YEARS } from '../lib/grades'
 import { NetworkPanel } from '../components/NetworkPanel'
 import { ServicesEditor } from '../components/ServicesEditor'
 import { PlatformInvoices } from '../components/Onboarding'
 import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
-import type { ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import type { Grade, ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
 type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules'
 
@@ -249,6 +250,10 @@ function AddUserModal({ onClose, onSave }: { onClose: () => void; onSave: (input
   const [roleId, setRoleId] = useState<RoleId>('nurse')
   const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
   const [specialty, setSpecialty] = useState('')
+  const [grade, setGrade] = useState<Grade | ''>('')
+  const [year, setYear] = useState(1)
+  const grades = gradesFor(roleId)
+  const chosen = grades.find((item) => item.id === grade)?.id ?? DEFAULT_GRADE[roleId]
   const valid = name.trim().split(/\s+/).length >= 2
   return (
     <Modal open onClose={onClose} title="Add a user" subtitle="Accounts you add are approved straight away" size="md">
@@ -257,8 +262,10 @@ function AddUserModal({ onClose, onSave }: { onClose: () => void; onSave: (input
         <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator' && id !== 'provider' && (!moduleForRole(id) || isOn(state.settings, moduleForRole(id)!.id))).map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field"><span>Specialty or unit</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
+        {grades.length > 0 && <label className="form-field"><span>Grade</span><select value={chosen} onChange={(event) => setGrade(event.target.value as Grade)}>{grades.map((item) => <option key={item.id}>{item.id}</option>)}</select></label>}
+        {chosen === 'Resident' && <label className="form-field"><span>Residency year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
       </div>
-      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={UserPlus} disabled={!valid} onClick={() => onSave({ name: name.trim(), roleId, role: roleProfiles[roleId].title, department, specialty: specialty.trim() || roleProfiles[roleId].title, shift: 'Day · 07:00–15:00', status: 'Active' })}>Add user</Button></div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={UserPlus} disabled={!valid} onClick={() => onSave({ name: name.trim(), roleId, role: chosen ? gradeLabel(chosen, chosen === 'Resident' ? year : undefined) : roleProfiles[roleId].title, ...(chosen ? { grade: chosen, ...(chosen === 'Resident' ? { residentYear: year } : {}) } : {}), department, specialty: specialty.trim() || roleProfiles[roleId].title, shift: 'Day · 07:00–15:00', status: 'Active' })}>Add user</Button></div>
     </Modal>
   )
 }
