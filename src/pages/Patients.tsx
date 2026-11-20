@@ -1,23 +1,25 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, ArrowDownUp, ChevronRight, ClipboardList, Download, Filter, Network, Plus, Search, UsersRound, X } from 'lucide-react'
+import { Activity, ArrowDownUp, ChevronRight, ClipboardList, Download, Filter, KeyRound, Network, ShieldCheck, Plus, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { TriageModal } from '../components/ClinicalModals'
-import { Avatar, Button, EmptyState, EsiBadge, PageHeader, Panel, StatusBadge } from '../components/ui'
+import { Avatar, Button, EmptyState, EsiBadge, Modal, PageHeader, Panel, StatusBadge } from '../components/ui'
 import { departmentById } from '../data'
 import { getEncounterType, patientCsv, statusLabels } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
+import { withUnits } from '../lib/access'
 import type { DepartmentId } from '../types'
 
 type RecordView = 'active' | 'critical' | 'inpatient' | 'outpatient' | 'discharged' | 'all'
 
 export default function Patients() {
-  const { state, profile, can, setSelectedPatientId } = useHospital()
+  const { state, profile, can, scoped, setSelectedPatientId } = useHospital()
   const [params, setParams] = useSearchParams()
   const requestedView = params.get('view')
   const initialView: RecordView = ['active', 'critical', 'inpatient', 'outpatient', 'discharged', 'all'].includes(requestedView ?? '') ? requestedView as RecordView : 'active'
   const canEmergencyTriage = can('triage') && profile?.department === 'emergency'
-  const initialDepartment = ['administrator', 'coordinator'].includes(profile?.id ?? '') ? 'all' : profile?.department ?? 'all'
+  // Scoped clinicians already only see their department's patients, including consults and comorbidity links from other wards.
+  const initialDepartment = scoped || ['administrator', 'coordinator'].includes(profile?.id ?? '') ? 'all' : profile?.department ?? 'all'
   const [query, setQuery] = useState('')
   const [department, setDepartment] = useState(initialDepartment)
   const [acuity, setAcuity] = useState('all')
@@ -35,7 +37,7 @@ export default function Patients() {
     if (view === 'critical' && patient.esi > 2) return false
     if (['inpatient', 'outpatient'].includes(view) && (patient.status === 'discharged' || getEncounterType(patient) !== view)) return false
     if (view === 'discharged' && patient.status !== 'discharged') return false
-    if (department !== 'all' && patient.department !== department) return false
+    if (department !== 'all' && !withUnits(department as DepartmentId, state.departments).includes(patient.department)) return false
     if (acuity !== 'all' && patient.esi !== Number(acuity)) return false
     if (status !== 'all' && patient.status !== status) return false
     if (query && !`${patient.name} ${patient.mrn} ${patient.complaint} ${patient.location} ${patient.assignedTo}`.toLowerCase().includes(query.toLowerCase())) return false
@@ -52,7 +54,9 @@ export default function Patients() {
   }
 
   return <motion.div className="patients-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-    <PageHeader eyebrow={department === 'all' ? 'ONE SHARED EPISODE · EVERY DEPARTMENT' : `${departmentById(state.departments, department as DepartmentId).name.toUpperCase()} · SPECIALTY CLINICAL REVIEW`} title="Patient records" description="Review inpatient and outpatient encounters with specialty-scoped observations, diagnostics, referrals and discharge timelines." actions={<><Button variant="secondary" icon={Download} onClick={exportList} disabled={!patients.length}>Export view</Button>{canEmergencyTriage && <Button icon={Plus} onClick={() => setTriageOpen(true)}>New patient</Button>}</>} />
+    <PageHeader eyebrow={department === 'all' ? 'ONE SHARED EPISODE · EVERY DEPARTMENT' : `${departmentById(state.departments, department as DepartmentId).name.toUpperCase()} · SPECIALTY CLINICAL REVIEW`} title="Patient records" description="Review inpatient and outpatient encounters with specialty-scoped observations, diagnostics, referrals and discharge timelines." actions={<>{can('records-export') && <Button variant="secondary" icon={Download} onClick={exportList} disabled={!patients.length}>Export view</Button>}{canEmergencyTriage && <Button icon={Plus} onClick={() => setTriageOpen(true)}>New patient</Button>}</>} />
+
+    {scoped && <ScopeBanner />}
 
     <Panel className="records-panel">
       <div className="records-topline"><div className="view-tabs">{([['active', `Active ${scopedPatients.filter((patient) => patient.status !== 'discharged').length}`], ['inpatient', `Inpatient ${scopedPatients.filter((patient) => patient.status !== 'discharged' && getEncounterType(patient) === 'inpatient').length}`], ['outpatient', `Outpatient ${scopedPatients.filter((patient) => patient.status !== 'discharged' && getEncounterType(patient) === 'outpatient').length}`], ['critical', `High acuity ${scopedPatients.filter((patient) => patient.esi <= 2 && patient.status !== 'discharged').length}`], ['discharged', `Discharged ${scopedPatients.filter((patient) => patient.status === 'discharged').length}`], ['all', `All ${scopedPatients.length}`]] as const).map(([value, label]) => <button key={value} className={view === value ? 'active' : ''} onClick={() => changeView(value)}>{label}</button>)}</div><span className="record-sync"><span className="live-dot" />{department === 'all' ? 'Hospital-wide' : 'Specialty scope'} · Live</span></div>
@@ -86,4 +90,38 @@ export default function Patients() {
     </Panel>
     {canEmergencyTriage && <TriageModal open={triageOpen} onClose={() => setTriageOpen(false)} onCreated={(id) => setSelectedPatientId(id)} />}
   </motion.div>
+}
+/** Explains the department scope and offers audited emergency access to other patients. */
+function ScopeBanner() {
+  const { state, profile, outsidePatients, breakGlass } = useHospital()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [target, setTarget] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
+  const department = departmentById(state.departments, (profile?.department ?? 'emergency') as DepartmentId)
+  const found = query.trim().length >= 2 ? outsidePatients.filter((p) => `${p.name} ${p.mrn}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : []
+  const chosen = outsidePatients.find((p) => p.id === target)
+  return (
+    <div className="scope-banner">
+      <ShieldCheck size={18} />
+      <div>
+        <b>Showing patients under {department.name}</b>
+        <span>Assigned to its wards or OPD, referred to it for consultation, or linked because of a comorbidity. {outsidePatients.length} other active patients are hidden.</span>
+      </div>
+      <Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setOpen(true)}>Emergency access</Button>
+      {open && (
+        <Modal open onClose={() => { setOpen(false); setTarget(null); setQuery(''); setReason('') }} title="Emergency access to another patient" subtitle="Opens the record for 4 hours. Your name, reason and time are recorded in the patient’s timeline and the audit log." size="md">
+          {!chosen ? <>
+            <label className="form-field"><span>Find the patient</span><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name or MRN" /></label>
+            <div className="checkin-matches">{found.map((p) => <button key={p.id} type="button" onClick={() => setTarget(p.id)}><b>{p.name}</b><span>{p.mrn} · {p.age} y · {departmentById(state.departments, p.department).name}</span></button>)}</div>
+            {query.trim().length >= 2 && !found.length && <p className="record-hint">No match outside your department.</p>}
+          </> : <>
+            <div className="erx-patient"><b>{chosen.name}</b><span>{chosen.mrn} · {departmentById(state.departments, chosen.department).name}</span></div>
+            <label className="form-field"><span>Why do you need this record now? <b>*</b></span><textarea rows={3} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Called to a cardiac arrest on Ward 5S; covering the night shift for medicine" /></label>
+            <div className="modal-footer"><Button variant="ghost" onClick={() => setTarget(null)}>Back</Button><Button variant="danger" icon={KeyRound} disabled={reason.trim().length < 10} onClick={() => { breakGlass(chosen.id, reason.trim()); setOpen(false); setTarget(null); setQuery(''); setReason('') }}>Open record</Button></div>
+          </>}
+        </Modal>
+      )}
+    </div>
+  )
 }

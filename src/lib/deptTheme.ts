@@ -1,6 +1,6 @@
 import type { Department, DepartmentId } from '../types'
 
-export type Ambient = 'orbs' | 'bubbles' | 'waves' | 'ribbons' | 'ecg' | 'neural' | 'scan' | 'molecules' | 'ripples' | 'pulse' | 'cells' | 'iris' | 'siren' | 'crosses'
+export type Ambient = 'orbs' | 'bubbles' | 'waves' | 'ribbons' | 'ecg' | 'neural' | 'scan' | 'molecules' | 'ripples' | 'pulse' | 'cells' | 'iris' | 'siren' | 'crosses' | 'drops' | 'beams' | 'night' | 'lamp'
 
 export interface DeptTheme {
   name: string
@@ -30,6 +30,10 @@ export const DEPT_THEMES: Partial<Record<DepartmentId, DeptTheme>> = {
   'internal-medicine': { name: 'Forest green', ambient: 'pulse', d: ['#4ade80', '#22c55e', '#86efac', '#052e16'], l: ['#15803d', '#166534'], tint: '#16a34a', second: '#38bdf8' },
   dermatology: { name: 'Orchid', ambient: 'cells', d: ['#e879f9', '#d946ef', '#f0abfc', '#4a044e'], l: ['#a21caf', '#86198f'], tint: '#c026d3', second: '#fda4af' },
   ophthalmology: { name: 'Silver lens', ambient: 'iris', d: ['#cbd5e1', '#94a3b8', '#e2e8f0', '#0f172a'], l: ['#475569', '#334155'], tint: '#64748b', second: '#22d3ee' },
+  endocrinology: { name: 'Honey', ambient: 'drops', d: ['#facc15', '#eab308', '#fde047', '#422006'], l: ['#854d0e', '#713f12'], tint: '#ca8a04', second: '#38bdf8' },
+  orthopedics: { name: 'Bone', ambient: 'beams', d: ['#d6d3d1', '#a8a29e', '#e7e5e4', '#1c1917'], l: ['#57534e', '#44403c'], tint: '#78716c', second: '#60a5fa' },
+  nicu: { name: 'Lullaby', ambient: 'night', d: ['#c084fc', '#a855f7', '#d8b4fe', '#3b0764'], l: ['#7e22ce', '#6b21a8'], tint: '#9333ea', second: '#f9a8d4' },
+  or: { name: 'Scrub teal', ambient: 'lamp', d: ['#5eead4', '#14b8a6', '#99f6e4', '#042f2e'], l: ['#0f766e', '#115e59'], tint: '#0f766e', second: '#f87171' },
   pharmacy: { name: 'Emerald', ambient: 'molecules', d: ['#34d399', '#10b981', '#6ee7b7', '#022c22'], l: ['#047857', '#065f46'], tint: '#059669', second: '#a3e635' },
 }
 

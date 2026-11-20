@@ -10,6 +10,7 @@ import { ALL_NAV, canSee, moduleEnabled, navFor, pageName as pageNameFor, sectio
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { SPECIALTY } from '../lib/specialty'
 import { applyDeptTheme, themeFor } from '../lib/deptTheme'
+import { activePositions, positionById } from '../lib/positions'
 import { Ambient } from './Ambient'
 import type { DepartmentId, RoleId } from '../types'
 import PatientDrawer from './PatientDrawer'
@@ -18,7 +19,7 @@ import { Avatar, Brand, Button, Modal } from './ui'
 type Hit = { key: string; label: string; detail?: string; run: () => void }
 
 export default function AppShell() {
-  const { state, currentRole, profile, myStaffId, selectedPatientId, login, signInBlock, logout, setSelectedPatientId, resetDemo, notify, toasts, dismissToast, activateCode, standDownCode, acknowledgePage } = useHospital()
+  const { state, currentRole, profile, myStaffId, selectedPatientId, can, login, signInBlock, logout, setSelectedPatientId, resetDemo, notify, toasts, dismissToast, activateCode, standDownCode, acknowledgePage } = useHospital()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -252,7 +253,7 @@ export default function AppShell() {
             </div>
             <div className="popover-anchor">
               <button className="profile-button" aria-label="Account menu" aria-expanded={profileOpen} onClick={() => { setProfileOpen((value) => !value); setNotificationsOpen(false) }}><span className="profile-avatar" style={{ background: profile.accent }}>{profile.initials}</span><span><b>{profile.name}</b><small>{profile.shortTitle}</small></span><ChevronDown size={14} /></button>
-              <AnimatePresence>{profileOpen && <motion.div className="popover profile-popover" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }}><div className="profile-popover-head"><span className="profile-avatar large" style={{ background: profile.accent }}>{profile.initials}</span><div><b>{profile.name}</b><span className="mono">{profile.employeeId}</span><small>{profile.title}</small></div></div><div className="profile-menu"><button onClick={() => setRoleSwitchOpen((value) => !value)} aria-expanded={roleSwitchOpen}><ArrowLeftRight size={17} />Switch workspace<ChevronDown size={14} className={`switch-chevron ${roleSwitchOpen ? 'open' : ''}`} /></button>{roleSwitchOpen && <div className="role-switcher-list" role="menu">{(Object.values(roleProfiles)).map((item) => <button key={item.id} type="button" role="menuitem" className={item.id === role ? 'active' : ''} onClick={() => quickSwitchRole(item.id)}><i className="role-dot" style={{ background: item.accent }} /><span><b>{item.shortTitle}</b><small>{item.name}</small></span>{item.id === role && <Check size={14} />}</button>)}</div>}<button onClick={exportCensus}><Download size={17} />Export patient census</button><button onClick={() => { setResetOpen(true); setProfileOpen(false) }}><RefreshCcw size={17} />Restore demo data</button><button onClick={switchRole}><LogOut size={17} />Sign out</button></div><div className="profile-security"><ShieldCheck size={14} />Role-based access active</div></motion.div>}</AnimatePresence>
+              <AnimatePresence>{profileOpen && <motion.div className="popover profile-popover" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }}><div className="profile-popover-head"><span className="profile-avatar large" style={{ background: profile.accent }}>{profile.initials}</span><div><b>{profile.name}</b><span className="mono">{profile.employeeId}</span><small>{profile.title}</small>{activePositions(state.staff.find((member) => member.roleId === currentRole)).map((p) => <em key={p.id} className="profile-position">{positionById(p.id)?.title}{p.until ? ` · until ${p.until}` : ''}</em>)}</div></div><div className="profile-menu"><button onClick={() => setRoleSwitchOpen((value) => !value)} aria-expanded={roleSwitchOpen}><ArrowLeftRight size={17} />Switch workspace<ChevronDown size={14} className={`switch-chevron ${roleSwitchOpen ? 'open' : ''}`} /></button>{roleSwitchOpen && <div className="role-switcher-list" role="menu">{(Object.values(roleProfiles)).map((item) => <button key={item.id} type="button" role="menuitem" className={item.id === role ? 'active' : ''} onClick={() => quickSwitchRole(item.id)}><i className="role-dot" style={{ background: item.accent }} /><span><b>{item.shortTitle}</b><small>{item.name}</small></span>{item.id === role && <Check size={14} />}</button>)}</div>}{can('records-export') && <button onClick={exportCensus}><Download size={17} />Export patient census</button>}<button onClick={() => { setResetOpen(true); setProfileOpen(false) }}><RefreshCcw size={17} />Restore demo data</button><button onClick={switchRole}><LogOut size={17} />Sign out</button></div><div className="profile-security"><ShieldCheck size={14} />Role-based access active</div></motion.div>}</AnimatePresence>
             </div>
           </div>
         </div>

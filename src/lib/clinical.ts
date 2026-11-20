@@ -49,12 +49,13 @@ export function newsResponse(n: News2) {
 /** Abnormal observation flags with paediatric limits for children under 12. */
 export function observationFlags(v: Vitals, age: number) {
   const child = age < 12
+  const infant = age < 1
   const flags: string[] = []
-  if (child ? v.hr > 150 || v.hr < 70 : v.hr > 120 || v.hr < 45) flags.push(`HR ${v.hr}`)
-  if (child ? v.rr > 30 || v.rr < 15 : v.rr > 24 || v.rr < 9) flags.push(`RR ${v.rr}`)
-  if (v.spo2 < 94) flags.push(`SpO₂ ${v.spo2}%`)
-  if (v.bpSys < (child ? 80 : 90) || v.bpSys >= 180) flags.push(`BP ${v.bpSys}/${v.bpDia}`)
-  if (v.temp >= 38.5 || v.temp < 35.5) flags.push(`T ${v.temp}°C`)
+  if (infant ? v.hr > 180 || v.hr < 100 : child ? v.hr > 150 || v.hr < 70 : v.hr > 120 || v.hr < 45) flags.push(`HR ${v.hr}`)
+  if (infant ? v.rr > 60 || v.rr < 30 : child ? v.rr > 30 || v.rr < 15 : v.rr > 24 || v.rr < 9) flags.push(`RR ${v.rr}`)
+  if (v.spo2 < (infant ? 90 : 94)) flags.push(`SpO₂ ${v.spo2}%`)
+  if (v.bpSys < (infant ? 40 : child ? 80 : 90) || v.bpSys >= 180) flags.push(`BP ${v.bpSys}/${v.bpDia}`)
+  if (infant ? v.temp >= 37.6 || v.temp < 36.5 : v.temp >= 38.5 || v.temp < 35.5) flags.push(`T ${v.temp}°C`)
   if (v.gcs < 15) flags.push(`GCS ${v.gcs}`)
   return flags
 }
@@ -201,6 +202,8 @@ export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   const stage = orderStage(order)
   const last = stagesFor(order).length - 1
   if (stage >= last || role === 'administrator') return false
+  // Outpatient tests start only once paid at reception.
+  if (order.billing === 'Unpaid' && stage === 0) return false
   // Referred investigations are tracked by the ward team and laboratory/radiology staff.
   if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'receptionist'].includes(role)
   switch (order.kind) {

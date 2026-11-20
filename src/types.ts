@@ -3,15 +3,19 @@ export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coo
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
   | 'emergency' | 'cardiology' | 'neurology' | 'radiology' | 'laboratory' | 'icu' | 'surgery' | 'ward'
-  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology' | 'ophthalmology'
+  | 'pharmacy' | 'pediatrics' | 'obgyn' | 'internal-medicine' | 'ent' | 'dermatology' | 'oncology' | 'ophthalmology' | 'endocrinology' | 'orthopedics' | 'nicu' | 'or'
 export type DepartmentId = CoreDepartmentId | (string & {})
 
-export type PatientStatus = 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
+export type PatientStatus = 'awaiting-payment' | 'awaiting-triage' | 'waiting' | 'in-treatment' | 'observation' | 'admitted' | 'discharged'
 export type Priority = 'routine' | 'urgent' | 'emergent'
 export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
 export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
+  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export'
+
+export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer'
+export interface PositionAssignment { id: PositionId; since: string; until?: string; by: string; note?: string }
 
 export interface Vitals {
   hr: number
@@ -230,6 +234,29 @@ export type ChartKey = keyof PatientCharts
 export type ChartEntry<K extends ChartKey> = NonNullable<PatientCharts[K]>[number]
 export type ChartEntryInput<K extends ChartKey> = Omit<ChartEntry<K>, 'id' | 'at' | 'by'> & { at?: string }
 
+export type VisitType = 'OPD' | 'Emergency' | 'Admission' | 'Investigation'
+export type Payer = 'Self-pay' | 'CBHI' | 'Health insurance (EHIS)' | 'Private insurance' | 'Employer / credit' | 'Fee waiver'
+export type BillingState = 'Paid' | 'Covered' | 'Waived' | 'Deferred' | 'Unpaid'
+
+/** The current visit, opened at reception: what the patient came for, who pays and where they queue. */
+export interface Visit {
+  id: string
+  type: VisitType
+  department: DepartmentId
+  queueNo: string
+  checkedInAt: string
+  payer: Payer
+  payerRef?: string
+  billing: BillingState
+  invoiceId?: string
+  receipt?: string
+  waiverReason?: string
+  /** OPD progress after triage. */
+  opd?: 'Waiting' | 'With doctor' | 'Seen'
+  room?: string
+  outcome?: string
+}
+
 export interface Patient {
   id: string
   mrn: string
@@ -260,6 +287,9 @@ export interface Patient {
   growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }>
   /** Time-series specialty charts (oldest first). */
   charts?: PatientCharts
+  visit?: Visit
+  /** Departments sharing care because of a comorbidity or by agreement. */
+  links?: Array<{ department: DepartmentId; reason: 'Comorbidity' | 'Shared care'; note: string; by: string; at: string }>
   evaluations?: Evaluation[]
   /** Daily ward-round notes, newest first. */
   rounds?: RoundNote[]
@@ -285,6 +315,8 @@ export interface Department {
   zone: string
   /** Deactivated departments are hidden from new work but kept for history. */
   active?: boolean
+  /** Set for a unit inside another department (e.g. NICU in Paediatrics). The parent's staff also see the unit's patients. */
+  parent?: DepartmentId
 }
 
 export interface Referral {
@@ -320,6 +352,8 @@ export interface ClinicalOrder {
   createdAt: string
   createdBy: string
   result?: string
+  /** Outpatient orders must be paid at reception before the test is done. */
+  billing?: BillingState
   /** Images attached by radiology (or outside films), newest last. Full-size copies live in IndexedDB. */
   images?: OrderImage[]
 }
@@ -523,6 +557,8 @@ export interface StaffMember {
   status?: 'Pending approval' | 'Active'
   /** Access granted by the administrator; falls back to the role's defaults. */
   permissions?: Permission[]
+  /** Sensitive posts (pharmacy manager, store keeper…) assigned by the administrator. */
+  positions?: PositionAssignment[]
 }
 
 /* ---------- Administration ---------- */
@@ -538,6 +574,19 @@ export interface FacilitySettings {
   currency: 'ETB' | 'USD' | 'EUR' | 'GBP' | 'KES'
   /** Paths of modules switched off for this facility. */
   disabledModules: string[]
+  /** Reception tariff. */
+  fees?: ReceptionFees
+  /** Consultation rooms per department OPD (default 3). */
+  opdRooms?: Record<string, number>
+}
+
+export interface ReceptionFees {
+  cardNew: number
+  cardReturn: number
+  opd: number
+  specialistOpd: number
+  emergency: number
+  admissionDeposit: number
 }
 
 export interface InvestigationItem {
@@ -647,6 +696,9 @@ export interface EmergencyCode {
   activatedBy?: string
 }
 
+/** Time-limited "break-glass" access to a patient outside the clinician's department. Always audited. */
+export interface AccessGrant { id: string; patientId: string; role: RoleId; department: DepartmentId; by: string; at: string; until: string; reason: string }
+
 export interface HospitalState {
   patients: Patient[]
   departments: Department[]
@@ -669,4 +721,5 @@ export interface HospitalState {
   investigations: InvestigationItem[]
   providers: ExternalProvider[]
   stockMovements: StockMovement[]
+  accessGrants: AccessGrant[]
 }

@@ -2989,3 +2989,14 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Breadcrumb gives way to the toolbar instead of pushing it off-screen. */
+@media (min-width: 1025px) {
+  .topbar { gap: 16px; }
+  .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .topbar-right { flex-shrink: 0; }
+}
+.breadcrumb { overflow: hidden; }
+.breadcrumb span, .breadcrumb-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
+.breadcrumb i { flex-shrink: 0; }
+@media (min-width: 1221px) and (max-width: 1500px) { .global-search { width: 215px; } }

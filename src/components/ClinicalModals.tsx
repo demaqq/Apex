@@ -220,7 +220,7 @@ export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient
 }
 
 const locationNames: Record<DepartmentId, string> = {
-  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05', ophthalmology: 'Eye clinic · Room 2'
+  emergency: 'ED Bed 12', cardiology: 'CCU 09', neurology: 'Stroke Ward · Bed 04', radiology: 'Imaging Bay 02', laboratory: 'Laboratory collection room', icu: 'ICU Bed 16', surgery: 'Surgical 3B · Bed 15', ward: 'Ward 5S · Bed 18', pharmacy: 'Discharge Lounge', pediatrics: "Children's Ward · Bed 06", obgyn: 'Maternity 3S · Bed 09', 'internal-medicine': 'Medical 5N · Bed 14', ent: 'ENT Clinic 04', dermatology: 'Dermatology Clinic 03', oncology: 'Oncology unit · Bed 05', ophthalmology: 'Eye clinic · Room 2', endocrinology: 'Endocrine beds · Bed 02', orthopedics: 'Orthopaedic ward · Bed 09', nicu: 'NICU · Cot 07', or: 'Recovery (PACU) · Bay 2'
 }
 
 export function TransferModal({ patient, open, onClose }: { patient: Patient; open: boolean; onClose: () => void }) {

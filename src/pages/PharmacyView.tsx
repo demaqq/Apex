@@ -25,6 +25,7 @@ export default function PharmacyView() {
   const { state, can, restock, setPrescriptionStatus, setSelectedPatientId } = useHospital()
   const canDispense = can('dispense') || can('manage')
   const canPrescribe = can('prescribe') || can('manage')
+  const canStock = can('stock-receive') || can('stock-adjust') || can('formulary-edit')
   const patients = usePatients()
   const [view, setView] = useState<View>('queue')
   const [query, setQuery] = useState('')
@@ -79,7 +80,7 @@ export default function PharmacyView() {
         <Metric label="Below reorder level" value={lowStock.length} detail={lowStock.length ? lowStock.map((item) => item.name).join(', ') : 'All lines stocked'} icon={AlertTriangle} tone="coral" />
       </div>
 
-      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, ...(canDispense ? [{ value: 'collection' as View, label: 'e-Prescription pickup', count: state.prescriptions.filter((rx) => rx.eRx && (rx.status === 'Ready for collection' || rx.status === 'Part collected')).length || undefined }] : []), { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }, ...(canDispense ? [{ value: 'inventory' as View, label: 'Inventory', count: state.formulary.filter((item) => item.stock <= item.reorderLevel || expiryState(item.expiry) !== 'ok').length || undefined }] : []), { value: 'interactions', label: 'Interaction checker' }]} />
+      <Tabs<View> label="Pharmacy views" value={view} onChange={changeView} options={[{ value: 'queue', label: 'Work queue', count: queue.length }, ...(canDispense ? [{ value: 'collection' as View, label: 'e-Prescription pickup', count: state.prescriptions.filter((rx) => rx.eRx && (rx.status === 'Ready for collection' || rx.status === 'Part collected')).length || undefined }] : []), { value: 'prescriptions', label: 'All prescriptions' }, { value: 'formulary', label: 'Formulary' }, ...(canDispense || canStock ? [{ value: 'inventory' as View, label: 'Inventory', count: state.formulary.filter((item) => item.stock <= item.reorderLevel || expiryState(item.expiry) !== 'ok').length || undefined }] : []), { value: 'interactions', label: 'Interaction checker' }]} />
 
       {view === 'queue' && (
         <div className="card-grid">
@@ -89,6 +90,7 @@ export default function PharmacyView() {
               <article key={rx.id} className={`work-card priority-${rx.priority.toLowerCase()}`}>
                 <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span>{rx.eRx && <span className="erx-tag">e-Rx · patient collects</span>}<StatusBadge status={rx.status} /></header>
                 {patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}
+                {!can('controlled-drugs') && rx.items.some((item) => medication.get(item.medicationId)?.controlled) && <p className="allergy-flag"><ShieldCheck size={13} />Controlled medicine — release needs controlled-drugs authority</p>}
                 {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag"><AlertTriangle size={13} />Allergies: {patient.allergies.join(', ')}</p>}
                 <ul className="rx-lines">
                   {rx.items.map((item, index) => {
@@ -154,7 +156,7 @@ export default function PharmacyView() {
                     <td className="num"><Badge variant={stockTone(item)}>{item.stock.toLocaleString()} {item.unit}</Badge></td>
                     <td className="num">{item.reorderLevel.toLocaleString()}</td>
                     <td className="num">{formatCurrency(item.pricePerUnit)}</td>
-                    {canDispense && <td className="row-actions"><Button size="sm" variant="ghost" onClick={() => restock(item.id, 50)}>+50 restock</Button></td>}
+                    {canDispense && <td className="row-actions">{can('stock-receive') && <Button size="sm" variant="ghost" onClick={() => restock(item.id, 50)}>+50 restock</Button>}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -165,7 +167,7 @@ export default function PharmacyView() {
       )}
 
       {view === 'collection' && canDispense && <CollectionDesk />}
-      {view === 'inventory' && canDispense && <Inventory />}
+      {view === 'inventory' && (canDispense || canStock) && <Inventory />}
       {view === 'interactions' && <InteractionChecker />}
 
       <EPrescribeModal open={creating} onClose={() => setCreating(false)} />
@@ -201,7 +203,7 @@ function InteractionChecker() {
 }
 
 function Inventory() {
-  const { state, receiveStock, writeOffStock, saveFormularyItem } = useHospital()
+  const { state, can, receiveStock, writeOffStock, saveFormularyItem } = useHospital()
   const [query, setQuery] = useState('')
   const [receiving, setReceiving] = useState<FormularyItem | null>(null)
   const [writingOff, setWritingOff] = useState<FormularyItem | null>(null)
@@ -225,7 +227,7 @@ function Inventory() {
     <Panel>
       <div className="table-toolbar">
         <SearchField value={query} onChange={setQuery} placeholder="Search medicine, batch or supplier…" />
-        <Button icon={Plus} onClick={() => setEditing(blank)}>Add medicine</Button>
+        {can('formulary-edit') && <Button icon={Plus} onClick={() => setEditing(blank)}>Add medicine</Button>}
       </div>
       <div className="table-wrap">
         <table className="data-table">
@@ -241,9 +243,10 @@ function Inventory() {
                   <td>{item.batch ? <span className="mono">{item.batch}</span> : <span className="muted-text">—</span>}{item.expiry && <small>{exp === 'expired' ? <Chip tone="danger">Expired {formatDate(item.expiry)}</Chip> : exp === 'soon' ? <Chip tone="warning">Expires {formatDate(item.expiry)}</Chip> : `Expires ${formatDate(item.expiry)}`}</small>}</td>
                   <td>{item.supplier ?? <span className="muted-text">—</span>}</td>
                   <td className="row-actions">
-                    <Button size="sm" icon={PackagePlus} onClick={() => setReceiving(item)}>Receive</Button>
-                    <Button size="sm" variant="ghost" icon={PackageMinus} onClick={() => setWritingOff(item)}>Write off</Button>
-                    <button type="button" className="icon-button" aria-label={`Edit ${item.name}`} onClick={() => setEditing(item)}><Pencil size={15} /></button>
+                    {can('stock-receive') && <Button size="sm" icon={PackagePlus} onClick={() => setReceiving(item)}>Receive</Button>}
+                    {can('stock-adjust') && <Button size="sm" variant="ghost" icon={PackageMinus} onClick={() => setWritingOff(item)}>Write off</Button>}
+                    {can('formulary-edit') && <button type="button" className="icon-button" aria-label={`Edit ${item.name}`} onClick={() => setEditing(item)}><Pencil size={15} /></button>}
+                    {!can('stock-receive') && !can('stock-adjust') && !can('formulary-edit') && <span className="muted-text">View only</span>}
                   </td>
                 </tr>
               )
