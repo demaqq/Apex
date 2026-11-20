@@ -4,7 +4,7 @@ import { estimateBill, money } from '../lib/modules'
 import { useHospital } from '../store/HospitalStore'
 
 /** The client's estimated monthly invoice: platform, modules, departments and usage. */
-export function BillSummary({ title = 'Estimated monthly bill' }: { title?: string }) {
+export function BillSummary({ title = 'Your monthly price', collapsed = false }: { title?: string; collapsed?: boolean }) {
   const { state } = useHospital()
   const prices = state.pricing
   const { lines, total, usage } = estimateBill(state, prices)
@@ -19,11 +19,15 @@ export function BillSummary({ title = 'Estimated monthly bill' }: { title?: stri
     <Panel className="bill-panel" title={title} action={<Receipt size={17} className="muted-icon" />}>
       <div className="panel-pad">
       <div className="bill-total"><span>Per month</span><strong>{money(total, prices.currency)}</strong><small>{usage.modules} modules · {usage.departments} departments · {usage.users} staff</small></div>
-      {section('Platform', 'platform')}
-      {section(`Modules (${group('module').length})`, 'module')}
-      {section('Departments', 'departments')}
-      {section('Usage', 'usage')}
-      <p className="bill-note">Prices are set by your platform provider. Usage is counted over the last 30 days and billed monthly. Switching a module off stops its charge from the next bill; your data is kept.</p>
+      {collapsed && <p className="bill-note">Calculated automatically by Northstar Cloud from the modules you switch on and your usage over the last 30 days. It updates as you change your plan.</p>}
+      <details className="bill-details" open={!collapsed}>
+        <summary>{collapsed ? 'How this is calculated' : 'Breakdown'}</summary>
+        {section('Platform', 'platform')}
+        {section(`Modules (${group('module').length})`, 'module')}
+        {section('Departments', 'departments')}
+        {section('Usage', 'usage')}
+      </details>
+      {!collapsed && <p className="bill-note">Usage is counted over the last 30 days and billed monthly.</p>}
       </div>
     </Panel>
   )

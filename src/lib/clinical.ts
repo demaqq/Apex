@@ -76,7 +76,7 @@ export const EXTERNAL_STAGES = ['Sent out', 'Done outside', 'Result entered']
 
 /** Stages for an order: investigations sent to a referral partner follow a shorter pipeline. */
 export function stagesFor(order: Pick<ClinicalOrder, 'kind' | 'externalProviderId'>) {
-  return order.externalProviderId ? EXTERNAL_STAGES : ORDER_STAGES[order.kind]
+  return order.externalProviderId?.startsWith('net:') ? ['Sent electronically', 'Received by partner', 'Result returned'] : order.externalProviderId ? EXTERNAL_STAGES : ORDER_STAGES[order.kind]
 }
 
 export function orderStage(order: ClinicalOrder) {

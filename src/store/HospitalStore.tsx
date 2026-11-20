@@ -10,6 +10,13 @@ import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
+  Connection,
+  ConnectionStatus,
+  ExternalReferral,
+  ExternalReferralStatus,
+  NetworkFacility,
+  NetworkService,
+  Tenant,
   ModuleId,
   PriceList,
   ClinicalOrder,
@@ -167,6 +174,12 @@ interface HospitalContextValue {
   updateSettings: (changes: Partial<FacilitySettings>) => void
   setModules: (offModules: ModuleId[], what: string) => void
   savePricing: (pricing: PriceList) => void
+  updateTenant: (id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => void
+  requestConnection: (facilityId: string, services: NetworkService[], note: string) => void
+  setConnectionStatus: (id: string, status: ConnectionStatus | 'Removed') => void
+  saveNetworkFacility: (facility: NetworkFacility) => void
+  referOut: (patientId: string, facilityId: string, reason: string, urgency: Priority, shared: string[]) => void
+  updateExternalReferral: (id: string, status: ExternalReferralStatus, response: string) => void
   saveDepartment: (department: Department) => void
   removeDepartment: (id: DepartmentId) => void
   saveInvestigation: (item: InvestigationItem) => void
@@ -231,6 +244,10 @@ function loadState(): HospitalState {
       providers: mergeById(Array.isArray(parsed.providers) ? parsed.providers.filter((item) => !['arsho', 'icl', 'wudassie', 'icmc'].includes(item.id)) : undefined, seed.providers),
       stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
       accessGrants: Array.isArray(parsed.accessGrants) ? parsed.accessGrants : [],
+      tenants: mergeById(parsed.tenants, seed.tenants),
+      network: mergeById(parsed.network, seed.network),
+      connections: mergeById(parsed.connections, seed.connections),
+      externalReferrals: Array.isArray(parsed.externalReferrals) ? parsed.externalReferrals : [],
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -463,7 +480,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const actor = actorName('Clinical team')
     if (!stateRef.current.patients.some((item) => item.id === patientId)) return undefined
     const id = nextNumber(stateRef.current.orders.map((item) => item.id), 'OR', 8100)
-    const sentOutTo = (providers: ExternalProvider[]) => externalProviderId === PRINTOUT ? 'an outside laboratory or centre (printed request)' : externalProviderId ? providers.find((item) => item.id === externalProviderId)?.name ?? 'a partner facility' : undefined
+    const sentOutTo = (providers: ExternalProvider[]) => externalProviderId?.startsWith('net:') ? `${stateRef.current.network.find((item) => `net:${item.id}` === externalProviderId)?.name ?? 'a connected facility'} (electronic)` : externalProviderId === PRINTOUT ? 'an outside laboratory or centre (printed request)' : externalProviderId ? providers.find((item) => item.id === externalProviderId)?.name ?? 'a partner facility' : undefined
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient || previous.orders.some((item) => item.id === id)) return null
@@ -1364,6 +1381,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const member = stateRef.current.staff.find((item) => item.roleId === role)
     if (member?.suspended) return `${member.name}'s account is suspended. Ask the administrator to reactivate it.`
     if (member?.status === 'Pending approval') return `${member.name}'s account is waiting for administrator approval.`
+    if (role !== 'provider' && stateRef.current.settings.subscription === 'Suspended') return `${stateRef.current.settings.name}'s subscription is suspended. Please contact Northstar Cloud.`
     const needed = moduleForRole(role)
     if (needed && !isOn(stateRef.current.settings, needed.id)) return `${stateRef.current.settings.name} has not switched on ${needed.name}. The administrator can add it under Administration → Plan & modules.`
     return null
@@ -1377,11 +1395,96 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   /** The client switches modules on or off. Data is kept; switched-off parts are hidden and not billed. */
   const setModules = useCallback((offModules: ModuleId[], what: string) => {
-    if (!can('manage')) { notify('Only the administrator can change the plan', 'warning'); return }
+    if (!can('manage') && !can('pricing')) { notify('Only the administrator can change the plan', 'warning'); return }
     const actor = actorName('Administrator')
-    commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, offModules } }, actor, action: what, department: 'emergency' }))
+    commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, offModules }, tenants: previous.tenants.map((item) => item.live ? { ...item, offModules } : item) }, actor, action: what, department: 'emergency' }))
     notify(what.charAt(0).toUpperCase() + what.slice(1))
   }, [actorName, can, commit, notify])
+
+  /** Super admin: change a client's status, modules or discount. This facility's settings follow its own record. */
+  const updateTenant = useCallback((id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => {
+    if (!can('pricing')) { notify('Only the super admin manages clients', 'warning'); return }
+    commit((previous) => {
+      const tenant = previous.tenants.find((item) => item.id === id)
+      if (!tenant) return null
+      const tenants = previous.tenants.map((item) => item.id === id ? { ...item, ...changes } : item)
+      const settings = tenant.live ? { ...previous.settings, ...(changes.offModules ? { offModules: changes.offModules } : {}), ...(changes.status ? { subscription: changes.status } : {}) } : previous.settings
+      return { next: { ...previous, tenants, settings }, actor: 'Northstar Cloud', action: `${what} for ${tenant.live ? previous.settings.name : tenant.name}`, department: 'emergency' }
+    })
+    notify(what.charAt(0).toUpperCase() + what.slice(1))
+  }, [can, commit, notify])
+
+  /** Client administrator asks to connect to a network member. */
+  const requestConnection = useCallback((facilityId: string, services: NetworkService[], note: string) => {
+    if (!can('manage')) { notify('Only the administrator manages connections', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const facility = previous.network.find((item) => item.id === facilityId)
+      if (!facility) return null
+      const existing = previous.connections.find((item) => item.facilityId === facilityId)
+      const connection: Connection = { id: existing?.id ?? nextNumber(previous.connections.map((item) => item.id), 'CX', 1), facilityId, services, status: 'Requested', requestedAt: new Date().toISOString(), requestedBy: actor, ...(note.trim() ? { note: note.trim() } : {}) }
+      return { next: { ...previous, connections: existing ? previous.connections.map((item) => item.id === existing.id ? connection : item) : [...previous.connections, connection] }, actor, action: `requested a connection to ${facility.name} (${services.join(', ')})`, department: 'emergency' }
+    })
+    notify('Connection requested. The platform team will approve it.')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin approves or declines; the client administrator can pause, resume or disconnect. */
+  const setConnectionStatus = useCallback((id: string, status: ConnectionStatus | 'Removed') => {
+    const deciding = status === 'Active' || status === 'Declined'
+    const pending = stateRef.current.connections.find((item) => item.id === id)?.status === 'Requested'
+    if (deciding && pending ? !can('pricing') : !(can('manage') || can('pricing'))) { notify(deciding ? 'Connections are approved by the platform team' : 'Only the administrator manages connections', 'warning'); return }
+    const actor = can('pricing') ? 'Northstar Cloud' : actorName('Administrator')
+    commit((previous) => {
+      const connection = previous.connections.find((item) => item.id === id)
+      const facility = previous.network.find((item) => item.id === connection?.facilityId)
+      if (!connection || !facility) return null
+      const connections = status === 'Removed' ? previous.connections.filter((item) => item.id !== id) : previous.connections.map((item) => item.id === id ? { ...item, status, decidedAt: new Date().toISOString(), decidedBy: actor } : item)
+      const verb = { Active: connection.status === 'Paused' ? 'resumed' : 'approved', Declined: 'declined', Paused: 'paused', Requested: 'requested', Removed: 'removed' }[status]
+      return { next: { ...previous, connections }, actor, action: `${verb} the connection to ${facility.name}`, department: 'emergency' }
+    })
+    notify(status === 'Removed' ? 'Connection removed' : `Connection ${status.toLowerCase()}`)
+  }, [actorName, can, commit, notify])
+
+  /** Super admin adds or edits a network member. */
+  const saveNetworkFacility = useCallback((facility: NetworkFacility) => {
+    if (!can('pricing')) { notify('Only the super admin edits the network', 'warning'); return }
+    commit((previous) => {
+      const exists = previous.network.some((item) => item.id === facility.id)
+      return { next: { ...previous, network: exists ? previous.network.map((item) => item.id === facility.id ? facility : item) : [...previous.network, facility] }, actor: 'Northstar Cloud', action: `${exists ? 'updated' : 'added'} ${facility.name} on the care network`, department: 'emergency' }
+    })
+    notify('Network updated')
+  }, [can, commit, notify])
+
+  /** Refer a patient to another hospital on the network. */
+  const referOut = useCallback((patientId: string, facilityId: string, reason: string, urgency: Priority, shared: string[]) => {
+    if (denied(['refer'], 'refer patients to another hospital')) return
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      const facility = previous.network.find((item) => item.id === facilityId)
+      if (!patient || !facility) return null
+      const referral: ExternalReferral = { id: nextNumber(previous.externalReferrals.map((item) => item.id), 'XR', 100), patientId, facilityId, reason: reason.trim(), urgency, status: 'Sent', at: new Date().toISOString(), by: actor, shared }
+      return {
+        next: { ...previous, externalReferrals: [referral, ...previous.externalReferrals], patients: withTimeline(previous.patients, patientId, { type: 'referral', title: `Referred to ${facility.name}`, detail: `${urgency} · ${reason.trim()} Shared: ${shared.join(', ')}.`, author: actor, department: patient.department }) },
+        actor, action: `referred ${patient.name} to ${facility.name}`, department: patient.department, patientId,
+      }
+    })
+    notify('Referral sent through the network')
+  }, [actorName, commit, denied, notify])
+
+  const updateExternalReferral = useCallback((id: string, status: ExternalReferralStatus, response: string) => {
+    if (denied(['refer'], 'update referrals')) return
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const referral = previous.externalReferrals.find((item) => item.id === id)
+      const facility = previous.network.find((item) => item.id === referral?.facilityId)
+      if (!referral || !facility) return null
+      return {
+        next: { ...previous, externalReferrals: previous.externalReferrals.map((item) => item.id === id ? { ...item, status, ...(response.trim() ? { response: response.trim() } : {}) } : item), patients: withTimeline(previous.patients, referral.patientId, { type: 'referral', title: `${facility.name}: referral ${status.toLowerCase()}`, detail: response.trim() || `Marked ${status.toLowerCase()} by ${actor}.`, author: actor, department: 'emergency' }) },
+        actor, action: `marked the referral to ${facility.name} ${status.toLowerCase()}`, department: 'emergency', patientId: referral.patientId,
+      }
+    })
+  }, [actorName, commit, denied, notify])
 
   /** The SaaS provider's price list. */
   const savePricing = useCallback((pricing: PriceList) => {
@@ -1649,9 +1752,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, setModules, savePricing, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, setModules, savePricing, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Network, Plus, Printer, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Plus, Printer, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
 import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
@@ -8,7 +8,8 @@ import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
 import { nested } from '../lib/access'
 import { CatalogueEditor } from '../components/CatalogueEditor'
 import { BillSummary } from '../components/PlanBill'
-import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
+import { NetworkPanel } from '../components/NetworkPanel'
+import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
 import type { ModuleId, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
@@ -44,7 +45,7 @@ export default function Admin() {
         { value: 'users', label: 'Users & access', count: pending || undefined },
         { value: 'departments', label: 'Departments', count: state.departments.filter((item) => item.active !== false).length },
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
-        { value: 'providers', label: 'Partner facilities', count: state.providers.filter((item) => item.active).length || undefined },
+        { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
         { value: 'modules', label: 'Plan & modules' },
       ]} />
       {view === 'facility' && <FacilityTab />}
@@ -347,9 +348,9 @@ function ProvidersTab() {
   const { state, saveProvider, removeProvider } = useHospital()
   const [editing, setEditing] = useState<ExternalProvider | null>(null)
   return <>
-    <Panel title="Partner hospitals and diagnostic centres" action={<Button size="sm" icon={Plus} onClick={() => setEditing({ id: '', name: '', type: 'Diagnostic centre', connection: 'printout', services: ['Laboratory'], notes: '', phone: '', address: '', active: true })}>Add partner</Button>}>
-      <div className="integration-note"><Printer size={18} /><div><b>Today: printed requests</b><span>A test or study not available here goes out on a printed request form the patient takes to any laboratory or imaging centre. The result is entered when it comes back.</span></div><Chip tone="success">Active</Chip></div>
-      <div className="integration-note planned"><Network size={18} /><div><b>Planned: electronic exchange</b><span>Partner hospitals and diagnostic centres will receive requests and return results directly into the patient record. Add partners now; requests to them are printed until their connection goes live.</span></div><Chip tone="neutral">Coming</Chip></div>
+    <NetworkPanel />
+    <Panel title="Offline partners (printed requests)" action={<Button size="sm" icon={Plus} onClick={() => setEditing({ id: '', name: '', type: 'Diagnostic centre', connection: 'printout', services: ['Laboratory'], notes: '', phone: '', address: '', active: true })}>Add partner</Button>}>
+      <div className="integration-note"><Printer size={18} /><div><b>Printed requests</b><span>For facilities not on the network: the request is printed and the patient takes it; the result is typed in when it comes back.</span></div><Chip tone="success">Active</Chip></div>
       {state.providers.length === 0
         ? <p className="table-footnote admin-note">No partners added yet.</p>
         : <div className="card-grid admin-cards">
@@ -394,7 +395,6 @@ function ProviderModal({ provider, onClose, onSave }: { provider: ExternalProvid
 function ModulesTab() {
   const { state, setModules } = useHospital()
   const off = state.settings.offModules ?? []
-  const prices = state.pricing
   const locks = lockedOn(state.settings)
   const [pkg, setPkg] = useState<string | null>(null)
   const toggle = (id: ModuleId) => {
@@ -410,7 +410,7 @@ function ModulesTab() {
     <div className="plan-layout">
       <div className="plan-modules">
         <Panel title="Plan & modules" action={<LayoutGrid size={17} className="muted-icon" />}>
-          <p className="table-footnote admin-note">Choose the parts of the system your facility uses. Each module adds its pages, sign-in accounts and a monthly fee; switched-off modules disappear for everyone and stop being billed. Patient records, staff, roles, audit and administration are always included. Your data is kept when you switch something off.</p>
+          <p className="table-footnote admin-note">Switch on the parts of the system your facility uses. Each module adds its pages and sign-in accounts; switched-off modules disappear for everyone and are not charged. Your price is worked out automatically. Patient records, staff, roles, audit and administration are always included. Your data is kept when you switch something off.</p>
           <div className="package-row">{PACKAGES.map((item) => <button key={item.id} type="button" className="package-card" onClick={() => setPkg(item.id)}><b>{item.name}</b><span>{item.description}</span><small>{item.on.length} modules</small></button>)}</div>
           {MODULE_GROUPS.map((group) => (
             <div key={group} className="module-group">
@@ -422,7 +422,6 @@ function ModulesTab() {
                   return (
                     <label key={item.id} className={`module-tile ${on ? 'on' : ''} ${lock ? 'locked' : ''}`} title={lock}>
                       <span><b>{item.name}</b><small>{item.description}</small>{lock && <em className="module-lock">{lock}</em>}{!on && item.requires?.length ? <em className="module-lock">Also switches on {item.requires.map((need) => moduleById(need).name).join(', ')}</em> : null}</span>
-                      <span className="module-price">{money(prices.modules[item.id] ?? 0, prices.currency)}<small>/month</small></span>
                       <span className="switch"><input type="checkbox" checked={on} disabled={Boolean(lock)} onChange={() => toggle(item.id)} aria-label={`${item.name} ${on ? 'on' : 'off'}`} /><span /></span>
                     </label>
                   )
@@ -430,10 +429,10 @@ function ModulesTab() {
               </div>
             </div>
           ))}
-          <p className="table-footnote"><Building2 size={13} /> Departments and units are added or deactivated under Departments; each active clinical department beyond the first {prices.includedDepartments} adds {money(prices.perDepartment, prices.currency)} a month.</p>
+          <p className="table-footnote"><Building2 size={13} /> Departments and units are added or deactivated under Departments; they count towards your price.</p>
         </Panel>
       </div>
-      <div className="plan-bill"><BillSummary /></div>
+      <div className="plan-bill"><BillSummary collapsed /></div>
       {chosen && (
         <Modal open onClose={() => setPkg(null)} title={`Switch to the ${chosen.name} package?`} subtitle={chosen.description} size="sm">
           <p className="record-hint">On: {chosen.on.map((id) => moduleById(id).name).join(', ')}.</p>

@@ -1,4 +1,4 @@
-import type { ClinicalOrder, ExternalProvider, FacilitySettings, InvestigationItem, Patient } from '../types'
+import type { ClinicalOrder, ExternalProvider, FacilitySettings, InvestigationItem, NetworkFacility, Patient } from '../types'
 
 /** Laboratory sections, in the order they appear on the worklist and catalogue. */
 export const LAB_SECTIONS = ['Haematology', 'Clinical chemistry', 'Hormones & tumour markers', 'Serology & immunology', 'Microbiology', 'Parasitology', 'Urine & body fluids', 'Blood bank', 'Molecular', 'Histopathology & cytology'] as const
@@ -16,9 +16,10 @@ export const doneHere = (item: Pick<InvestigationItem, 'inHouse' | 'kind'>, sett
 export const isSentOut = (order: Pick<ClinicalOrder, 'externalProviderId'>) => Boolean(order.externalProviderId)
 
 /** Where a sent-out test went, in words. */
-export function sentOutLabel(order: Pick<ClinicalOrder, 'externalProviderId'>, providers: ExternalProvider[]) {
+export function sentOutLabel(order: Pick<ClinicalOrder, 'externalProviderId'>, providers: ExternalProvider[], network?: NetworkFacility[]) {
   if (!order.externalProviderId) return ''
   if (order.externalProviderId === PRINTOUT) return 'Printed request · outside lab or centre'
+  if (order.externalProviderId.startsWith('net:')) return `Sent electronically · ${network?.find((item) => `net:${item.id}` === order.externalProviderId)?.name ?? 'connected facility'}`
   return `Referred to ${providers.find((item) => item.id === order.externalProviderId)?.name ?? 'partner facility'}`
 }
 

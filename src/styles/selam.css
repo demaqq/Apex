@@ -926,3 +926,35 @@ td.unit-row { padding-left: 34px !important; }
 .bill-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .plan-modules .module-group { padding: 0 18px; }
 .plan-modules .admin-note, .plan-modules .package-row, .plan-modules > .panel > .table-footnote { margin-left: 18px; margin-right: 18px; }
+.bill-details > summary { cursor: pointer; padding: 8px 0 4px; color: var(--accent-text); font-size: 12.5px; font-weight: 600; }
+.service-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
+.service-chips .chip { display: inline-flex; align-items: center; gap: 4px; }
+.connect-form { display: grid; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.connect-form > span { color: var(--muted); font-size: 12px; }
+.connect-form input { height: 34px; padding: 0 10px; border-radius: 8px; }
+.share-list { display: grid; gap: 4px; }
+.external-referrals { display: grid; gap: 8px; margin-bottom: 16px; }
+.referral-reply { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.referral-reply input { flex: 1; min-width: 180px; height: 32px; padding: 0 10px; border-radius: 8px; }
+.revenue-bars { display: grid; gap: 10px; }
+.revenue-row { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(80px, 2fr) auto auto; align-items: center; gap: 12px; }
+.revenue-row > span { display: grid; }
+.revenue-row small, .adoption small { color: var(--muted); font-size: 11.5px; }
+.revenue-track { height: 8px; border-radius: 6px; background: var(--sunken); overflow: hidden; }
+.revenue-track i { display: block; height: 100%; border-radius: 6px; background: var(--accent); }
+.revenue-track i.trial { background: var(--amber, #d97706); }
+.revenue-track i.suspended { background: var(--muted); }
+.revenue-row strong { font-variant-numeric: tabular-nums; min-width: 84px; text-align: right; }
+.adoption { display: grid; gap: 7px; }
+.adoption > div { display: grid; grid-template-columns: minmax(0, 1.4fr) 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
+.attention-list { display: grid; gap: 6px; }
+.attention-list button { display: grid; gap: 2px; padding: 9px 11px; text-align: left; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--paper); color: var(--text); cursor: pointer; }
+.attention-list button span { color: var(--muted); font-size: 12px; }
+.mini-modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
+.mini-module { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 13px; opacity: .7; cursor: pointer; }
+.mini-module.on { opacity: 1; background: var(--accent-soft); border-color: transparent; }
+.client-bill { font-size: 22px; }
+@media (max-width: 700px) { .revenue-row { grid-template-columns: 1fr auto; } .revenue-row .revenue-track { grid-column: 1 / -1; } }
+.revenue-track i { background: var(--teal, #0f766e); }
+.client-modules { max-width: 260px; }
+.sidebar-brand + .sidebar-nav { margin-top: 14px; }

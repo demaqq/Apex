@@ -11,6 +11,7 @@ import { catalogueItem, imagingChecks, isSentOut, LAB_SECTIONS, labSectionOf, MO
 import { downloadCsv, formatDateTime, formatWait, relativeTime, today } from '../lib/format'
 import { matches, useNow, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
+import { isElectronic } from '../lib/network'
 import type { ClinicalOrder } from '../types'
 
 type Kind = 'Laboratory' | 'Imaging'
@@ -61,18 +62,18 @@ export default function DiagnosticsView({ kind }: { kind: Kind }) {
 
   const exportOrders = () => downloadCsv(`${kind.toLowerCase()}-orders-${today()}.csv`, [
     ['Order', 'Patient', 'MRN', imaging ? 'Study' : 'Test', copy.group, 'Priority', 'Status', 'Where', 'Ordered by', 'Ordered at', 'Result'],
-    ...ofKind.map((order) => [order.id, patients.get(order.patientId)?.name, patients.get(order.patientId)?.mrn, order.title, groupOf(order), order.priority, order.status, isSentOut(order) ? sentOutLabel(order, state.providers) : 'In-house', order.createdBy, order.createdAt, order.result]),
+    ...ofKind.map((order) => [order.id, patients.get(order.patientId)?.name, patients.get(order.patientId)?.mrn, order.title, groupOf(order), order.priority, order.status, isSentOut(order) ? sentOutLabel(order, state.providers, state.network) : 'In-house', order.createdBy, order.createdAt, order.result]),
   ])
 
   const actionFor = (order: ClinicalOrder) => {
     const stage = orderStage(order)
     const stages = stagesFor(order)
     const result = order.result ? <Button size="sm" variant="ghost" icon={Eye} onClick={() => setViewing(order)}>Result</Button> : null
-    const print = isSentOut(order) ? <Button size="sm" variant="ghost" icon={Printer} onClick={() => setPrinting([order.id])}>Request form</Button> : null
+    const print = isSentOut(order) && !isElectronic(order.externalProviderId) ? <Button size="sm" variant="ghost" icon={Printer} onClick={() => setPrinting([order.id])}>Request form</Button> : null
     if (!currentRole || !canAdvanceOrder(order, currentRole)) return <>{print}{result ?? <span className="muted-text">{stage === stages.length - 1 ? 'Complete' : isSentOut(order) ? 'Awaiting outside result' : `Awaiting ${imaging ? 'imaging' : 'laboratory'}`}</span>}</>
     const reject = !imaging && !isSentOut(order) && stage >= 1 && stage <= 2 && currentRole === 'laboratory' ? <Button size="sm" variant="ghost" onClick={() => setRejecting(order)}>Reject sample</Button> : null
     return <>{print}{reject}{needsResult(order)
-      ? <Button size="sm" icon={FileCheck2} onClick={() => setReporting(order)}>{isSentOut(order) ? 'Enter outside result' : imaging ? 'Report' : 'Enter result'}</Button>
+      ? <Button size="sm" icon={FileCheck2} onClick={() => setReporting(order)}>{isElectronic(order.externalProviderId) ? 'Record returned result' : isSentOut(order) ? 'Enter outside result' : imaging ? 'Report' : 'Enter result'}</Button>
       : stage < stages.length - 1 ? <Button size="sm" variant={stage === stages.length - 2 ? 'primary' : 'secondary'} icon={Play} onClick={() => advanceOrder(order.id)}>Mark {stages[stage + 1].toLowerCase()}</Button> : null}{result}</>
   }
 
@@ -123,7 +124,7 @@ export default function DiagnosticsView({ kind }: { kind: Kind }) {
                         <b>{order.title}</b>
                         <span className="dx-meta"><Chip tone="neutral">{groupOf(order)}</Chip>{!imaging && item?.specimen && <small>{item.specimen}{item.container ? ` · ${item.container}` : ''}</small>}{item?.tatHours && <small>TAT {item.tatHours < 1 ? `${Math.round(item.tatHours * 60)} min` : `${item.tatHours} h`}</small>}</span>
                         {imaging && modality && !isSentOut(order) && order.status !== 'completed' && <span className="dx-checks">{imagingChecks(patient, modality, state.orders, item?.prep).map((check) => <Chip key={check.text} tone={check.tone}>{check.text}</Chip>)}</span>}
-                        <small>{order.id}{isSentOut(order) ? ` · ${sentOutLabel(order, state.providers)}` : ''}</small>
+                        <small>{order.id}{isSentOut(order) ? ` · ${sentOutLabel(order, state.providers, state.network)}` : ''}</small>
                         {order.billing === 'Unpaid' && !(state.settings.offModules ?? []).includes('reception') && <Chip tone="warning">Awaiting payment at reception</Chip>}
                         {imaging && <ImageStrip order={order} compact />}
                       </td>
@@ -154,7 +155,7 @@ export default function DiagnosticsView({ kind }: { kind: Kind }) {
       {reporting && <ResultModal order={reporting} open onClose={() => setReporting(null)} />}
       {viewing && (
         <Modal open onClose={() => setViewing(null)} title={viewing.title} subtitle={`${viewing.id} · ${patients.get(viewing.patientId)?.name ?? ''}`} size="md">
-          <DetailGrid items={[['Patient', patients.get(viewing.patientId)?.name], ['MRN', patients.get(viewing.patientId)?.mrn], ['Priority', viewing.priority], ['Requested', `${formatDateTime(viewing.createdAt)} · ${viewing.createdBy}`], ...(isSentOut(viewing) ? [['Done at', sentOutLabel(viewing, state.providers)] as [string, string]] : []), ...(catalogueItem(viewing, state.investigations)?.refRange ? [['Reference range', catalogueItem(viewing, state.investigations)!.refRange!] as [string, string]] : [])]} />
+          <DetailGrid items={[['Patient', patients.get(viewing.patientId)?.name], ['MRN', patients.get(viewing.patientId)?.mrn], ['Priority', viewing.priority], ['Requested', `${formatDateTime(viewing.createdAt)} · ${viewing.createdBy}`], ...(isSentOut(viewing) ? [['Done at', sentOutLabel(viewing, state.providers, state.network)] as [string, string]] : []), ...(catalogueItem(viewing, state.investigations)?.refRange ? [['Reference range', catalogueItem(viewing, state.investigations)!.refRange!] as [string, string]] : [])]} />
           <h3 className="detail-heading">{orderStage(viewing) === stagesFor(viewing).length - 1 ? 'Verified result' : 'Result (awaiting verification)'}</h3>
           <p className="result-text">{viewing.result ?? 'No result text recorded.'}</p>
           {imaging && <ImageStrip order={viewing} />}

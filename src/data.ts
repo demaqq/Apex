@@ -1,5 +1,9 @@
 import { DEFAULT_PRICES } from './lib/modules'
 import type {
+  Connection,
+  ModuleId,
+  NetworkFacility,
+  Tenant,
   ExternalProvider,
   FacilitySettings,
   InvestigationItem,
@@ -116,16 +120,16 @@ export const roleProfiles: Record<RoleId, RoleProfile> = {
   provider: {
     id: 'provider',
     name: 'Northstar Cloud',
-    title: 'Platform owner · SaaS provider',
-    shortTitle: 'Provider',
+    title: 'Super admin · Platform owner',
+    shortTitle: 'Super admin',
     employeeId: 'NC-0001',
     department: 'emergency',
     initials: 'NC',
     shift: '24/7',
-    workspace: 'Platform console',
-    headline: 'Prices and plans for your clients.',
-    description: 'Set the price list, see each client’s modules and usage, and preview the monthly invoice.',
-    focus: ['Price list', 'Client plan', 'Monthly invoice'],
+    workspace: 'Super admin console',
+    headline: 'Every client, plan and connection.',
+    description: 'Manage subscribed clients, the price list and the care network that connects hospitals, diagnostic centres and laboratories.',
+    focus: ['Clients', 'Price list', 'Network connections'],
     accent: '#334155',
   },
   laboratory: {
@@ -764,6 +768,34 @@ const investigationSeed = (): InvestigationItem[] => [
 /** Partner hospitals and diagnostic centres are added by the administrator as agreements are made. Until then, tests not done here go out on a printed request. */
 const providerSeed = (): ExternalProvider[] => []
 
+/** Facilities on the Northstar care network (fictional). */
+const networkSeed = (): NetworkFacility[] => [
+  { id: 'net-abay', name: 'Abay Referral Hospital', kind: 'Hospital', city: 'Addis Ababa', services: ['Referrals', 'Laboratory', 'Imaging'], link: 'Platform', capabilities: 'Cardiac surgery, neurosurgery, oncology, PET-CT' },
+  { id: 'net-entoto', name: 'Entoto Diagnostic Centre', kind: 'Diagnostic centre', city: 'Addis Ababa', services: ['Laboratory', 'Imaging'], link: 'Platform', capabilities: 'MRI 1.5T, CT, mammography, molecular laboratory' },
+  { id: 'net-meskel', name: 'Meskel Imaging Centre', kind: 'Imaging centre', city: 'Addis Ababa', services: ['Imaging'], link: 'HL7 FHIR', capabilities: 'MRI 3T, PET-CT, nuclear medicine' },
+  { id: 'net-sheger', name: 'Sheger Medical Laboratory', kind: 'Laboratory', city: 'Addis Ababa', services: ['Laboratory'], link: 'Partner API', capabilities: 'Histopathology, viral load, hormones, tumour markers' },
+  { id: 'net-hawassa', name: 'Hawassa Lakeside Hospital', kind: 'Hospital', city: 'Hawassa', services: ['Referrals', 'Laboratory'], link: 'Platform', capabilities: 'Maternity, NICU, general surgery' },
+  { id: 'net-fasil', name: 'Fasil Regional Hospital', kind: 'Hospital', city: 'Gondar', services: ['Referrals'], link: 'Platform', capabilities: 'Trauma, orthopaedics, burns' },
+]
+
+const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
+
+/** Clients subscribed to the platform (the first is this facility). */
+const tenantSeed = (): Tenant[] => [
+  { id: 't-northstar', name: 'Northstar General', type: 'Hospital', city: 'Addis Ababa', status: 'Active', since: ago(420 * 1440), contact: 'Elena Rossi · Administrator', offModules: [], discount: 0, usage: { users: 0, beds: 0, visits: 0, labTests: 0, imagingStudies: 0, departments: 0 }, live: true },
+  { id: 't-abay', name: 'Abay Referral Hospital', type: 'Hospital', city: 'Addis Ababa', status: 'Active', since: ago(610 * 1440), contact: 'Dr. Selam Getachew · Medical director', offModules: [], discount: 10, usage: { users: 182, beds: 320, visits: 5400, labTests: 21000, imagingStudies: 3100, departments: 18 }, facilityId: 'net-abay' },
+  { id: 't-entoto', name: 'Entoto Diagnostic Centre', type: 'Diagnostic centre', city: 'Addis Ababa', status: 'Active', since: ago(300 * 1440), contact: 'Hanna Mulugeta · Operations manager', offModules: ALL_OFF_BUT(['reception', 'appointments', 'billing', 'laboratory', 'imaging']), discount: 0, usage: { users: 34, beds: 0, visits: 2600, labTests: 9800, imagingStudies: 2400, departments: 1 }, facilityId: 'net-entoto' },
+  { id: 't-hawassa', name: 'Hawassa Lakeside Hospital', type: 'Hospital', city: 'Hawassa', status: 'Trial', since: ago(12 * 1440), contact: 'Dr. Abebe Tolosa · Hospital manager', offModules: ['theatres', 'operations', 'specialty', 'services'], discount: 0, usage: { users: 58, beds: 90, visits: 1300, labTests: 4200, imagingStudies: 0, departments: 7 }, facilityId: 'net-hawassa' },
+  { id: 't-adama', name: 'Adama Family Clinic', type: 'Clinic', city: 'Adama', status: 'Active', since: ago(150 * 1440), contact: 'Dr. Meron Asfaw · Owner', offModules: ALL_OFF_BUT(['reception', 'appointments', 'opd', 'laboratory', 'pharmacy', 'billing']), discount: 5, usage: { users: 12, beds: 0, visits: 900, labTests: 1800, imagingStudies: 0, departments: 2 } },
+  { id: 't-fasil', name: 'Fasil Regional Hospital', type: 'Hospital', city: 'Gondar', status: 'Suspended', since: ago(380 * 1440), contact: 'Yared Alemayehu · Finance', offModules: ['operations', 'specialty'], discount: 0, usage: { users: 120, beds: 210, visits: 0, labTests: 0, imagingStudies: 0, departments: 12 }, facilityId: 'net-fasil' },
+]
+
+const connectionSeed = (): Connection[] => [
+  { id: 'CX-01', facilityId: 'net-entoto', services: ['Laboratory', 'Imaging'], status: 'Active', requestedAt: ago(200 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(199 * 1440), decidedBy: 'Northstar Cloud' },
+  { id: 'CX-02', facilityId: 'net-abay', services: ['Referrals', 'Imaging'], status: 'Active', requestedAt: ago(320 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(318 * 1440), decidedBy: 'Northstar Cloud' },
+  { id: 'CX-03', facilityId: 'net-meskel', services: ['Imaging'], status: 'Requested', requestedAt: ago(2 * 1440), requestedBy: 'Elena Rossi', note: 'For 3T MRI and PET-CT.' },
+]
+
 export function createInitialState(): HospitalState {
   const wards = wardSeed()
   const charts = chartSeed()
@@ -825,6 +857,10 @@ export function createInitialState(): HospitalState {
     providers: providerSeed(),
     stockMovements: [],
     pricing: { ...DEFAULT_PRICES, modules: { ...DEFAULT_PRICES.modules } },
+    tenants: tenantSeed(),
+    network: networkSeed(),
+    connections: connectionSeed(),
+    externalReferrals: [],
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },

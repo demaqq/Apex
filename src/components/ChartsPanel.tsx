@@ -381,7 +381,7 @@ function InvestigationChart({ patient }: { patient: Patient }) {
                   <time>{formatTime(order.createdAt)}</time>
                   <div>
                     <b>{order.kind === 'Imaging' ? <ScanLine size={13} /> : <FlaskConical size={13} />} {order.title}</b>
-                    <small>{order.createdBy} · {order.externalProviderId ? sentOutLabel(order, state.providers) : 'In-house'} · <span className="mono">{order.id}</span></small>
+                    <small>{order.createdBy} · {order.externalProviderId ? sentOutLabel(order, state.providers, state.network) : 'In-house'} · <span className="mono">{order.id}</span></small>
                     {order.result ? <p className="result-line">{order.result}</p> : <p className="muted-text">Awaiting result</p>}<ImageStrip order={order} />
                   </div>
                   <Chip tone={order.status === 'completed' ? 'success' : order.priority === 'emergent' ? 'danger' : 'warning'}>{stagesFor(order)[orderStage(order)]}</Chip>

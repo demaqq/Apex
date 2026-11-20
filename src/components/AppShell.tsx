@@ -193,7 +193,7 @@ export default function AppShell() {
     <Ambient kind={deptTheme.ambient} />
     <AnimatePresence>{mobileOpen && <motion.div className="mobile-nav-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileOpen(false)} />}</AnimatePresence>
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-      <div className="sidebar-brand"><Brand name={facility.name} tagline={`${facility.type} · ${facility.city || facility.tagline}`} /><button className="sidebar-mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={19} /></button></div>
+      <div className="sidebar-brand"><Brand name={isProvider ? 'Northstar Cloud' : facility.name} tagline={isProvider ? 'Super admin' : `${facility.type} · ${facility.city || facility.tagline}`} /><button className="sidebar-mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={19} /></button></div>
 
       {!isProvider && <>
       <div className="pulse-panel" aria-label="Hospital live status">
@@ -233,7 +233,7 @@ export default function AppShell() {
           <button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
           <div className="mobile-logo"><Brand compact /></div>
           <nav className="breadcrumb" aria-label="Breadcrumb">
-            <button type="button" className="breadcrumb-link" onClick={() => { setSelectedPatientId(null); navigate('/') }}>{facility.name}</button>
+            <button type="button" className="breadcrumb-link" onClick={() => { setSelectedPatientId(null); navigate('/') }}>{isProvider ? 'Northstar Cloud' : facility.name}</button>
             {sectionLabel && <><i>/</i><span>{sectionLabel}</span></>}
             <i>/</i>
             {(activePatient || subBreadcrumb) ? <button type="button" className="breadcrumb-link" onClick={() => { setSelectedPatientId(null); if (location.search) navigate(location.pathname) }}>{pageName}</button> : <b>{pageName}</b>}

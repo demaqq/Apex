@@ -576,6 +576,8 @@ export interface FacilitySettings {
   disabledModules: string[]
   /** Modules the client has switched off. Everything else is on and billed. */
   offModules?: ModuleId[]
+  /** Set by the super admin. A suspended subscription blocks staff sign-in. */
+  subscription?: SubscriptionStatus
   /** Reception tariff. */
   fees?: ReceptionFees
   /** Consultation rooms per department OPD (default 3). */
@@ -741,6 +743,14 @@ export interface HospitalState {
   accessGrants: AccessGrant[]
   /** The SaaS provider's price list, set from the platform console. */
   pricing: PriceList
+  /** Super admin: every subscribed client. The one with live: true is this facility. */
+  tenants: Tenant[]
+  /** Facilities on the care network (other hospitals, diagnostic centres, labs, imaging centres). */
+  network: NetworkFacility[]
+  /** This facility's connections to network members. */
+  connections: Connection[]
+  /** Patients referred to another hospital through the network. */
+  externalReferrals: ExternalReferral[]
 }
 
 /* ---------- Subscription ---------- */
@@ -761,4 +771,72 @@ export interface PriceList {
   perVisit: number
   perLabTest: number
   perImagingStudy: number
+}
+
+export type SubscriptionStatus = 'Active' | 'Trial' | 'Suspended'
+
+export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number }
+
+/** A client facility subscribed to the platform. */
+export interface Tenant {
+  id: string
+  name: string
+  type: 'Hospital' | 'Clinic' | 'Health centre' | 'Diagnostic centre'
+  city: string
+  status: SubscriptionStatus
+  since: string
+  contact: string
+  offModules: ModuleId[]
+  /** Percentage off the calculated price, set by the super admin. */
+  discount: number
+  /** Usage for clients other than this facility (this facility's usage is counted live). */
+  usage: TenantUsage
+  /** This facility (the demo you are signed in to). */
+  live?: boolean
+  /** Network member that represents this client, if it is listed on the network. */
+  facilityId?: string
+}
+
+export type NetworkService = 'Laboratory' | 'Imaging' | 'Referrals'
+
+export interface NetworkFacility {
+  id: string
+  name: string
+  kind: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre'
+  city: string
+  services: NetworkService[]
+  /** Platform members exchange records natively; others through a standard interface. */
+  link: 'Platform' | 'HL7 FHIR' | 'Partner API'
+  /** Highlights for the directory, e.g. "MRI 1.5T, PET-CT". */
+  capabilities: string
+}
+
+export type ConnectionStatus = 'Requested' | 'Active' | 'Paused' | 'Declined'
+
+export interface Connection {
+  id: string
+  facilityId: string
+  services: NetworkService[]
+  status: ConnectionStatus
+  requestedAt: string
+  requestedBy: string
+  decidedAt?: string
+  decidedBy?: string
+  note?: string
+}
+
+export type ExternalReferralStatus = 'Sent' | 'Accepted' | 'Declined' | 'Transferred'
+
+export interface ExternalReferral {
+  id: string
+  patientId: string
+  facilityId: string
+  reason: string
+  urgency: Priority
+  status: ExternalReferralStatus
+  at: string
+  by: string
+  /** What was shared with the receiving hospital. */
+  shared: string[]
+  response?: string
 }

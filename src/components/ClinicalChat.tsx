@@ -9,6 +9,7 @@ import { useHospital } from '../store/HospitalStore'
 import type { Patient, Priority, TimelineEvent, Vitals } from '../types'
 import { doneHere, PRINTOUT, sentOutLabel } from '../lib/diagnostics'
 import { RequestFormModal } from './RequestForm'
+import { connectedFor, isElectronic, NET } from '../lib/network'
 import { Avatar, Chip, OrderStepper } from './ui'
 
 type Mode = 'history' | 'exam' | 'labs' | 'imaging' | 'medication' | 'vitals' | 'plan' | 'note'
@@ -94,7 +95,8 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
   const providerFor = (title: string) => {
     const item = fullCatalogue.find((entry) => entry.name === title)
     if (partner !== 'auto') return partner
-    return item && !doneHere(item, state.settings) ? PRINTOUT : undefined
+    const electronic = connectedFor(orderKind, state.connections, state.network)[0]
+    return item && !doneHere(item, state.settings) ? (electronic ? `${NET}${electronic.id}` : PRINTOUT) : undefined
   }
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' }) }, [events.length])
@@ -115,7 +117,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
       const typed = body.split(/\n|,/).map((item) => item.trim()).filter(Boolean)
       const items = mode === 'imaging' && picked.length ? picked.map((study) => (body ? `${study} — ${body}` : study)) : [...picked, ...typed]
       if (!items.length) { setError(mode === 'labs' ? 'Pick at least one test.' : 'Pick or type a study.'); return }
-      const sentOut = items.map((title) => { const where = providerFor(title.split(' — ')[0]); const id = addOrder(patient.id, title, mode === 'labs' ? 'Laboratory' : 'Imaging', mode === 'labs' ? 'laboratory' : 'radiology', priority, where); return where ? id : undefined }).filter((id): id is string => Boolean(id))
+      const sentOut = items.map((title) => { const where = providerFor(title.split(' — ')[0]); const id = addOrder(patient.id, title, mode === 'labs' ? 'Laboratory' : 'Imaging', mode === 'labs' ? 'laboratory' : 'radiology', priority, where); return where && !isElectronic(where) ? id : undefined }).filter((id): id is string => Boolean(id))
       if (sentOut.length) setPrinting(sentOut)
     } else if (mode === 'vitals') {
       if (!vitalsComplete) { setError('Enter all six observations.'); return }
@@ -158,7 +160,7 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
                 <div className="chat-meta"><span className="chat-kind"><Icon size={12} />{style.label}</span><b>{mine ? 'You' : event.author}</b><time>{formatTime(event.at)}</time></div>
                 <p className="chat-title">{event.title.replace(/^(History|Examination|Plan|Prescription)( \(awaiting co-signature\))?$/, (_, word, pending) => pending ? `${word} · awaiting co-signature` : '')}</p>
                 <p className="chat-text">{event.detail}</p>
-                {order && event.type === 'order' && <div className="chat-order">{order.externalProviderId && <Chip tone="warning">{sentOutLabel(order, state.providers)}</Chip>}<OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}<ImageStrip order={order} compact /></div>}
+                {order && event.type === 'order' && <div className="chat-order">{order.externalProviderId && <Chip tone="warning">{sentOutLabel(order, state.providers, state.network)}</Chip>}<OrderStepper order={order} />{order.result && <p className="chat-result"><FileText size={13} />{order.result}</p>}<ImageStrip order={order} compact /></div>}
                 {order && event.type === 'result' && event.title.startsWith('Images attached') && <ImageStrip order={order} compact />}
               </div>
             </motion.div>]
@@ -178,11 +180,11 @@ export default function ClinicalChat({ patient }: { patient: Patient }) {
               {mode === 'history' && HISTORY_PROMPTS.map((prompt) => <button key={prompt} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(prompt)}>+ {prompt.replace(': ', '')}</button>)}
               {mode === 'exam' && EXAM_NORMALS.map(([label, line]) => <button key={label} type="button" className="pick" onMouseDown={(event) => event.preventDefault()} onClick={() => appendLine(line)}>+ {label} normal</button>)}
               {(mode === 'labs' || mode === 'imaging') && <>
-                {catalogue.map(({ name: item, ...entry }) => { const inHouse = doneHere(entry, state.settings); return <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''} ${inHouse ? '' : 'external'}`} aria-pressed={picked.includes(item)} title={inHouse ? 'Done here' : 'Not done here: printed request for an outside lab or centre'} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}{!inHouse && <span className="pick-tag">outside</span>}</button> })}
+                {catalogue.map(({ name: item, ...entry }) => { const inHouse = doneHere(entry, state.settings); return <button key={item} type="button" className={`pick ${picked.includes(item) ? 'on' : ''} ${inHouse ? '' : 'external'}`} aria-pressed={picked.includes(item)} title={inHouse ? 'Done here' : 'Not done here: sent to a connected facility, or a printed request'} onClick={() => toggle(item)}>{picked.includes(item) ? '✓ ' : ''}{item}{!inHouse && <span className="pick-tag">outside</span>}</button> })}
                 <span className="pick-sep" />
                 {(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button key={value} type="button" className={`pick priority ${priority === value ? `on ${value}` : ''}`} onClick={() => setPriority(value)}>{value}</button>)}
                 <label className="pick-select"><span>{orderKind === 'Imaging' ? 'Modality' : 'Section'}</span><select value={section} onChange={(event) => setSection(event.target.value)}><option value="All">All</option>{sections.map((name) => <option key={name}>{name}</option>)}</select></label>
-                <label className="pick-select"><span>Send to</span><select value={partner} onChange={(event) => setPartner(event.target.value)}><option value="auto">Here when available</option><option value={PRINTOUT}>Outside · printed request</option>{partners.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
+                <label className="pick-select"><span>Send to</span><select value={partner} onChange={(event) => setPartner(event.target.value)}><option value="auto">Here when available</option>{connectedFor(orderKind, state.connections, state.network).map((facility) => <option key={facility.id} value={`${NET}${facility.id}`}>Electronic · {facility.name}</option>)}<option value={PRINTOUT}>Outside · printed request</option>{partners.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
               </>}
               {mode === 'vitals' && <div className="chat-vitals">
                 {([['hr', 'HR'], ['rr', 'RR'], ['spo2', 'SpO₂'], ['bpSys', 'SBP'], ['bpDia', 'DBP'], ['temp', 'Temp']] as Array<[keyof typeof vitals, string]>).map(([key, label]) => <label key={key}><span>{label}</span><input type="number" step={key === 'temp' ? 0.1 : 1} value={vitals[key]} onChange={(event) => setVitals({ ...vitals, [key]: event.target.value })} /></label>)}

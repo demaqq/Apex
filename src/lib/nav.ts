@@ -51,7 +51,7 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/billing', label: 'Billing & claims', page: 'Billing & claims', icon: Receipt, roles: ['billing'] },
     { to: '/audit', label: 'Codes & audit', page: 'Emergency codes & audit', icon: ShieldAlert, roles: 'all' },
     { to: '/admin', label: 'Administration', page: 'Administration', icon: ShieldCheck, roles: ['administrator'], key: 'x' },
-    { to: '/platform', label: 'Platform console', page: 'Platform console', icon: Cloud, roles: ['provider'] },
+    { to: '/platform', label: 'Super admin console', page: 'Super admin console', icon: Cloud, roles: ['provider'] },
   ] },
 ]
 

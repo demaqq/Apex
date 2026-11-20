@@ -1,4 +1,4 @@
-import type { FacilitySettings, HospitalState, ModuleId, PriceList, RoleId } from '../types'
+import type { FacilitySettings, HospitalState, ModuleId, PriceList, RoleId, Tenant, TenantUsage } from '../types'
 
 export interface ModuleDef {
   id: ModuleId
@@ -87,30 +87,49 @@ const DAY = 86_400_000
 
 export interface BillLine { label: string; detail: string; amount: number; kind: 'platform' | 'module' | 'departments' | 'usage' }
 
-/** Usage over the last 30 days and the resulting monthly bill. */
-export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments'>, prices: PriceList, now = Date.now()) {
+/** This facility's usage over the last 30 days, counted from its records. */
+export function liveUsage(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments'>, now = Date.now()): TenantUsage {
   const since = now - 30 * DAY
   const recent = (at?: string) => Boolean(at) && new Date(at!).getTime() >= since
-  const users = state.staff.filter((member) => !member.suspended && member.status !== 'Pending approval').length
-  const beds = isOn(state.settings, 'wards') ? state.beds.length : 0
-  const visits = state.patients.filter((patient) => recent(patient.arrival)).length
-  const labTests = isOn(state.settings, 'laboratory') ? state.orders.filter((order) => order.kind === 'Laboratory' && !order.externalProviderId && recent(order.createdAt)).length : 0
-  const imagingStudies = isOn(state.settings, 'imaging') ? state.orders.filter((order) => order.kind === 'Imaging' && !order.externalProviderId && recent(order.createdAt)).length : 0
-  const departments = state.departments.filter((department) => department.active !== false && !['laboratory', 'radiology', 'pharmacy'].includes(department.id)).length
-  const on = MODULES.filter((item) => isOn(state.settings, item.id))
+  return {
+    users: state.staff.filter((member) => !member.suspended && member.status !== 'Pending approval').length,
+    beds: state.beds.length,
+    visits: state.patients.filter((patient) => recent(patient.arrival)).length,
+    labTests: state.orders.filter((order) => order.kind === 'Laboratory' && !order.externalProviderId && recent(order.createdAt)).length,
+    imagingStudies: state.orders.filter((order) => order.kind === 'Imaging' && !order.externalProviderId && recent(order.createdAt)).length,
+    departments: state.departments.filter((department) => department.active !== false && !['laboratory', 'radiology', 'pharmacy'].includes(department.id)).length,
+  }
+}
 
+/** The price follows automatically from the modules that are on, the usage and the super admin's price list. */
+export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: PriceList, discount = 0) {
+  const on = MODULES.filter((item) => !offModules.includes(item.id))
+  const has = (id: ModuleId) => !offModules.includes(id)
   const lines: BillLine[] = [
     { label: 'Platform', detail: 'Patient records, staff, roles, audit and administration', amount: prices.platform, kind: 'platform' },
     ...on.map((item) => ({ label: item.name, detail: 'Module', amount: prices.modules[item.id] ?? 0, kind: 'module' as const })),
-    { label: 'Clinical departments', detail: `${departments} active · first ${prices.includedDepartments} included`, amount: Math.max(0, departments - prices.includedDepartments) * prices.perDepartment, kind: 'departments' },
-    { label: 'Staff accounts', detail: `${users} active · first ${prices.includedUsers} included`, amount: Math.max(0, users - prices.includedUsers) * prices.perUser, kind: 'usage' },
-    ...(isOn(state.settings, 'wards') ? [{ label: 'Beds', detail: `${beds} beds`, amount: beds * prices.perBed, kind: 'usage' as const }] : []),
-    { label: 'Patient visits', detail: `${visits} in the last 30 days`, amount: visits * prices.perVisit, kind: 'usage' },
-    ...(isOn(state.settings, 'laboratory') ? [{ label: 'Laboratory tests', detail: `${labTests} done here in 30 days`, amount: labTests * prices.perLabTest, kind: 'usage' as const }] : []),
-    ...(isOn(state.settings, 'imaging') ? [{ label: 'Imaging studies', detail: `${imagingStudies} done here in 30 days`, amount: imagingStudies * prices.perImagingStudy, kind: 'usage' as const }] : []),
+    { label: 'Clinical departments', detail: `${usage.departments} active · first ${prices.includedDepartments} included`, amount: Math.max(0, usage.departments - prices.includedDepartments) * prices.perDepartment, kind: 'departments' },
+    { label: 'Staff accounts', detail: `${usage.users} active · first ${prices.includedUsers} included`, amount: Math.max(0, usage.users - prices.includedUsers) * prices.perUser, kind: 'usage' },
+    ...(has('wards') ? [{ label: 'Beds', detail: `${usage.beds} beds`, amount: usage.beds * prices.perBed, kind: 'usage' as const }] : []),
+    { label: 'Patient visits', detail: `${usage.visits} in the last 30 days`, amount: usage.visits * prices.perVisit, kind: 'usage' },
+    ...(has('laboratory') ? [{ label: 'Laboratory tests', detail: `${usage.labTests} done here in 30 days`, amount: usage.labTests * prices.perLabTest, kind: 'usage' as const }] : []),
+    ...(has('imaging') ? [{ label: 'Imaging studies', detail: `${usage.imagingStudies} done here in 30 days`, amount: usage.imagingStudies * prices.perImagingStudy, kind: 'usage' as const }] : []),
   ]
-  const total = lines.reduce((sum, line) => sum + line.amount, 0)
-  return { lines, total, usage: { users, beds, visits, labTests, imagingStudies, departments, modules: on.length } }
+  const subtotal = lines.reduce((sum, line) => sum + line.amount, 0)
+  const off = Math.round(subtotal * Math.min(100, Math.max(0, discount))) / 100
+  if (off > 0) lines.push({ label: 'Discount', detail: `${discount}% agreed with the provider`, amount: -off, kind: 'platform' })
+  return { lines, subtotal, total: subtotal - off, usage: { ...usage, modules: on.length } }
+}
+
+/** This facility's monthly bill. */
+export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments' | 'tenants'>, prices: PriceList, now = Date.now()) {
+  const tenant = state.tenants?.find((item) => item.live)
+  return billFor(liveUsage(state, now), state.settings.offModules ?? [], prices, tenant?.discount ?? 0)
+}
+
+/** Any client's monthly bill (this facility's usage is counted live). */
+export function tenantBill(tenant: Tenant, state: Parameters<typeof estimateBill>[0], prices: PriceList) {
+  return tenant.live ? estimateBill(state, prices) : billFor(tenant.usage, tenant.offModules, prices, tenant.discount)
 }
 
 export const money = (amount: number, currency = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: amount % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(amount)
