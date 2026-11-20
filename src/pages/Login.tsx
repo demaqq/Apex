@@ -5,10 +5,12 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { Brand, Button, DepartmentIcon, Modal } from '../components/ui'
 import { roleProfiles } from '../data'
 import { ROLE_HOME, useHospital } from '../store/HospitalStore'
-import type { DepartmentId, RoleId } from '../types'
+import { isOn, moduleForRole } from '../lib/modules'
+import { DEFAULT_GRADE, gradeById, GRADES, gradesFor, RESIDENT_YEARS } from '../lib/grades'
+import { PROFESSION_OPTIONS, ROLE_LEVELS } from '../lib/teaching'
+import type { DepartmentId, Grade, RoleId } from '../types'
 
-const diagnosticDepartments: DepartmentId[] = ['radiology', 'laboratory']
-const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator']
+const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
 
 /** A repeating ECG trace; the bright segment runs along it via CSS. */
 const ECG = 'M0 60 H78 L90 60 L98 26 L106 94 L114 42 L122 60 H198 L210 60 L218 26 L226 94 L234 42 L242 60 H318 L330 60 L338 26 L346 94 L354 42 L362 60 H438 L450 60 L458 26 L466 94 L474 42 L482 60 H600'
@@ -19,24 +21,31 @@ export default function Login() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<RoleId>('physician')
   const [department, setDepartment] = useState<DepartmentId>('emergency')
+  const [grade, setGrade] = useState<Grade | undefined>(DEFAULT_GRADE.physician)
+  const [year, setYear] = useState(1)
+  const [level, setLevel] = useState<string | undefined>()
   const [accessKey, setAccessKey] = useState('NORTHSTAR')
   const [remember, setRemember] = useState(true)
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState('')
   const profile = roleProfiles[selected]
-  const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern', 'diagnostics'].includes(selected)
+  const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern'].includes(selected)
   const live = state.departments.filter((item) => item.active !== false)
-  const options = selected === 'diagnostics' ? diagnosticDepartments.filter((id) => live.some((item) => item.id === id)) : live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
+  const options = live.map((item) => item.id).filter((id) => !['radiology', 'laboratory', 'pharmacy'].includes(id))
 
   if (currentRole) return <Navigate to={ROLE_HOME[currentRole]} replace />
 
-  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setError('') }
+  const defaultLevel = (role: RoleId) => { const levels = ROLE_LEVELS[role]?.levels; if (!levels) return undefined; const own = state.staff.find((member) => member.roleId === role)?.level; return own && levels.includes(own) ? own : levels[levels.length - 1] }
+  const choose = (role: RoleId) => { setSelected(role); setDepartment(roleProfiles[role].department); setGrade(DEFAULT_GRADE[role]); setLevel(defaultLevel(role)); setError('') }
+  const levels = ROLE_LEVELS[selected]?.levels ?? []
+  const chosenLevel = level && levels.includes(level) ? level : defaultLevel(selected)
+  const grades = gradesFor(selected)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (accessKey.trim().toUpperCase() !== 'NORTHSTAR') { setError('Use the demo access key NORTHSTAR to sign in.'); return }
     const blocked = signInBlock(selected)
     if (blocked) { setError(blocked); return }
-    login(selected, remember, canChooseDepartment ? department : undefined)
+    login(selected, remember, canChooseDepartment ? department : undefined, grade, year, chosenLevel)
     navigate(ROLE_HOME[selected])
   }
 
@@ -75,6 +84,7 @@ export default function Login() {
                 <motion.button type="button" role="radio" aria-checked={selected === roleId} key={roleId} className={selected === roleId ? 'selected' : ''} onClick={() => choose(roleId)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} style={{ '--role': role.accent } as CSSProperties}>
                   <b>{role.name}</b>
                   <span>{role.title}</span>
+                  {moduleForRole(roleId) && !isOn(state.settings, moduleForRole(roleId)!.id) && <small className="role-tile-off">Not in this facility’s plan</small>}
                   {selected === roleId && <Check size={14} className="role-tile-check" />}
                 </motion.button>
               )
@@ -83,7 +93,7 @@ export default function Login() {
 
           {canChooseDepartment && (
             <label className="form-field">
-              <span>{selected === 'diagnostics' ? 'Diagnostic service' : 'Department'}</span>
+              <span>Department</span>
               <div className="department-picker">
                 <DepartmentIcon id={department} size={16} />
                 <select value={department} onChange={(event) => setDepartment(event.target.value as DepartmentId)}>
@@ -95,6 +105,26 @@ export default function Login() {
               </div>
               {['physician', 'nurse', 'consultant', 'intern'].includes(selected) && <small className="muted-text">You’ll see patients in this department’s wards and OPD, plus consults and comorbidity links.</small>}
             </label>
+          )}
+
+          {grades.length > 1 && (
+            <div className="grade-picker">
+              <label className="form-field">
+                <span>Grade</span>
+                <select value={grade} onChange={(event) => setGrade(event.target.value as Grade)} aria-label="Grade">{grades.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select>
+              </label>
+              {grade === 'Resident' && <label className="form-field"><span>Year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))} aria-label="Residency year">{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
+              <small className="muted-text">{gradeById(grade)?.description}</small>
+            </div>
+          )}
+          {levels.length > 1 && (
+            <div className="grade-picker">
+              <label className="form-field">
+                <span>Level</span>
+                <select value={chosenLevel} onChange={(event) => setLevel(event.target.value)} aria-label="Level">{levels.map((item) => <option key={item}>{item}</option>)}</select>
+              </label>
+              <small className="muted-text">Your level on the {ROLE_LEVELS[selected]!.profession.toLowerCase()} ladder: it sets your title, who supervises you and who you can assess.</small>
+            </div>
           )}
 
           <label className="form-field">
@@ -115,24 +145,38 @@ export default function Login() {
   )
 }
 
-function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void }) {
+export interface AccessRequest { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }
+
+function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: AccessRequest) => void }) {
   const { state } = useHospital()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [roleId, setRoleId] = useState<RoleId>('nurse')
+  const [profession, setProfession] = useState(PROFESSION_OPTIONS[0].id)
+  const [grade, setGrade] = useState<Grade>('Intern')
+  const [year, setYear] = useState(1)
+  const [level, setLevel] = useState('')
   const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
   const [specialty, setSpecialty] = useState('')
+  const option = PROFESSION_OPTIONS.find((item) => item.id === profession)!
+  const levelValue = option.levels?.includes(level) ? level : option.levels?.[0] ?? ''
+  const roleId: RoleId = option.doctor ? gradeById(grade)!.role : option.role!
   const valid = name.trim().split(/\s+/).length >= 2 && /.+@.+\..+/.test(email)
+  const submit = () => onSubmit({ name, roleId, department, specialty, email, ...(option.doctor ? { grade, ...(grade === 'Resident' ? { residentYear: year } : {}) } : levelValue ? { level: levelValue } : {}) })
   return (
     <Modal open onClose={onClose} title="Request access" subtitle={`An administrator at ${state.settings.name} will review your request`} size="md">
       <div className="form-grid form-grid-2">
         <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="form-field"><span>Work email <b>*</b></span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label className="form-field"><span>Profession</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{ROLE_ORDER.filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Profession</span><select value={profession} onChange={(event) => { setProfession(event.target.value); setLevel('') }}>{PROFESSION_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        {option.doctor
+          ? <label className="form-field"><span>Grade</span><select value={grade} onChange={(event) => setGrade(event.target.value as Grade)}>{GRADES.map((item) => <option key={item.id}>{item.id}</option>)}</select></label>
+          : option.levels ? <label className="form-field"><span>Level</span><select value={levelValue} onChange={(event) => setLevel(event.target.value)}>{option.levels.map((item) => <option key={item}>{item}</option>)}</select></label> : <span />}
+        {option.doctor && grade === 'Resident' && <label className="form-field"><span>Residency year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field span-2"><span>Specialty, unit or licence number</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
       </div>
-      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={() => onSubmit({ name, roleId, department, specialty, email })}>Send request</Button></div>
+      {option.doctor && <p className="record-hint">{gradeById(grade)?.description}</p>}
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={submit}>Send request</Button></div>
     </Modal>
   )
 }

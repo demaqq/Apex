@@ -72,11 +72,11 @@ export const ORDER_STAGES: Record<OrderKind, string[]> = {
   'Blood bank': ['Requested', 'Sample received', 'Crossmatched', 'Issued', 'Transfused'],
 }
 
-export const EXTERNAL_STAGES = ['Referred', 'Sample sent or booked', 'Result received']
+export const EXTERNAL_STAGES = ['Sent out', 'Done outside', 'Result entered']
 
 /** Stages for an order: investigations sent to a referral partner follow a shorter pipeline. */
 export function stagesFor(order: Pick<ClinicalOrder, 'kind' | 'externalProviderId'>) {
-  return order.externalProviderId ? EXTERNAL_STAGES : ORDER_STAGES[order.kind]
+  return order.externalProviderId?.startsWith('net:') ? ['Sent electronically', 'Received by partner', 'Result returned'] : order.externalProviderId ? EXTERNAL_STAGES : ORDER_STAGES[order.kind]
 }
 
 export function orderStage(order: ClinicalOrder) {
@@ -198,20 +198,26 @@ export const ESI_TARGET_MINUTES: Record<number, number> = { 1: 0, 2: 10, 3: 30, 
 
 /* ---------------- Who may move an order forward ---------------- */
 
+let receptionGate = true
+/** Set by the store: without the reception module there is no cashier, so unpaid tests are not held. */
+export const setReceptionGate = (on: boolean) => { receptionGate = on }
+
 export function canAdvanceOrder(order: ClinicalOrder, role: string) {
   const stage = orderStage(order)
   const last = stagesFor(order).length - 1
   if (stage >= last || role === 'administrator') return false
   // Outpatient tests start only once paid at reception.
-  if (order.billing === 'Unpaid' && stage === 0) return false
+  if (receptionGate && order.billing === 'Unpaid' && stage === 0) return false
+  if (role === 'provider') return false
   // Referred investigations are tracked by the ward team and laboratory/radiology staff.
-  if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'receptionist'].includes(role)
+  if (order.externalProviderId) return ['physician', 'consultant', 'intern', 'nurse', 'diagnostics', 'laboratory', 'receptionist'].includes(role)
   switch (order.kind) {
-    case 'Laboratory': return role === 'diagnostics' || (stage === 0 && role === 'nurse')
-    case 'Imaging': return role === 'diagnostics'
+    case 'Laboratory': return role === 'laboratory' || (stage === 0 && role === 'nurse')
+    // Radiographers schedule and acquire; only the radiologist reports.
+    case 'Imaging': return role === 'diagnostics' || (role === 'radiographer' && stage < last - 1)
     case 'Medication': return stage === last - 1 ? role === 'nurse' : role === 'pharmacist'
     case 'Procedure': return ['physician', 'consultant', 'theatre'].includes(role)
-    case 'Blood bank': return stage === last - 1 ? role === 'nurse' : role === 'allied' || role === 'diagnostics'
+    case 'Blood bank': return stage === last - 1 ? role === 'nurse' : role === 'allied' || role === 'laboratory'
     default: return role === 'allied'
   }
 }

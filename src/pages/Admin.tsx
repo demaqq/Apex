@@ -1,27 +1,33 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Building2, Check, FlaskConical, Hospital, KeyRound, LayoutGrid, Plus, RotateCcw, Save, ScanLine, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Plus, Printer, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
 import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
-import { formatCurrency } from '../lib/format'
-import { ALL_NAV, CORE_MODULES } from '../lib/nav'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
 import { DEFAULT_FEES, opdDepartments } from '../lib/reception'
 import { nested } from '../lib/access'
+import { CatalogueEditor } from '../components/CatalogueEditor'
+import { BillSummary } from '../components/PlanBill'
+import { DEFAULT_GRADE, gradeLabel, gradesFor, RESIDENT_YEARS } from '../lib/grades'
+import { NetworkPanel } from '../components/NetworkPanel'
+import { ServicesEditor } from '../components/ServicesEditor'
+import { PlatformInvoices } from '../components/Onboarding'
+import { PROFESSIONS } from '../lib/teaching'
+import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
-import type { Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import type { Grade, ModuleId, Profession, TeachingSettings, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
-type View = 'facility' | 'users' | 'departments' | 'investigations' | 'providers' | 'modules'
+type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
-  triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
+  pricing: 'Set platform prices (provider only)', 'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
   refer: 'Refer to specialists', transfer: 'Transfer and admit', discharge: 'Discharge patients', cosign: 'Co-sign trainee notes', results: 'Report lab and imaging results',
   administer: 'Give medicines', dispense: 'Verify and dispense medicines', beds: 'Manage beds', theatre: 'Run theatre lists', anaesthesia: 'Anaesthesia records',
   services: 'Physio, nutrition and blood bank', billing: 'Billing and payments', manage: 'Facility administration',
-  'stock-receive': 'Receive stock deliveries', 'stock-adjust': 'Write off and adjust stock', 'formulary-edit': 'Edit medicines and prices', 'controlled-drugs': 'Release controlled medicines', 'records-export': 'Export patient lists',
+  'stock-receive': 'Receive stock deliveries', 'stock-adjust': 'Write off and adjust stock', 'formulary-edit': 'Edit medicines and prices', 'controlled-drugs': 'Release controlled medicines', 'records-export': 'Export patient lists', 'lab-catalogue': 'Edit the laboratory test catalogue', 'imaging-catalogue': 'Edit the imaging study catalogue',
 }
 const PERMISSION_GROUPS: Array<[string, Permission[]]> = [
-  ['Clinical', ['triage', 'register', 'vitals', 'notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
+  ['Clinical', ['triage', 'register', 'vitals', 'notes', 'clinical-notes', 'prescribe', 'refer', 'transfer', 'discharge', 'cosign']],
   ['Services', ['results', 'administer', 'dispense', 'beds', 'theatre', 'anaesthesia', 'services']],
   ['Office', ['billing', 'manage']],
   ['Sensitive — grant with care', SENSITIVE],
@@ -37,18 +43,20 @@ export default function Admin() {
 
   return (
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-      <PageHeader eyebrow="Administration" title={`Set up ${state.settings.name}`} description="Customise the system for your hospital or clinic: profile, people and access, departments, investigations, referral partners and modules. Every change is recorded in the audit log." />
+      <PageHeader eyebrow="Administration" title={`Set up ${state.settings.name}`} description="Customise the system for your hospital or clinic: profile, people and access, departments, laboratory and imaging catalogues, partner facilities and modules. Every change is recorded in the audit log." />
       <Tabs<View> label="Administration" value={view} onChange={setView} options={[
         { value: 'facility', label: 'Facility' },
         { value: 'users', label: 'Users & access', count: pending || undefined },
         { value: 'departments', label: 'Departments', count: state.departments.filter((item) => item.active !== false).length },
+        { value: 'services', label: 'Services & prices', count: state.services.filter((item) => item.status !== 'Live' && item.status !== 'Declined').length || undefined },
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
-        { value: 'providers', label: 'Referral partners', count: state.providers.filter((item) => item.active).length },
-        { value: 'modules', label: 'Modules' },
+        { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
+        { value: 'modules', label: 'Plan & modules', count: state.platformInvoices.filter((item) => item.status === 'Issued').length || undefined },
       ]} />
-      {view === 'facility' && <FacilityTab />}
+      {view === 'facility' && <><TeachingSetting /><FacilityTab /></>}
       {view === 'users' && <UsersTab />}
       {view === 'departments' && <DepartmentsTab />}
+      {view === 'services' && <ServicesEditor />}
       {view === 'investigations' && <InvestigationsTab />}
       {view === 'providers' && <ProvidersTab />}
       {view === 'modules' && <ModulesTab />}
@@ -57,6 +65,33 @@ export default function Admin() {
 }
 
 /* ---------------- Facility ---------------- */
+
+const TEACHING_KINDS: TeachingSettings['kind'][] = ['Teaching hospital', 'University hospital', 'Teaching diagnostic centre', 'Teaching clinic']
+
+/** The main switch: is this a teaching institution? Turning it on adds trainee ladders and assessments (billed per trainee). */
+function TeachingSetting() {
+  const { state, updateSettings, setModules } = useHospital()
+  const on = isOn(state.settings, 'teaching')
+  const off = state.settings.offModules ?? []
+  const [form, setForm] = useState<TeachingSettings>(state.settings.teaching ?? { kind: state.settings.type === 'Hospital' ? 'Teaching hospital' : 'Teaching clinic', affiliation: '', professions: ['Medicine', 'Nursing'] })
+  const dirty = JSON.stringify(form) !== JSON.stringify(state.settings.teaching)
+  const toggleProfession = (profession: Profession) => setForm({ ...form, professions: form.professions.includes(profession) ? form.professions.filter((item) => item !== profession) : [...form.professions, profession] })
+  return (
+    <Panel className={`teaching-switch ${on ? 'on' : ''}`} title="Teaching institution" action={<label className="switch big-switch"><input type="checkbox" checked={on} onChange={() => { if (!on && !state.settings.teaching) updateSettings({ teaching: form }); setModules(on ? [...off, 'teaching'] : off.filter((id) => id !== 'teaching'), on ? 'switched off teaching' : 'switched on teaching') }} aria-label={`Teaching institution ${on ? 'on' : 'off'}`} /><span />{on ? 'On' : 'Off'}</label>}>
+      <div className="panel-pad">
+        <p className="table-footnote admin-note">For teaching hospitals, university hospitals and teaching diagnostic centres. Seniors assess the trainees below them in their own profession — residents assess interns, chief residents assess residents R1–R5, senior nurses assess junior and student nurses, and so on — with evidence taken from each trainee’s work in the records. Billed as the Teaching module plus {money(state.pricing.perTrainee ?? 0, state.pricing.currency)} per trainee assessed each month (incl. VAT).</p>
+        {on && <>
+          <div className="form-grid form-grid-3">
+            <label className="form-field"><span>Type</span><select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as TeachingSettings['kind'] })}>{TEACHING_KINDS.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="form-field span-2"><span>Affiliated university or college</span><input value={form.affiliation} onChange={(event) => setForm({ ...form, affiliation: event.target.value })} placeholder="e.g. College of Health Sciences" /></label>
+          </div>
+          <div className="form-field"><span>Professions trained here</span><div className="segmented wrap-segmented">{PROFESSIONS.map((profession) => <button key={profession} type="button" className={form.professions.includes(profession) ? 'on' : ''} onClick={() => toggleProfession(profession)}>{profession}</button>)}</div></div>
+          <div className="panel-actions"><Button icon={Save} disabled={!dirty || !form.professions.length} onClick={() => updateSettings({ teaching: form })}>Save teaching set-up</Button></div>
+        </>}
+      </div>
+    </Panel>
+  )
+}
 
 function FacilityTab() {
   const { state, updateSettings } = useHospital()
@@ -117,7 +152,7 @@ function UsersTab() {
         {pending.map((member) => (
           <article key={member.id} className="work-card priority-urgent">
             <header><PersonCell name={member.name} detail={member.email} /></header>
-            <p className="work-card-reason">Requests <b>{member.roleId ? roleProfiles[member.roleId].title : member.role}</b> in {departmentById(state.departments, member.department).name}. {member.specialty}.</p>
+            <p className="work-card-reason">Requests <b>{member.role}</b>{member.roleId ? ` (${roleProfiles[member.roleId].shortTitle} workspace)` : ''} in {departmentById(state.departments, member.department).name}.{member.specialty && member.specialty !== member.role ? ` ${member.specialty}.` : ''}</p>
             <footer><small>Licence: {member.license}</small><div><Button size="sm" variant="ghost" icon={X} onClick={() => setStaffSuspended(member.id, true)}>Decline</Button><Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setEditing(member)}>Set access</Button><Button size="sm" icon={UserCheck} onClick={() => approveStaff(member.id)}>Approve</Button></div></footer>
           </article>
         ))}
@@ -134,7 +169,7 @@ function UsersTab() {
             {accounts.map((member) => (
               <tr key={member.id}>
                 <td><PersonCell name={member.name} detail={member.email} /></td>
-                <td>{member.roleId ? roleProfiles[member.roleId].title : member.role}</td>
+                <td>{member.role}{member.roleId && <small>{roleProfiles[member.roleId].shortTitle} workspace</small>}</td>
                 <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
                 <td>{accessLabel(member)}</td>
                 <td className="row-actions">
@@ -221,7 +256,7 @@ function AccessModal({ member, onClose, onSave }: { member: StaffMember; onClose
   const [list, setList] = useState<Permission[]>(member.permissions ?? defaults)
   const toggle = (permission: Permission) => setList((current) => current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission])
   return (
-    <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.roleId ? roleProfiles[member.roleId].title : member.role} · start from the role’s standard access, then adjust`} size="md">
+    <Modal open onClose={onClose} title={`Access for ${member.name}`} subtitle={`${member.role}${member.roleId ? ` (${roleProfiles[member.roleId].shortTitle} workspace)` : ''} · start from the role’s standard access, then adjust`} size="md">
       {PERMISSION_GROUPS.map(([group, permissions]) => (
         <div key={group} className={`perm-group ${group.startsWith('Sensitive') ? 'sensitive' : ''}`}>
           <span className="detail-heading">{group}</span>
@@ -243,16 +278,22 @@ function AddUserModal({ onClose, onSave }: { onClose: () => void; onSave: (input
   const [roleId, setRoleId] = useState<RoleId>('nurse')
   const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
   const [specialty, setSpecialty] = useState('')
+  const [grade, setGrade] = useState<Grade | ''>('')
+  const [year, setYear] = useState(1)
+  const grades = gradesFor(roleId)
+  const chosen = grades.find((item) => item.id === grade)?.id ?? DEFAULT_GRADE[roleId]
   const valid = name.trim().split(/\s+/).length >= 2
   return (
     <Modal open onClose={onClose} title="Add a user" subtitle="Accounts you add are approved straight away" size="md">
       <div className="form-grid form-grid-2">
         <label className="form-field"><span>Full name <b>*</b></span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator').map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
+        <label className="form-field"><span>Workspace</span><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{(Object.keys(roleProfiles) as RoleId[]).filter((id) => id !== 'administrator' && id !== 'provider' && (!moduleForRole(id) || isOn(state.settings, moduleForRole(id)!.id))).map((id) => <option key={id} value={id}>{roleProfiles[id].title}</option>)}</select></label>
         <label className="form-field"><span>Department</span><select value={department} onChange={(event) => setDepartment(event.target.value)}>{state.departments.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="form-field"><span>Specialty or unit</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
+        {grades.length > 0 && <label className="form-field"><span>Grade</span><select value={chosen} onChange={(event) => setGrade(event.target.value as Grade)}>{grades.map((item) => <option key={item.id}>{item.id}</option>)}</select></label>}
+        {chosen === 'Resident' && <label className="form-field"><span>Residency year</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{RESIDENT_YEARS.map((value) => <option key={value} value={value}>R{value}</option>)}</select></label>}
       </div>
-      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={UserPlus} disabled={!valid} onClick={() => onSave({ name: name.trim(), roleId, role: roleProfiles[roleId].title, department, specialty: specialty.trim() || roleProfiles[roleId].title, shift: 'Day · 07:00–15:00', status: 'Active' })}>Add user</Button></div>
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={UserPlus} disabled={!valid} onClick={() => onSave({ name: name.trim(), roleId, role: chosen ? gradeLabel(chosen, chosen === 'Resident' ? year : undefined) : roleProfiles[roleId].title, ...(chosen ? { grade: chosen, ...(chosen === 'Resident' ? { residentYear: year } : {}) } : {}), department, specialty: specialty.trim() || roleProfiles[roleId].title, shift: 'Day · 07:00–15:00', status: 'Active' })}>Add user</Button></div>
     </Modal>
   )
 }
@@ -332,44 +373,12 @@ function DepartmentModal({ department, onClose, onSave }: { department: Departme
 /* ---------------- Investigations ---------------- */
 
 function InvestigationsTab() {
-  const { state, saveInvestigation, removeInvestigation } = useHospital()
   const [kind, setKind] = useState<InvestigationItem['kind']>('Laboratory')
-  const [name, setName] = useState('')
-  const [price, setPrice] = useState('')
-  const [inHouse, setInHouse] = useState(true)
-  const list = state.investigations.filter((item) => item.kind === kind)
-  const add = () => {
-    if (!name.trim()) return
-    saveInvestigation({ id: `${kind === 'Imaging' ? 'I' : 'L'}-${Date.now().toString(36)}`, name: name.trim(), kind, inHouse, price: Number(price) || 0, active: true })
-    setName(''); setPrice('')
-  }
-  return (
-    <Panel title="Investigation catalogue" action={<Tabs<InvestigationItem['kind']> label="Type" value={kind} onChange={setKind} options={[{ value: 'Laboratory', label: 'Laboratory' }, { value: 'Imaging', label: 'Imaging' }]} />}>
-      <p className="table-footnote admin-note">Only active items appear when clinicians order. Items not available here are sent to a referral partner.</p>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead><tr><th>{kind === 'Imaging' ? 'Study' : 'Test'}</th><th>Where it is done</th><th className="num">Price</th><th>Offered</th><th aria-label="Actions" /></tr></thead>
-          <tbody>
-            {list.map((item) => (
-              <tr key={item.id} className={item.active ? '' : 'muted-row'}>
-                <td><span className="inline-icon">{kind === 'Imaging' ? <ScanLine size={14} /> : <FlaskConical size={14} />}<b>{item.name}</b></span></td>
-                <td><div className="segmented"><button type="button" className={item.inHouse ? 'on' : ''} onClick={() => saveInvestigation({ ...item, inHouse: true })}>In-house</button><button type="button" className={item.inHouse ? '' : 'on'} onClick={() => saveInvestigation({ ...item, inHouse: false })}>Referral partner</button></div></td>
-                <td className="num"><input className="inline-number" type="number" min={0} step="0.01" defaultValue={item.price} onBlur={(event) => Number(event.target.value) !== item.price && saveInvestigation({ ...item, price: Number(event.target.value) || 0 })} aria-label={`Price of ${item.name}`} /><small>{formatCurrency(item.price)}</small></td>
-                <td><label className="switch"><input type="checkbox" checked={item.active} onChange={() => saveInvestigation({ ...item, active: !item.active })} /><span />{item.active ? 'Yes' : 'No'}</label></td>
-                <td className="row-actions"><button type="button" className="icon-button" aria-label={`Remove ${item.name}`} onClick={() => removeInvestigation(item.id)}><Trash2 size={15} /></button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="ddx-add admin-add">
-        <input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') add() }} placeholder={`New ${kind === 'Imaging' ? 'imaging study' : 'laboratory test'}`} aria-label="Investigation name" />
-        <input type="number" min={0} value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Price" aria-label="Price" style={{ maxWidth: 110 }} />
-        <label className="remember-row"><input type="checkbox" checked={inHouse} onChange={(event) => setInHouse(event.target.checked)} />Done in-house</label>
-        <Button size="sm" icon={Plus} disabled={!name.trim()} onClick={add}>Add</Button>
-      </div>
-    </Panel>
-  )
+  return <>
+    <Tabs<InvestigationItem['kind']> label="Catalogue" value={kind} onChange={setKind} options={[{ value: 'Laboratory', label: 'Laboratory tests' }, { value: 'Imaging', label: 'Imaging studies' }]} />
+    <CatalogueEditor key={kind} kind={kind} />
+    <p className="table-footnote">The laboratory head and the head of imaging can also edit their own catalogue. Assign those posts under Users &amp; access.</p>
+  </>
 }
 
 /* ---------------- Referral partners ---------------- */
@@ -378,34 +387,41 @@ function ProvidersTab() {
   const { state, saveProvider, removeProvider } = useHospital()
   const [editing, setEditing] = useState<ExternalProvider | null>(null)
   return <>
-    <Panel title="External laboratories and imaging centres" action={<Button size="sm" icon={Plus} onClick={() => setEditing({ id: '', name: '', services: ['Laboratory'], notes: '', phone: '', address: '', active: true })}>Add partner</Button>}>
-      <p className="table-footnote admin-note">Clinicians can send any investigation to an active partner, for example when the test or scanner isn’t available in-house. Please confirm each partner’s contact details before use.</p>
-      <div className="card-grid admin-cards">
-        {state.providers.map((provider) => (
-          <article key={provider.id} className={`work-card ${provider.active ? '' : 'muted-row'}`}>
-            <header><b>{provider.name}</b>{provider.active ? <Chip tone="success">Active</Chip> : <Chip tone="neutral">Inactive</Chip>}</header>
-            <p className="work-card-reason">{provider.services.map((service) => <Chip key={service} tone={service === 'Imaging' ? 'warning' : 'accent'}>{service}</Chip>)} {provider.notes}</p>
-            <p className="record-hint">{provider.address || 'Address not set'} · {provider.phone || 'Phone not set'}</p>
-            <footer><small>{state.orders.filter((order) => order.externalProviderId === provider.id).length} orders sent</small><div><Button size="sm" variant="secondary" onClick={() => setEditing(provider)}>Edit</Button>{provider.active ? <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeProvider(provider.id)}>Remove</Button> : <Button size="sm" onClick={() => saveProvider({ ...provider, active: true })}>Reactivate</Button>}</div></footer>
-          </article>
-        ))}
-      </div>
+    <NetworkPanel />
+    <Panel title="Offline partners (printed requests)" action={<Button size="sm" icon={Plus} onClick={() => setEditing({ id: '', name: '', type: 'Diagnostic centre', connection: 'printout', services: ['Laboratory'], notes: '', phone: '', address: '', active: true })}>Add partner</Button>}>
+      <div className="integration-note"><Printer size={18} /><div><b>Printed requests</b><span>For facilities not on the network: the request is printed and the patient takes it; the result is typed in when it comes back.</span></div><Chip tone="success">Active</Chip></div>
+      {state.providers.length === 0
+        ? <p className="table-footnote admin-note">No partners added yet.</p>
+        : <div className="card-grid admin-cards">
+          {state.providers.map((provider) => (
+            <article key={provider.id} className={`work-card ${provider.active ? '' : 'muted-row'}`}>
+              <header><b>{provider.name}</b>{provider.active ? <Chip tone="success">Active</Chip> : <Chip tone="neutral">Inactive</Chip>}</header>
+              <p className="work-card-reason">{provider.type && <Chip tone="neutral">{provider.type}</Chip>}{provider.services.map((service) => <Chip key={service} tone={service === 'Imaging' ? 'warning' : 'accent'}>{service}</Chip>)} {provider.notes}</p>
+              <p className="record-hint">{provider.address || 'Address not set'} · {provider.phone || 'Phone not set'} · {provider.connection === 'electronic' ? 'Electronic exchange (pending)' : 'Printed requests'}</p>
+              <footer><small>{state.orders.filter((order) => order.externalProviderId === provider.id).length} requests sent</small><div><Button size="sm" variant="secondary" onClick={() => setEditing(provider)}>Edit</Button>{provider.active ? <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeProvider(provider.id)}>Remove</Button> : <Button size="sm" onClick={() => saveProvider({ ...provider, active: true })}>Reactivate</Button>}</div></footer>
+            </article>
+          ))}
+        </div>}
     </Panel>
     {editing && <ProviderModal provider={editing} onClose={() => setEditing(null)} onSave={(provider) => { saveProvider(provider); setEditing(null) }} />}
   </>
 }
 
+const PROVIDER_TYPES: NonNullable<ExternalProvider['type']>[] = ['Hospital', 'Diagnostic centre', 'Laboratory', 'Imaging centre']
+
 function ProviderModal({ provider, onClose, onSave }: { provider: ExternalProvider; onClose: () => void; onSave: (provider: ExternalProvider) => void }) {
-  const [form, setForm] = useState(provider)
+  const [form, setForm] = useState<ExternalProvider>({ type: 'Diagnostic centre', connection: 'printout', ...provider })
   const toggle = (service: 'Laboratory' | 'Imaging') => setForm({ ...form, services: form.services.includes(service) ? form.services.filter((item) => item !== service) : [...form.services, service] })
   const valid = form.name.trim().length > 2 && form.services.length > 0
   return (
-    <Modal open onClose={onClose} title={provider.id ? `Edit ${provider.name}` : 'Add a referral partner'} subtitle="Laboratory or imaging centre that receives referred investigations" size="md">
+    <Modal open onClose={onClose} title={provider.id ? `Edit ${provider.name}` : 'Add a partner'} subtitle="Hospital or diagnostic centre that performs tests not available here" size="md">
       <div className="form-grid form-grid-2">
         <label className="form-field span-2"><span>Name <b>*</b></span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-        <div className="form-field span-2"><span>Services</span><div className="segmented">{(['Laboratory', 'Imaging'] as const).map((service) => <button key={service} type="button" className={form.services.includes(service) ? 'on' : ''} onClick={() => toggle(service)}>{service}</button>)}</div></div>
+        <label className="form-field"><span>Type</span><select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as ExternalProvider['type'] })}>{PROVIDER_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+        <div className="form-field"><span>Services</span><div className="segmented">{(['Laboratory', 'Imaging'] as const).map((service) => <button key={service} type="button" className={form.services.includes(service) ? 'on' : ''} onClick={() => toggle(service)}>{service}</button>)}</div></div>
         <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+251 …" /></label>
         <label className="form-field"><span>Address</span><input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Sub-city, street" /></label>
+        <div className="form-field span-2"><span>How requests reach them</span><div className="segmented"><button type="button" className={form.connection !== 'electronic' ? 'on' : ''} onClick={() => setForm({ ...form, connection: 'printout' })}>Printed request</button><button type="button" disabled title="Electronic exchange is planned">Electronic (coming)</button></div></div>
         <label className="form-field span-2"><span>Notes</span><input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Opening hours, sample pickup, turnaround" /></label>
       </div>
       <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} disabled={!valid} onClick={() => onSave({ ...form, id: form.id || slug(form.name), name: form.name.trim() })}>Save partner</Button></div>
@@ -416,26 +432,53 @@ function ProviderModal({ provider, onClose, onSave }: { provider: ExternalProvid
 /* ---------------- Modules ---------------- */
 
 function ModulesTab() {
-  const { state, updateSettings } = useHospital()
-  const disabled = state.settings.disabledModules
-  const toggle = (path: string) => updateSettings({ disabledModules: disabled.includes(path) ? disabled.filter((item) => item !== path) : [...disabled, path] })
+  const { state, setModules } = useHospital()
+  const off = state.settings.offModules ?? []
+  const locks = lockedOn(state.settings)
+  const [pkg, setPkg] = useState<string | null>(null)
+  const toggle = (id: ModuleId) => {
+    const name = moduleById(id).name
+    if (off.includes(id)) {
+      const next = withRequirements(off, id)
+      const extra = (moduleById(id).requires ?? []).filter((need) => off.includes(need)).map((need) => moduleById(need).name)
+      setModules(next, `switched on ${name}${extra.length ? ` (and ${extra.join(', ')})` : ''}`)
+    } else if (!locks[id]) setModules([...off, id], `switched off ${name}`)
+  }
+  const chosen = PACKAGES.find((item) => item.id === pkg)
   return (
-    <Panel title="Modules" action={<LayoutGrid size={17} className="muted-icon" />}>
-      <p className="table-footnote admin-note">Switch off anything your facility doesn’t use — for example a clinic without theatres or inpatient beds. Switched-off modules disappear for everyone.</p>
-      <div className="module-grid">
-        {ALL_NAV.filter((item) => !CORE_MODULES.includes(item.to)).map((item) => {
-          const Icon = item.icon
-          const on = !disabled.includes(item.to)
-          return (
-            <label key={item.to} className={`module-tile ${on ? 'on' : ''}`}>
-              <span className="module-icon"><Icon size={18} /></span>
-              <span><b>{item.label}</b><small>{item.page}</small></span>
-              <span className="switch"><input type="checkbox" checked={on} onChange={() => toggle(item.to)} aria-label={`${item.label} ${on ? 'on' : 'off'}`} /><span /></span>
-            </label>
-          )
-        })}
+    <div className="plan-layout">
+      <div className="plan-modules">
+        <Panel title="Plan & modules" action={<LayoutGrid size={17} className="muted-icon" />}>
+          <p className="table-footnote admin-note">Switch on the parts of the system your facility uses. Each module adds its pages and sign-in accounts; switched-off modules disappear for everyone and are not charged. Your price is worked out automatically. Patient records, staff, roles, audit and administration are always included. Your data is kept when you switch something off.</p>
+          <div className="package-row">{PACKAGES.map((item) => <button key={item.id} type="button" className="package-card" onClick={() => setPkg(item.id)}><b>{item.name}</b><span>{item.description}</span><small>{item.on.length} modules</small></button>)}</div>
+          {MODULE_GROUPS.map((group) => (
+            <div key={group} className="module-group">
+              <span className="detail-heading">{group}</span>
+              <div className="module-grid">
+                {MODULES.filter((item) => item.group === group).map((item) => {
+                  const on = !off.includes(item.id)
+                  const lock = on ? locks[item.id] : undefined
+                  return (
+                    <label key={item.id} className={`module-tile ${on ? 'on' : ''} ${lock ? 'locked' : ''}`} title={lock}>
+                      <span><b>{item.name}</b><small>{item.description}</small>{lock && <em className="module-lock">{lock}</em>}{!on && item.requires?.length ? <em className="module-lock">Also switches on {item.requires.map((need) => moduleById(need).name).join(', ')}</em> : null}</span>
+                      <span className="switch"><input type="checkbox" checked={on} disabled={Boolean(lock)} onChange={() => toggle(item.id)} aria-label={`${item.name} ${on ? 'on' : 'off'}`} /><span /></span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <p className="table-footnote"><Building2 size={13} /> Departments and units are added or deactivated under Departments; they count towards your price.</p>
+        </Panel>
       </div>
-      <p className="table-footnote"><Building2 size={13} /> Overview, roster and pagers, codes and audit, and administration are always on.</p>
-    </Panel>
+      <div className="plan-bill"><BillSummary collapsed /><PlatformInvoices /></div>
+      {chosen && (
+        <Modal open onClose={() => setPkg(null)} title={`Switch to the ${chosen.name} package?`} subtitle={chosen.description} size="sm">
+          <p className="record-hint">On: {chosen.on.map((id) => moduleById(id).name).join(', ')}.</p>
+          {MODULES.some((item) => !chosen.on.includes(item.id)) && <p className="record-hint">Off: {MODULES.filter((item) => !chosen.on.includes(item.id)).map((item) => item.name).join(', ')}.</p>}
+          <div className="modal-footer"><Button variant="ghost" onClick={() => setPkg(null)}>Cancel</Button><Button onClick={() => { setModules(MODULES.filter((item) => !chosen.on.includes(item.id)).map((item) => item.id), `chose the ${chosen.name} package`); setPkg(null) }}>Use this package</Button></div>
+        </Modal>
+      )}
+    </div>
   )
 }

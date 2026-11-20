@@ -7,7 +7,7 @@ import { useHospital } from '../store/HospitalStore'
 
 /** Notes and evaluations by doctors in training that need a senior co-signature. */
 export default function Review() {
-  const { state, can, profile, cosignNote, setSelectedPatientId } = useHospital()
+  const { state, can, profile, myRank, cosignNote, setSelectedPatientId } = useHospital()
   const patients = usePatients()
   const canCosign = can('cosign')
   const pending = state.cosignNotes.filter((note) => note.status === 'Pending review' && (canCosign || note.author === profile?.name))
@@ -23,7 +23,7 @@ export default function Review() {
             <article key={note.id} className="work-card priority-urgent">
               <header>{patient && <PersonCell name={patient.name} detail={patient.mrn} onClick={() => setSelectedPatientId(patient.id)} />}<Chip tone="warning">Pending review</Chip></header>
               <p className="work-card-reason">{note.text}</p>
-              <footer><small><PenLine size={13} />{note.author} · {formatDateTime(note.at)}</small>{canCosign && <Button size="sm" icon={FilePenLine} onClick={() => cosignNote(note.id)}>Co-sign</Button>}</footer>
+              <footer><small><PenLine size={13} />{note.author}{note.authorGrade ? ` (${note.authorGrade})` : ''} · {formatDateTime(note.at)}</small>{canCosign && myRank > (note.authorRank ?? 1) && <Button size="sm" icon={FilePenLine} onClick={() => cosignNote(note.id)}>Co-sign</Button>}</footer>
             </article>
           )
         })}

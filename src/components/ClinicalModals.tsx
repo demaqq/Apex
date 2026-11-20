@@ -5,6 +5,9 @@ import { stagesFor } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
 import type { ClinicalOrder, DepartmentId, Patient, Priority, Referral, Vitals } from '../types'
 import { Button, EsiBadge, Modal } from './ui'
+import { catalogueItem, doneHere, PRINTOUT, sentOutLabel } from '../lib/diagnostics'
+import { RequestFormModal } from './RequestForm'
+import { connectedFor, isElectronic, NET } from '../lib/network'
 import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 
 const defaultVitals: Vitals = { hr: 80, rr: 16, spo2: 98, bpSys: 120, bpDia: 75, temp: 36.8, gcs: 15, pain: 2 }
@@ -184,10 +187,11 @@ const orderTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; depart
 export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient; open: boolean; onClose: () => void; kind?: ClinicalOrder['kind'] }) {
   const { state, addOrder } = useHospital()
   // Lab and imaging come from the administrator's catalogue; other services keep their templates.
-  const catalogue = state.investigations.filter((item) => item.active).map((item) => ({ title: item.name, kind: item.kind as ClinicalOrder['kind'], department: (item.kind === 'Imaging' ? 'radiology' : 'laboratory') as DepartmentId, inHouse: item.inHouse }))
-  const allTemplates = [...catalogue, ...orderTemplates.filter((item) => !['Laboratory', 'Imaging'].includes(item.kind)).map((item) => ({ ...item, inHouse: true }))]
+  const catalogue = state.investigations.filter((item) => item.active).map((item) => ({ title: item.name, kind: item.kind as ClinicalOrder['kind'], department: (item.kind === 'Imaging' ? 'radiology' : 'laboratory') as DepartmentId, inHouse: doneHere(item, state.settings), group: item.section ?? 'Other', prep: item.prep }))
+  const allTemplates: Array<{ title: string; kind: ClinicalOrder['kind']; department: DepartmentId; inHouse: boolean; group?: string; prep?: string }> = [...catalogue, ...orderTemplates.filter((item) => !['Laboratory', 'Imaging'].includes(item.kind)).map((item) => ({ ...item, inHouse: true }))]
   const templates = kind ? allTemplates.filter((item) => item.kind === kind) : allTemplates
   const [performAt, setPerformAt] = useState('in-house')
+  const [printing, setPrinting] = useState<string | null>(null)
   const [patientId, setPatientId] = useState(patient?.id ?? '')
   const [template, setTemplate] = useState(0)
   const [title, setTitle] = useState(templates[0].title)
@@ -198,24 +202,29 @@ export function OrderModal({ patient, open, onClose, kind }: { patient?: Patient
   const target = patient ?? state.patients.find((candidate) => candidate.id === patientId)
   const referable = item && (item.kind === 'Laboratory' || item.kind === 'Imaging')
   const partners = referable ? state.providers.filter((provider) => provider.active && provider.services.includes(item.kind as 'Laboratory' | 'Imaging')) : []
-  const where = item && !item.inHouse && performAt === 'in-house' ? partners[0]?.id ?? 'in-house' : performAt
+  const electronic = referable ? connectedFor(item.kind as 'Laboratory' | 'Imaging', state.connections, state.network) : []
+  const where = item && !item.inHouse && performAt === 'in-house' ? (electronic[0] ? `${NET}${electronic[0].id}` : PRINTOUT) : performAt
   const submit = () => {
     if (!target) { setError('Choose the patient this order is for.'); return }
     if (!title.trim()) { setError('Enter an order description.'); return }
-    addOrder(target.id, title, item.kind, item.department, priority, referable && where !== 'in-house' ? where : undefined)
+    const sendOut = referable && where !== 'in-house' ? where : undefined
+    const id = addOrder(target.id, title, item.kind, item.department, priority, sendOut)
+    // Anything done outside leaves with a printed request.
+    if (sendOut && id && !isElectronic(sendOut)) { setPrinting(id); return }
     onClose()
   }
   return <Modal open={open} onClose={onClose} title={kind === 'Imaging' ? 'Request imaging' : kind === 'Laboratory' ? 'Request laboratory tests' : kind ? `Request ${kind.toLowerCase()}` : 'Place an order'} subtitle={target ? `${target.name} · Order will appear in the receiving worklist` : 'Order will appear in the receiving worklist'} size="md">
     <div className="form-grid">
       {!patient && <label className="form-field"><span>Patient <b>*</b></span><select value={patientId} onChange={(event) => { setPatientId(event.target.value); setError('') }}><option value="">Select a patient…</option>{state.patients.filter((candidate) => candidate.status !== 'discharged').map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.mrn} · {candidate.location}</option>)}</select></label>}
-      <label className="form-field"><span>Order template</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(templates[index].title); setPerformAt('in-house') }}>{templates.map((order, index) => <option key={`${order.kind}-${order.title}`} value={index}>{order.title}</option>)}</select></label>
+      <label className="form-field"><span>{kind === 'Imaging' ? 'Study' : kind === 'Laboratory' ? 'Test' : 'Order template'}</span><select value={template} onChange={(event) => { const index = Number(event.target.value); setTemplate(index); setTitle(templates[index].title); setPerformAt('in-house') }}>{[...new Set(templates.map((order) => order.group ?? order.kind))].map((group) => <optgroup key={group} label={group}>{templates.map((order, index) => (order.group ?? order.kind) === group && <option key={`${order.kind}-${order.title}`} value={index}>{order.title}{order.inHouse ? '' : ' — sent out'}</option>)}</optgroup>)}</select></label>
       <label className="form-field"><span>Order description <b>*</b></span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <div className="order-meta"><span><b>Destination</b>{item.kind === 'Blood bank' ? 'Blood bank' : item.kind === 'Physiotherapy' ? 'Physiotherapy' : item.kind === 'Nutrition' ? 'Nutrition and dietetics' : item.department === 'radiology' ? 'Radiology & Imaging' : item.department === 'laboratory' ? 'Clinical Laboratory' : 'Pharmacy'}</span><span><b>Type</b>{item.kind}</span></div>
-      {referable && <label className="form-field"><span>Where it is done</span><select value={where} onChange={(event) => setPerformAt(event.target.value)}>{item.inHouse && <option value="in-house">In-house {item.kind === 'Imaging' ? 'radiology' : 'laboratory'}</option>}{partners.map((provider) => <option key={provider.id} value={provider.id}>Refer to {provider.name}</option>)}</select>{!item.inHouse && <small className="muted-text">Not available in-house — choose a referral partner.</small>}</label>}
+      {referable && <label className="form-field"><span>Where it is done</span><select value={where} onChange={(event) => setPerformAt(event.target.value)}>{item.inHouse && <option value="in-house">Here · {item.kind === 'Imaging' ? 'imaging department' : 'laboratory'}</option>}{electronic.map((facility) => <option key={facility.id} value={`${NET}${facility.id}`}>Electronic · {facility.name}</option>)}<option value={PRINTOUT}>Outside · printed request the patient takes</option>{partners.map((provider) => <option key={provider.id} value={provider.id}>Partner · {provider.name}</option>)}</select>{!item.inHouse && <small className="muted-text">Not available here — {electronic.length ? 'send it electronically to a connected facility, or print a request.' : `a printed request form is produced for an outside ${item.kind === 'Imaging' ? 'imaging centre' : 'laboratory'}.`}</small>}{isElectronic(where) && <small className="muted-text">Sent through the care network; the result comes back into this record.</small>}{item.prep && <small className="muted-text">Preparation: {item.prep}</small>}</label>}
       <div className="form-field"><span>Priority</span><div className="priority-control">{(['routine', 'urgent', 'emergent'] as Priority[]).map((value) => <button type="button" key={value} aria-pressed={priority === value} className={priority === value ? `active ${value}` : ''} onClick={() => setPriority(value)}>{value}</button>)}</div></div>
     </div>
     {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
-    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit}>Place order<Send size={16} /></Button></div>
+    <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit}>{referable && where !== 'in-house' && !isElectronic(where) ? 'Place order and print request' : referable && isElectronic(where) ? 'Send electronically' : 'Place order'}<Send size={16} /></Button></div>
+    {printing && <RequestFormModal orderIds={[printing]} onClose={() => { setPrinting(null); onClose() }} />}
   </Modal>
 }
 
@@ -251,7 +260,9 @@ export function ResultModal({ order: initial, open, onClose }: { order: Clinical
   useEffect(() => { if (open) { setResult(order.result ?? ''); setError('') } }, [open, order])
   return <Modal open={open} onClose={onClose} title="Release diagnostic result" subtitle={`${order.id} · ${order.title}`} size="md">
     <div className="context-banner"><FileCheck2 size={21} /><div><b>{patient?.name} · {patient?.mrn}</b><span>{order.priority} priority · Ordered by {order.createdBy}</span></div></div>
-    <label className="form-field"><span>Verified findings / report <b>*</b></span><textarea autoFocus rows={7} value={result} onChange={(event) => { setResult(event.target.value); setError('') }} placeholder="Enter the verified result, key values and any comparison or clinical caveat…" /></label>
+    {order.externalProviderId && <div className="handoff-note"><Info size={17} /><span>Done outside: {sentOutLabel(order, state.providers, state.network)}. Copy the result from the returned form.</span></div>}
+    {order.kind === 'Laboratory' && catalogueItem(order, state.investigations)?.refRange && <p className="record-hint">Reference range: {catalogueItem(order, state.investigations)?.refRange}</p>}
+    <label className="form-field"><span>{order.externalProviderId ? 'Outside result' : 'Verified findings / report'} <b>*</b></span><textarea autoFocus rows={7} value={result} onChange={(event) => { setResult(event.target.value); setError('') }} placeholder="Enter the verified result, key values and any comparison or clinical caveat…" /></label>
     {order.kind === 'Imaging' && <div className="report-images"><div><b>Images</b><span>{order.images?.length ? `${order.images.length} attached — clinicians see them with the report` : 'Attach key images so the requesting team can see them with the report.'}</span></div>{canAttachImages(order, currentRole) && <AttachImagesButton order={order} />}</div>}
     {order.kind === 'Imaging' && <ImageStrip order={order} />}
     <div className="handoff-note"><Info size={17} /><span>{order.kind === 'Laboratory' ? 'The result goes to “Awaiting verification” until a senior scientist or pathologist verifies it.' : 'Releasing this report makes it visible in the patient chart and the ordering clinician’s dashboard.'}</span></div>

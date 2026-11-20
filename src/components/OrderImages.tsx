@@ -11,7 +11,7 @@ const makeId = () => `IMG-${Date.now().toString(36)}-${Math.random().toString(36
 /** Radiology attaches images; clinicians may attach outside films for studies referred to a partner. */
 export function canAttachImages(order: ClinicalOrder, role: RoleId | null | undefined) {
   if (order.kind !== 'Imaging' || !role) return false
-  if (role === 'diagnostics') return true
+  if (role === 'diagnostics' || role === 'radiographer') return true
   return Boolean(order.externalProviderId) && ['physician', 'consultant', 'intern'].includes(role)
 }
 
@@ -129,7 +129,7 @@ export function ImageViewer({ order, start, onClose }: { order: ClinicalOrder; s
         <label className="viewer-slider"><Contrast size={15} /><span className="sr-only">Contrast</span><input type="range" min={40} max={250} value={contrast} onChange={(event) => setContrast(Number(event.target.value))} aria-label="Contrast" /></label>
         <button type="button" className={`pick-chip ${invert ? 'on' : ''}`} aria-pressed={invert} onClick={() => setInvert(!invert)}>Invert</button>
         <button type="button" className="icon-button" aria-label="Reset view" onClick={reset}><RotateCcw size={16} /></button>
-        {currentRole === 'diagnostics' && <Button size="sm" variant="ghost" icon={Trash2} onClick={remove}>Remove</Button>}
+        {(currentRole === 'diagnostics' || currentRole === 'radiographer') && <Button size="sm" variant="ghost" icon={Trash2} onClick={remove}>Remove</Button>}
       </div>
       {images.length > 1 && <div className="image-strip viewer-thumbs">{images.map((item, i) => <button key={item.id} type="button" className={`image-thumb ${i === index ? 'on' : ''}`} onClick={() => setIndex(i)}><img src={item.thumb} alt="" /></button>)}</div>}
       <p className="record-hint">{image.name} · {image.width}×{image.height}px · scroll or +/− to zoom, drag to pan, I to invert, arrows for next image. For viewing alongside the report — not a diagnostic-grade PACS viewer.</p>

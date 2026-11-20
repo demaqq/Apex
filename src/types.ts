@@ -1,4 +1,4 @@
-export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'coordinator' | 'administrator' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
+export type RoleId = 'physician' | 'nurse' | 'consultant' | 'diagnostics' | 'radiographer' | 'laboratory' | 'coordinator' | 'administrator' | 'provider' | 'intern' | 'pharmacist' | 'receptionist' | 'theatre' | 'allied' | 'billing'
 
 /** Built-in department ids; administrators can add more, so any string is allowed. */
 export type CoreDepartmentId =
@@ -11,10 +11,10 @@ export type Priority = 'routine' | 'urgent' | 'emergent'
 export type ReferralStatus = 'pending' | 'accepted' | 'completed' | 'declined'
 export type OrderStatus = 'ordered' | 'in-progress' | 'completed'
 export type EsiLevel = 1 | 2 | 3 | 4 | 5
-export type Permission = 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
-  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export'
+export type Permission = 'pricing' | 'clinical-notes' | 'triage' | 'refer' | 'transfer' | 'results' | 'notes' | 'discharge' | 'manage' | 'cosign' | 'vitals' | 'administer' | 'dispense' | 'register' | 'theatre' | 'anaesthesia' | 'services' | 'billing' | 'beds' | 'prescribe'
+  | 'stock-receive' | 'stock-adjust' | 'formulary-edit' | 'controlled-drugs' | 'records-export' | 'lab-catalogue' | 'imaging-catalogue'
 
-export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer'
+export type PositionId = 'pharmacy-manager' | 'inventory-manager' | 'store-keeper' | 'controlled-drugs-officer' | 'records-officer' | 'lab-head' | 'imaging-head'
 export interface PositionAssignment { id: PositionId; since: string; until?: string; by: string; note?: string }
 
 export interface Vitals {
@@ -43,7 +43,11 @@ export interface ObservationSet extends Vitals {
 }
 
 export type RoundKind = 'Ward round' | 'Intern assessment' | 'Resident round' | 'Consultant review' | 'Consultant round'
+  | 'GP assessment' | 'Chief resident round' | 'Senior specialist review' | 'Subspecialty consult' | 'Professor round'
   | 'Bedside assessment' | 'Nurse round' | 'Senior nurse assessment' | 'Junior nurse assessment' | 'Intern nurse assessment'
+
+/** Medical career grade, most junior first. */
+export type Grade = 'Intern' | 'GP' | 'Resident' | 'Chief resident' | 'Senior specialist' | 'Consultant' | 'Subspecialist' | 'Super-specialist' | 'Professor'
 
 export interface NoteReview { at: string; by: string; role: string; outcome: 'Agreed' | 'Amended'; comment: string }
 
@@ -67,6 +71,8 @@ export interface RoundNote {
   status: 'Improving' | 'Stable' | 'Deteriorating'
   /** Intern and junior notes wait for a senior's co-signature. */
   cosign?: 'Pending review' | 'Co-signed'
+  /** Seniority of the author; only a higher rank may co-sign. */
+  authorRank?: number
   /** Who has to review it: a senior doctor or a senior nurse. */
   reviewer?: 'Senior doctor' | 'Senior nurse'
   reviews?: NoteReview[]
@@ -559,6 +565,11 @@ export interface StaffMember {
   permissions?: Permission[]
   /** Sensitive posts (pharmacy manager, store keeper…) assigned by the administrator. */
   positions?: PositionAssignment[]
+  /** Doctors: grade and, for residents, training year. */
+  grade?: Grade
+  residentYear?: number
+  /** Other professions: level on their training ladder (see lib/teaching). */
+  level?: string
 }
 
 /* ---------- Administration ---------- */
@@ -572,8 +583,18 @@ export interface FacilitySettings {
   phone: string
   email: string
   currency: 'ETB' | 'USD' | 'EUR' | 'GBP' | 'KES'
-  /** Paths of modules switched off for this facility. */
+  /** Paths of modules switched off for this facility (older setting; see offModules). */
   disabledModules: string[]
+  /** Modules the client has switched off. Everything else is on and billed. */
+  offModules?: ModuleId[]
+  /** Set by the super admin. Anything but Active or Trial blocks staff sign-in. */
+  subscription?: SubscriptionStatus
+  /** VAT included in every patient price (%). */
+  vatRate?: number
+  /** Teaching institution details (the switch itself is the Teaching module). */
+  teaching?: TeachingSettings
+  /** Note from the super admin on the latest application decision. */
+  applicationNote?: string
   /** Reception tariff. */
   fees?: ReceptionFees
   /** Consultation rooms per department OPD (default 3). */
@@ -593,15 +614,30 @@ export interface InvestigationItem {
   id: string
   name: string
   kind: 'Laboratory' | 'Imaging'
-  /** Available in this facility; otherwise it must be referred to an external provider. */
+  /** Available in this facility; otherwise a printed request (or, later, a partner facility). */
   inHouse: boolean
   price: number
   active: boolean
+  /** Laboratory section (e.g. Haematology) or imaging modality (e.g. CT). */
+  section?: string
+  /** Laboratory: sample type and tube. */
+  specimen?: string
+  container?: string
+  /** Laboratory: reference range shown with the result. */
+  refRange?: string
+  /** Expected turnaround in hours. */
+  tatHours?: number
+  /** Imaging: patient preparation and safety notes. */
+  prep?: string
 }
 
 export interface ExternalProvider {
   id: string
   name: string
+  /** Hospital, diagnostic centre, laboratory or imaging centre. */
+  type?: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre'
+  /** How requests reach them today. Electronic exchange is planned, not yet available. */
+  connection?: 'printout' | 'electronic'
   services: Array<'Laboratory' | 'Imaging'>
   notes: string
   phone: string
@@ -680,6 +716,9 @@ export interface CosignNote {
   status: 'Pending review' | 'Co-signed'
   cosignedBy?: string
   evaluationId?: string
+  /** Seniority of the author (see lib/grades); only a higher rank may co-sign. */
+  authorRank?: number
+  authorGrade?: string
 }
 
 /* ---------- Emergency codes ---------- */
@@ -722,4 +761,192 @@ export interface HospitalState {
   providers: ExternalProvider[]
   stockMovements: StockMovement[]
   accessGrants: AccessGrant[]
+  /** The SaaS provider's price list, set from the platform console. */
+  pricing: PriceList
+  /** Super admin: every subscribed client. The one with live: true is this facility. */
+  tenants: Tenant[]
+  /** Facilities on the care network (other hospitals, diagnostic centres, labs, imaging centres). */
+  network: NetworkFacility[]
+  /** This facility's connections to network members. */
+  connections: Connection[]
+  /** Patients referred to another hospital through the network. */
+  externalReferrals: ExternalReferral[]
+  /** The facility's own services and prices (VAT inclusive). */
+  services: HospitalService[]
+  /** Invoices from the platform (subscription, new services). */
+  platformInvoices: PlatformInvoice[]
+  /** Workplace-based assessments of trainees (teaching institutions). */
+  assessments: Assessment[]
+}
+
+/* ---------- Subscription ---------- */
+
+export type ModuleId = 'teaching' | 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
+
+export interface PriceList {
+  currency: 'USD' | 'ETB' | 'EUR'
+  /** Every price is VAT inclusive; this is the VAT share shown on bills (%). */
+  vatRate: number
+  /** Monthly platform fee: records, staff, roles, audit, administration. */
+  platform: number
+  /** Monthly fee per switched-on module. */
+  modules: Record<ModuleId, number>
+  perDepartment: number
+  includedDepartments: number
+  perUser: number
+  includedUsers: number
+  perBed: number
+  perVisit: number
+  perLabTest: number
+  perImagingStudy: number
+  /** Teaching institutions: per trainee assessed in the month. */
+  perTrainee: number
+}
+
+/** Setup → Pending approval → Awaiting payment → Payment review → Active. */
+export type SubscriptionStatus = 'Setup' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Active' | 'Trial' | 'Suspended'
+
+export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number; trainees?: number }
+
+/** A client facility subscribed to the platform. */
+export interface Tenant {
+  id: string
+  name: string
+  type: 'Hospital' | 'Clinic' | 'Health centre' | 'Diagnostic centre'
+  city: string
+  status: SubscriptionStatus
+  since: string
+  contact: string
+  offModules: ModuleId[]
+  /** Percentage off the calculated price, set by the super admin. */
+  discount: number
+  /** Usage for clients other than this facility (this facility's usage is counted live). */
+  usage: TenantUsage
+  /** This facility (the demo you are signed in to). */
+  live?: boolean
+  /** Network member that represents this client, if it is listed on the network. */
+  facilityId?: string
+}
+
+export type NetworkService = 'Laboratory' | 'Imaging' | 'Referrals'
+
+export interface NetworkFacility {
+  id: string
+  name: string
+  kind: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre'
+  city: string
+  services: NetworkService[]
+  /** Platform members exchange records natively; others through a standard interface. */
+  link: 'Platform' | 'HL7 FHIR' | 'Partner API'
+  /** Highlights for the directory, e.g. "MRI 1.5T, PET-CT". */
+  capabilities: string
+}
+
+export type ConnectionStatus = 'Requested' | 'Active' | 'Paused' | 'Declined'
+
+export interface Connection {
+  id: string
+  facilityId: string
+  services: NetworkService[]
+  status: ConnectionStatus
+  requestedAt: string
+  requestedBy: string
+  decidedAt?: string
+  decidedBy?: string
+  note?: string
+}
+
+export type ExternalReferralStatus = 'Sent' | 'Accepted' | 'Declined' | 'Transferred'
+
+export interface ExternalReferral {
+  id: string
+  patientId: string
+  facilityId: string
+  reason: string
+  urgency: Priority
+  status: ExternalReferralStatus
+  at: string
+  by: string
+  /** What was shared with the receiving hospital. */
+  shared: string[]
+  response?: string
+}
+
+export type ServiceCategory = 'Consultation' | 'Emergency' | 'Bed & nursing' | 'Procedure' | 'Laboratory' | 'Imaging' | 'Pharmacy' | 'Therapy' | 'Other'
+
+/** A billable service. Standard services are live at once; new ones go to the super admin. */
+export interface HospitalService {
+  id: string
+  name: string
+  category: ServiceCategory
+  department?: DepartmentId
+  /** VAT inclusive. */
+  price: number
+  unit: string
+  active: boolean
+  status: 'Live' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Declined'
+  custom?: boolean
+  description?: string
+  /** Shown as a new, featured service once launched. */
+  featured?: boolean
+  requestedAt?: string
+  requestedBy?: string
+  /** Set by the super admin when approving a new service. */
+  setupFee?: number
+  monthlyFee?: number
+  decisionNote?: string
+  launchedAt?: string
+}
+
+export type PaymentMethod = 'telebirr' | 'CBE Birr' | 'Bank transfer' | 'Card'
+
+/** An invoice from the platform to the facility. Amounts include VAT. */
+export interface PlatformInvoice {
+  id: string
+  purpose: 'Subscription' | 'New service'
+  description: string
+  serviceId?: string
+  amount: number
+  vatRate: number
+  status: 'Issued' | 'Payment review' | 'Paid' | 'Rejected'
+  issuedAt: string
+  method?: PaymentMethod
+  reference?: string
+  paidAt?: string
+  confirmedAt?: string
+  note?: string
+}
+
+/* ---------- Teaching ---------- */
+
+export type Profession = 'Medicine' | 'Nursing' | 'Pharmacy' | 'Laboratory' | 'Imaging'
+
+export interface TeachingSettings {
+  kind: 'Teaching hospital' | 'University hospital' | 'Teaching diagnostic centre' | 'Teaching clinic'
+  affiliation: string
+  professions: Profession[]
+}
+
+export type AssessmentTool = 'Mini-CEX' | 'DOPS' | 'Case-based discussion' | 'Multi-source feedback' | 'End-of-rotation' | 'Logbook review'
+
+/** Entrustment: how much supervision the trainee needs for this kind of work. */
+export type Entrustment = 1 | 2 | 3 | 4 | 5
+
+export interface Assessment {
+  id: string
+  traineeId: string
+  assessor: string
+  assessorLevel: string
+  profession: Profession
+  tool: AssessmentTool
+  at: string
+  /** Competency → score 1–5. */
+  scores: Record<string, number>
+  entrustment: Entrustment
+  strengths: string
+  development: string
+  patientId?: string
+  /** The trainee has read and accepted it. */
+  acknowledgedAt?: string
+  traineeComment?: string
 }

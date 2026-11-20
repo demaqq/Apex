@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Banknote, CheckCircle2, ClipboardPlus, CreditCard, Hourglass, Printer, Receipt, Search, Siren, Smartphone, UserPlus, Wallet } from 'lucide-react'
+import { AlertTriangle, Banknote, CheckCircle2, ClipboardPlus, CreditCard, Hourglass, Printer, Receipt, Search, Siren, Smartphone, Sparkles, UserPlus, Wallet } from 'lucide-react'
 import { Button, Chip, EmptyState, EsiBadge, Metric, Modal, PageHeader, Panel, PersonCell } from '../components/ui'
-import { calculateEsi, departmentById, esiLabels } from '../data'
+import { calculateEsi, departmentById, esiLabels, vatIn } from '../data'
 import { formatCurrency, formatTime, minutesSince } from '../lib/format'
 import { useNow } from '../lib/hooks'
 import { BILLING_TONE, DEFAULT_FEES, opdDepartments, PAYERS, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { useHospital } from '../store/HospitalStore'
+import { doneHere } from '../lib/diagnostics'
 import type { DepartmentId, Patient, Payer, Vitals, VisitType } from '../types'
 
 const METHODS = [['Cash', Banknote], ['Card', CreditCard], ['Mobile money', Smartphone]] as const
@@ -28,6 +29,7 @@ export default function FrontDesk() {
   return (
     <motion.div className="ops-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <PageHeader eyebrow="Reception · Registration and billing" title="Reception" description="Every patient checks in here first — for the OPD, emergency, a ward admission or lab and imaging. Reception takes payment or records the payer, then sends the patient on. Emergencies are treated first and billed later." />
+      {state.services.some((item) => item.featured && item.active && item.status === 'Live') && <div className="featured-strip"><Sparkles size={16} /><span>New services</span>{state.services.filter((item) => item.featured && item.active && item.status === 'Live').map((item) => <Chip key={item.id} tone="accent">{item.name} · {formatCurrency(item.price)} {item.unit}</Chip>)}</div>}
       <div className="metrics-grid">
         <Metric label="Checked in today" value={checkedIn.length} detail={`${checkedIn.filter((p) => p.visit?.type === 'OPD').length} OPD · ${checkedIn.filter((p) => p.visit?.type === 'Investigation').length} lab / imaging`} icon={UserPlus} tone="teal" />
         <Metric label="At the cashier" value={cashier.length} detail="Waiting to pay before they can continue" icon={Wallet} tone="amber" />
@@ -121,7 +123,7 @@ function CheckInPanel() {
     return state.patients.filter((p) => p.name.toLowerCase().includes(q) || p.mrn.toLowerCase().includes(q) || (p.phone ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, ''))).slice(0, 6)
   }, [search, state.patients, existing])
   const active = existing && !['discharged'].includes(existing.status) && existing.visit && existing.status !== 'awaiting-payment'
-  const catalogue = state.investigations.filter((item) => item.active && item.inHouse)
+  const catalogue = state.investigations.filter((item) => item.active && doneHere(item, state.settings))
   const priced = tests.map((t) => ({ name: t, price: catalogue.find((c) => c.name === t)?.price ?? 0 }))
   const effectiveDept = type === 'Emergency' ? 'emergency' : type === 'Investigation' ? (priced.length && catalogue.find((c) => c.name === tests[0])?.kind === 'Imaging' ? 'radiology' : 'laboratory') : department
   const charges = visitCharges({ returning: Boolean(existing), type, department: effectiveDept, tests: type === 'Investigation' ? priced : [] }, fees)
@@ -191,7 +193,7 @@ function CheckInPanel() {
           <div className="bill-box">
             {charges.lines.map((line) => <div key={line.description}><span>{line.description}</span><b>{formatCurrency(line.price)}</b></div>)}
             {covered > 0 && <div className="covered"><span>{payer === 'Fee waiver' ? 'Waived' : `Covered by ${payer}`}</span><b>− {formatCurrency(covered)}</b></div>}
-            <div className="total"><span>Patient pays now</span><b>{formatCurrency(share)}</b></div>
+            <div className="total"><span>Patient pays now <small>incl. VAT {state.settings.vatRate ?? 15}% ({formatCurrency(vatIn(share, state.settings.vatRate ?? 15))})</small></span><b>{formatCurrency(share)}</b></div>
           </div>
           {share > 0 && <div className="pay-methods" role="radiogroup" aria-label="Payment method">{METHODS.map(([m, Icon]) => <button key={m} type="button" role="radio" aria-checked={method === m} className={`pick-chip ${method === m ? 'on' : ''}`} onClick={() => setMethod(m)}><Icon size={14} />{m === 'Mobile money' ? 'Mobile money (telebirr, M-Pesa)' : m}</button>)}</div>}
         </div>

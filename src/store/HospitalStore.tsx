@@ -2,11 +2,31 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { positionById, positionPrivileges } from '../lib/positions'
 import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
-import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles } from '../data'
+import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
+import { canAssess, levelOf, professionOf, ROLE_LEVELS } from '../lib/teaching'
+import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
 import { setCurrency } from '../lib/format'
-import { orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
+import { PRINTOUT } from '../lib/diagnostics'
+import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
+import { setReceptionGate } from '../lib/clinical'
+import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
+  Assessment,
+  Grade,
+  Connection,
+  HospitalService,
+  PaymentMethod,
+  PlatformInvoice,
+  SubscriptionStatus,
+  ConnectionStatus,
+  ExternalReferral,
+  ExternalReferralStatus,
+  NetworkFacility,
+  NetworkService,
+  Tenant,
+  ModuleId,
+  PriceList,
   ClinicalOrder,
   DepartmentId,
   HospitalState,
@@ -75,6 +95,8 @@ const DATA_KEY = 'northstar-careos-data-v5'
 
 const CHART_TITLES: Record<ChartKey, string> = { sam: 'SAM chart', labour: 'Partograph', anc: 'Antenatal chart', postpartum: 'Postpartum bleeding chart', fluids: 'Fluid balance', glucose: 'Glucose chart', neuro: 'Neuro observations', nihss: 'NIH Stroke Scale', seizures: 'Seizure chart' }
 const SESSION_KEY = 'northstar-careos-session'
+const GRADE_KEY = 'northstar-careos-grade'
+const LEVEL_KEY = 'northstar-careos-level'
 const DEPARTMENT_KEY = 'northstar-careos-department'
 const INPATIENT_UNITS: DepartmentId[] = ['ward', 'icu', 'cardiology', 'neurology', 'surgery', 'pediatrics', 'obgyn', 'internal-medicine']
 
@@ -90,7 +112,12 @@ interface HospitalContextValue {
   profile: RoleProfile | null
   selectedPatientId: string | null
   toasts: Toast[]
-  login: (role: RoleId, remember: boolean, department?: DepartmentId) => void
+  login: (role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number, level?: string) => void
+  /** Non-doctors: the level chosen at sign-in (e.g. Senior nurse). */
+  level: string | null
+  /** The signed-in doctor's grade (and resident year). */
+  grade: { grade: Grade; year?: number } | null
+  myRank: number
   logout: () => void
   can: (permission: Permission) => boolean
   setSelectedPatientId: (id: string | null) => void
@@ -105,7 +132,8 @@ interface HospitalContextValue {
   retriage: (patientId: string, vitals: Vitals, esi: Patient['esi'], reason: string) => void
   addReferral: (patientId: string, to: DepartmentId, reason: string, priority: Priority) => void
   updateReferral: (id: string, status: ReferralStatus, recommendation?: string) => void
-  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => void
+  /** Returns the new order's id. `externalProviderId` is a partner id or PRINTOUT for a printed request. */
+  addOrder: (patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => string | undefined
   updateOrder: (id: string, status: OrderStatus, result?: string) => void
   transferPatient: (patientId: string, to: DepartmentId, location: string) => void
   addNote: (patientId: string, note: string, title?: string) => void
@@ -159,13 +187,32 @@ interface HospitalContextValue {
   /** Why the given role cannot sign in (pending approval or suspended), or null. */
   signInBlock: (role: RoleId) => string | null
   updateSettings: (changes: Partial<FacilitySettings>) => void
+  setModules: (offModules: ModuleId[], what: string) => void
+  savePricing: (pricing: PriceList) => void
+  submitApplication: (offModules: ModuleId[]) => void
+  meAsStaff: () => StaffMember | undefined
+  addAssessment: (input: Omit<Assessment, 'id' | 'at' | 'assessor' | 'assessorLevel' | 'profession'>) => void
+  acknowledgeAssessment: (id: string, comment: string) => void
+  reviewApplication: (approve: boolean, note: string) => void
+  payPlatformInvoice: (id: string, method: PaymentMethod, reference: string) => void
+  confirmPlatformPayment: (id: string, received: boolean) => void
+  saveService: (service: HospitalService) => void
+  requestService: (service: Pick<HospitalService, 'name' | 'category' | 'department' | 'price' | 'unit' | 'description'>) => void
+  decideService: (id: string, approve: boolean, setupFee: number, monthlyFee: number, note: string) => void
+  updateTenant: (id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => void
+  requestConnection: (facilityId: string, services: NetworkService[], note: string) => void
+  setConnectionStatus: (id: string, status: ConnectionStatus | 'Removed') => void
+  saveNetworkFacility: (facility: NetworkFacility) => void
+  referOut: (patientId: string, facilityId: string, reason: string, urgency: Priority, shared: string[]) => void
+  updateExternalReferral: (id: string, status: ExternalReferralStatus, response: string) => void
   saveDepartment: (department: Department) => void
   removeDepartment: (id: DepartmentId) => void
   saveInvestigation: (item: InvestigationItem) => void
+  canEditCatalogue: (kind: InvestigationItem['kind']) => boolean
   removeInvestigation: (id: string) => void
   saveProvider: (provider: ExternalProvider) => void
   removeProvider: (id: string) => void
-  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => void
+  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => void
   approveStaff: (id: string) => void
   assignPosition: (staffId: string, position: PositionId, until?: string, note?: string) => void
   removePosition: (staffId: string, position: PositionId) => void
@@ -206,7 +253,8 @@ function loadState(): HospitalState {
       prescriptions: mergeById(parsed.prescriptions, seed.prescriptions),
       invoices: mergeById(parsed.invoices, seed.invoices),
       appointments: mergeById(parsed.appointments, seed.appointments),
-      staff: mergeById(parsed.staff, seed.staff),
+      // Custom permission lists saved before history/examination writing became its own privilege keep that ability.
+      staff: mergeById(parsed.staff, seed.staff).map((member) => member.permissions && member.roleId && ROLE_PERMISSIONS[member.roleId]?.includes('clinical-notes') && member.permissions.includes('notes') && !member.permissions.includes('clinical-notes') ? { ...member, permissions: [...member.permissions, 'clinical-notes' as Permission] } : member),
       codes: mergeById(parsed.codes, seed.codes),
       wards: mergeById(parsed.wards, seed.wards),
       beds: mergeById(parsed.beds, seed.beds),
@@ -215,10 +263,20 @@ function loadState(): HospitalState {
       theatreCases: mergeById(parsed.theatreCases, seed.theatreCases),
       cosignNotes: mergeById(parsed.cosignNotes, seed.cosignNotes),
       settings: { ...defaultSettings(), ...(parsed.settings ?? {}) },
-      investigations: mergeById(parsed.investigations, seed.investigations),
-      providers: mergeById(parsed.providers, seed.providers),
+      // The catalogue was rebuilt with sections; earlier seed items (L01, I01…) give way to it. Items the hospital added are kept.
+      investigations: mergeById(Array.isArray(parsed.investigations) ? parsed.investigations.filter((item) => !/^[LI]\d\d$/.test(item.id)) : undefined, seed.investigations),
+      // The sample partner list was removed; partners the administrator added are kept.
+      providers: mergeById(Array.isArray(parsed.providers) ? parsed.providers.filter((item) => !['arsho', 'icl', 'wudassie', 'icmc'].includes(item.id)) : undefined, seed.providers),
       stockMovements: Array.isArray(parsed.stockMovements) ? parsed.stockMovements : seed.stockMovements,
       accessGrants: Array.isArray(parsed.accessGrants) ? parsed.accessGrants : [],
+      tenants: mergeById(parsed.tenants, seed.tenants),
+      network: mergeById(parsed.network, seed.network),
+      connections: mergeById(parsed.connections, seed.connections),
+      externalReferrals: Array.isArray(parsed.externalReferrals) ? parsed.externalReferrals : [],
+      services: mergeById(parsed.services, seed.services),
+      platformInvoices: mergeById(parsed.platformInvoices, seed.platformInvoices),
+      assessments: mergeById(parsed.assessments, seed.assessments),
+      pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
     return seed
@@ -237,6 +295,8 @@ function clearSession() {
   try {
     for (const storage of [localStorage, sessionStorage]) {
       storage.removeItem(SESSION_KEY)
+      storage.removeItem(GRADE_KEY)
+      storage.removeItem(LEVEL_KEY)
       storage.removeItem(DEPARTMENT_KEY)
     }
   } catch { /* storage unavailable */ }
@@ -245,6 +305,13 @@ function clearSession() {
 function loadSessionRole(): RoleId | null {
   const value = readSession(SESSION_KEY)
   return value && value in roleProfiles ? value as RoleId : null
+}
+
+function loadSessionGrade(): { grade: Grade; year?: number } | null {
+  const value = readSession(GRADE_KEY)
+  if (!value) return null
+  const [grade, year] = value.split('|')
+  return gradeById(grade as Grade) ? { grade: grade as Grade, ...(year ? { year: Number(year) } : {}) } : null
 }
 
 function loadSessionDepartment(): DepartmentId | null {
@@ -260,23 +327,27 @@ let liveDepartments = departmentSeed
 const unitName = (id: DepartmentId) => liveDepartments.find((department) => department.id === id)?.shortName ?? id
 
 export const ROLE_PERMISSIONS: Record<RoleId, Permission[]> = {
-  physician: ['triage', 'refer', 'transfer', 'notes', 'discharge', 'cosign', 'prescribe', 'vitals', 'register'],
-  nurse: ['triage', 'notes', 'vitals', 'administer', 'beds'],
-  consultant: ['refer', 'notes', 'discharge', 'cosign', 'prescribe'],
+  physician: ['triage', 'refer', 'transfer', 'notes', 'clinical-notes', 'discharge', 'cosign', 'prescribe', 'vitals', 'register'],
+  nurse: ['triage', 'notes', 'clinical-notes', 'vitals', 'administer', 'beds'],
+  consultant: ['refer', 'notes', 'clinical-notes', 'discharge', 'cosign', 'prescribe'],
+  // Diagnostic and pharmacy staff read the whole record but only write notes and their own work.
   diagnostics: ['results', 'notes'],
+  radiographer: ['notes'],
+  laboratory: ['results', 'notes'],
   coordinator: ['transfer', 'notes', 'beds', 'records-export'],
   administrator: ['manage'],
-  intern: ['notes', 'vitals', 'prescribe', 'refer'],
+  provider: ['pricing'],
+  intern: ['notes', 'clinical-notes', 'vitals', 'prescribe', 'refer'],
   pharmacist: ['dispense', 'notes'],
   receptionist: ['register'],
-  theatre: ['theatre', 'anaesthesia', 'notes', 'vitals'],
-  allied: ['services', 'notes'],
+  theatre: ['theatre', 'anaesthesia', 'notes', 'clinical-notes', 'vitals'],
+  allied: ['services', 'notes', 'clinical-notes'],
   billing: ['billing'],
 }
 
 /** Where each role lands after sign-in. */
 export const ROLE_HOME: Record<RoleId, string> = {
-  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/dashboard', coordinator: '/dashboard', administrator: '/dashboard',
+  physician: '/dashboard', nurse: '/dashboard', consultant: '/dashboard', diagnostics: '/imaging', radiographer: '/imaging', laboratory: '/lab', coordinator: '/dashboard', administrator: '/dashboard', provider: '/platform',
   intern: '/patients', pharmacist: '/pharmacy', receptionist: '/front-desk', theatre: '/theatres', allied: '/services', billing: '/billing',
 }
 
@@ -284,6 +355,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<HospitalState>(loadState)
   const [currentRole, setCurrentRole] = useState<RoleId | null>(loadSessionRole)
   const [currentDepartment, setCurrentDepartment] = useState<DepartmentId | null>(loadSessionDepartment)
+  const [currentGrade, setCurrentGrade] = useState<{ grade: Grade; year?: number } | null>(loadSessionGrade)
+  const [currentLevel, setCurrentLevel] = useState<string | null>(() => readSession(LEVEL_KEY))
+  const myGrade = currentGrade && gradeById(currentGrade.grade)?.role === currentRole ? currentGrade : null
+  const myLevel = currentRole && currentLevel && ROLE_LEVELS[currentRole]?.levels.includes(currentLevel) ? currentLevel : null
+  const myRank = myGrade ? rankOf(myGrade.grade) : currentRole === 'intern' ? 1 : currentRole === 'consultant' ? 6 : currentRole === 'physician' ? 5 : 0
+  const supervised = myGrade ? gradeById(myGrade.grade)!.supervised : currentRole === 'intern'
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastTimers = useRef(new Map<number, number>())
@@ -292,6 +369,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   stateRef.current = state
   setCurrency(state.settings.currency)
   liveDepartments = state.departments
+  setReceptionGate(isOn(state.settings, 'reception'))
+  setVatRate(state.settings.vatRate ?? 15)
 
   useEffect(() => {
     const timers = toastTimers.current
@@ -322,16 +401,22 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     }
   }, [state, notify])
 
-  const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId) => {
+  const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number, level?: string) => {
     clearSession()
     const selectedDepartment = department ?? roleProfiles[role].department
+    const chosen = grade && gradeById(grade)?.role === role ? grade : DEFAULT_GRADE[role]
+    const year = chosen === 'Resident' ? residentYear ?? 1 : undefined
     try {
       const storage = remember ? localStorage : sessionStorage
       storage.setItem(SESSION_KEY, role)
       storage.setItem(DEPARTMENT_KEY, selectedDepartment)
+      if (chosen) storage.setItem(GRADE_KEY, `${chosen}${year ? `|${year}` : ''}`)
+      if (level && ROLE_LEVELS[role]?.levels.includes(level)) storage.setItem(LEVEL_KEY, level)
     } catch { /* session lasts for this tab only */ }
     setCurrentRole(role)
     setCurrentDepartment(selectedDepartment)
+    setCurrentGrade(chosen ? { grade: chosen, ...(year ? { year } : {}) } : null)
+    setCurrentLevel(level && ROLE_LEVELS[role]?.levels.includes(level) ? level : null)
     setSelectedPatientId(null)
   }, [])
 
@@ -339,6 +424,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     clearSession()
     setCurrentRole(null)
     setCurrentDepartment(null)
+    setCurrentGrade(null)
+    setCurrentLevel(null)
     setSelectedPatientId(null)
   }, [])
 
@@ -349,6 +436,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, state.staff])
 
   const actorName = useCallback((fallback: string) => (currentRole ? roleProfiles[currentRole].name : fallback), [currentRole])
+
+  /** Writes are checked here as well as in the UI: anyone may read the record, but only roles with the privilege may write to it. */
+  const denied = useCallback((needs: Permission[], what: string) => {
+    if (!currentRole || needs.some((permission) => can(permission))) return false
+    notify(`Your role can read but not ${what}`, 'warning')
+    return true
+  }, [currentRole, can, notify])
 
   /**
    * Applies a change to the hospital state and records it in the activity log.
@@ -436,11 +530,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const addOrder = useCallback((patientId: string, title: string, kind: ClinicalOrder['kind'], department: DepartmentId, priority: Priority, externalProviderId?: string) => {
     const actor = actorName('Clinical team')
+    if (!stateRef.current.patients.some((item) => item.id === patientId)) return undefined
+    const id = nextNumber(stateRef.current.orders.map((item) => item.id), 'OR', 8100)
+    const sentOutTo = (providers: ExternalProvider[]) => externalProviderId?.startsWith('net:') ? `${stateRef.current.network.find((item) => `net:${item.id}` === externalProviderId)?.name ?? 'a connected facility'} (electronic)` : externalProviderId === PRINTOUT ? 'an outside laboratory or centre (printed request)' : externalProviderId ? providers.find((item) => item.id === externalProviderId)?.name ?? 'a partner facility' : undefined
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
-      if (!patient) return null
-      const id = nextNumber(previous.orders.map((item) => item.id), 'OR', 8100)
-      const external = externalProviderId ? previous.providers.find((item) => item.id === externalProviderId)?.name : undefined
+      if (!patient || previous.orders.some((item) => item.id === id)) return null
+      const external = sentOutTo(previous.providers)
       return {
         next: {
           ...previous,
@@ -450,7 +546,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         actor, action: `ordered ${title.trim()} for ${patient.name}`, department, patientId,
       }
     })
-    notify(externalProviderId ? `${kind} referred to ${stateRef.current.providers.find((item) => item.id === externalProviderId)?.name ?? 'external provider'}` : `${kind} order sent to ${unitName(department)}`)
+    notify(externalProviderId ? `${kind} sent to ${sentOutTo(stateRef.current.providers)}` : `${kind} order sent to ${unitName(department)}`)
+    return id
   }, [actorName, commit, notify])
 
   const updateReferral = useCallback((referralId: string, status: ReferralStatus, recommendation?: string) => {
@@ -530,6 +627,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, notify])
 
   const addNote = useCallback((patientId: string, note: string, title?: string) => {
+    if (denied(['History', 'Examination', 'Plan'].includes(title ?? '') ? ['clinical-notes'] : ['notes', 'clinical-notes', 'vitals', 'prescribe'], 'write history, examination or plans')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -539,13 +637,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           patients: withTimeline(previous.patients, patientId, { type: 'note', title: needsCosign ? `${title ?? 'Clinical note'} (awaiting co-signature)` : title ?? 'Clinical note added', detail: note.trim(), author: actor, department: patient.department }),
-          cosignNotes: needsCosign ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: title ? `${title}: ${note.trim()}` : note.trim(), status: 'Pending review' }, ...previous.cosignNotes] : previous.cosignNotes,
+          cosignNotes: needsCosign ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: title ? `${title}: ${note.trim()}` : note.trim(), status: 'Pending review', authorRank: myRank, ...(myGrade ? { authorGrade: gradeLabel(myGrade.grade, myGrade.year) } : {}) }, ...previous.cosignNotes] : previous.cosignNotes,
         },
         actor, action: `added ${title ? title.toLowerCase() : 'a clinical note'} for ${patient.name}`, department: patient.department, patientId,
       }
     })
     notify(currentRole === 'intern' ? 'Note saved and sent for co-signature' : 'Note saved to the shared episode')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied, myRank, myGrade])
 
   const dischargePatient = useCallback((patientId: string) => {
     const actor = actorName('Clinical team')
@@ -740,6 +838,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, state.staff])
 
   const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context: ObservationContext = 'Bedside') => {
+    if (denied(['vitals'], 'record vital signs')) return
     const actor = actorName('Nursing team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -753,7 +852,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Observations saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const escalatePatient = useCallback((patientId: string) => {
     const actor = actorName('Nursing team')
@@ -798,6 +897,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit])
 
   const advanceOrder = useCallback((orderId: string, result?: string, toStage?: number) => {
+    const target = stateRef.current.orders.find((item) => item.id === orderId)
+    if (target && currentRole && !canAdvanceOrder(target, currentRole)) { notify(target.kind === 'Imaging' && currentRole === 'radiographer' ? 'Only the radiologist reports imaging studies' : 'This step belongs to another role', 'warning'); return }
     const actor = actorName('Clinical team')
     commit((previous) => {
       const order = previous.orders.find((item) => item.id === orderId)
@@ -817,7 +918,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Order updated')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, currentRole])
 
   const setBedState = useCallback((bedId: string, bedState: BedState) => {
     const actor = actorName('Flow team')
@@ -1093,6 +1194,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const cosignNote = useCallback((id: string) => {
     const actor = actorName('Consultant')
+    const pendingNote = stateRef.current.cosignNotes.find((item) => item.id === id)
+    if (pendingNote && myRank <= (pendingNote.authorRank ?? 1)) { notify('This note needs a more senior doctor to co-sign', 'warning'); return }
     commit((previous) => {
       const note = previous.cosignNotes.find((item) => item.id === id)
       const patient = note && previous.patients.find((item) => item.id === note.patientId)
@@ -1103,11 +1206,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Note co-signed')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, myRank, notify])
 
   const saveEvaluation = useCallback((patientId: string, evaluation: Omit<Evaluation, 'id' | 'at' | 'by'>) => {
+    if (denied(['clinical-notes'], 'write clinical evaluations')) return
     const actor = actorName('Clinical team')
-    const pending = currentRole === 'intern'
+    const pending = supervised
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
@@ -1118,13 +1222,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           patients: withTimeline(previous.patients, patientId, { type: 'note', title: pending ? 'Clinical evaluation (awaiting co-signature)' : 'Clinical evaluation', detail: summary, author: actor, department: patient.department }, { evaluations: [{ ...evaluation, id, at: new Date().toISOString(), by: actor }, ...(patient.evaluations ?? [])], complaint: !pending && working ? working.condition : patient.complaint }),
-          cosignNotes: pending ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: `Clinical evaluation. ${summary}`, status: 'Pending review', evaluationId: id }, ...previous.cosignNotes] : previous.cosignNotes,
+          cosignNotes: pending ? [{ id: makeId('CN'), patientId, author: actor, at: new Date().toISOString(), text: `Clinical evaluation. ${summary}`, status: 'Pending review', evaluationId: id, authorRank: myRank, ...(myGrade ? { authorGrade: gradeLabel(myGrade.grade, myGrade.year) } : {}) }, ...previous.cosignNotes] : previous.cosignNotes,
         },
         actor, action: `completed a clinical evaluation for ${patient.name}`, department: patient.department, patientId,
       }
     })
     notify(pending ? 'Evaluation saved and sent for co-signature' : 'Evaluation saved')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied, supervised, myRank, myGrade])
 
   const dischargeWithSummary = useCallback((patientId: string, summary: Omit<DischargeSummary, 'at' | 'by'>) => {
     const actor = actorName('Clinical team')
@@ -1164,6 +1268,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit, notify])
 
   const addChartEntry = useCallback(<K extends ChartKey>(patientId: string, chart: K, input: ChartEntryInput<K>, summary: string) => {
+    if (denied(['vitals', 'clinical-notes'], 'add chart entries')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1173,20 +1278,21 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${CHART_TITLES[chart]} charted`, detail: summary, author: actor, department: patient.department }, { charts: { ...patient.charts, [chart]: list } }) }, actor, action: `updated the ${CHART_TITLES[chart].toLowerCase()} for ${patient.name}`, department: patient.department, patientId }
     })
     notify(`${CHART_TITLES[chart]} updated`)
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const saveRound = useCallback((patientId: string, round: Omit<RoundNote, 'id' | 'at' | 'by'>) => {
+    if (denied(['clinical-notes'], 'write round or bedside assessments')) return
     const actor = actorName('Clinical team')
     const kind = round.kind ?? 'Ward round'
     const nurseReview = kind === 'Junior nurse assessment' || kind === 'Intern nurse assessment'
-    const doctorReview = currentRole === 'intern'
+    const doctorReview = supervised && currentRole !== 'nurse'
     const pending = doctorReview || nurseReview
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
       const at = new Date().toISOString()
       const id = makeId('RN')
-      const entry: RoundNote = { ...round, kind, id, at, by: actor, ...(pending ? { cosign: 'Pending review' as const, reviewer: doctorReview ? 'Senior doctor' as const : 'Senior nurse' as const } : {}) }
+      const entry: RoundNote = { ...round, kind, id, at, by: actor, authorRank: myRank, ...(pending ? { cosign: 'Pending review' as const, reviewer: doctorReview ? 'Senior doctor' as const : 'Senior nurse' as const } : {}) }
       // Vitals taken on the round also go on the observation chart.
       let changes: Partial<Patient> = { rounds: [entry, ...(patient.rounds ?? [])] }
       if (round.vitals) {
@@ -1199,17 +1305,19 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         next: {
           ...previous,
           patients: withTimeline(previous.patients, patientId, { type: 'note', title: `${kind} · ${round.status}${pending ? ' (awaiting co-signature)' : ''}`, detail: summary, author: actor, department: patient.department }, changes),
-          cosignNotes: doctorReview ? [{ id: makeId('CN'), patientId, author: actor, at, text: `${kind}. ${summary}`, status: 'Pending review', evaluationId: id }, ...previous.cosignNotes] : previous.cosignNotes,
+          cosignNotes: doctorReview ? [{ id: makeId('CN'), patientId, author: actor, at, text: `${kind}. ${summary}`, status: 'Pending review', evaluationId: id, authorRank: myRank, ...(myGrade ? { authorGrade: gradeLabel(myGrade.grade, myGrade.year) } : {}) }, ...previous.cosignNotes] : previous.cosignNotes,
         },
         actor, action: `documented a ${kind.toLowerCase()} for ${patient.name}`, department: patient.department, patientId,
       }
     })
     notify(doctorReview ? 'Saved — sent to a senior doctor for co-signature' : nurseReview ? 'Saved — waiting for a senior nurse to review' : 'Saved to the record')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, denied, supervised, myRank, myGrade])
 
   const reviewRound = useCallback((patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => {
     const actor = actorName('Senior clinician')
-    const role = currentRole === 'consultant' ? 'Consultant' : currentRole === 'nurse' ? 'Senior nurse' : 'Senior doctor'
+    const role = myGrade ? gradeLabel(myGrade.grade, myGrade.year) : currentRole === 'consultant' ? 'Consultant' : currentRole === 'nurse' ? 'Senior nurse' : 'Senior doctor'
+    const target = stateRef.current.patients.find((item) => item.id === patientId)?.rounds?.find((item) => item.id === roundId)
+    if (target?.cosign === 'Pending review' && target.reviewer !== 'Senior nurse' && myRank <= (target.authorRank ?? 1)) { notify('This note needs a more senior doctor to co-sign', 'warning'); return }
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       const round = patient?.rounds?.find((item) => item.id === roundId)
@@ -1226,9 +1334,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       }
     })
     notify('Review added')
-  }, [actorName, commit, currentRole, notify])
+  }, [actorName, commit, currentRole, notify, myGrade, myRank, notify])
 
   const saveAssessment = useCallback((patientId: string, values: Record<string, string>, summary: string) => {
+    if (denied(['clinical-notes'], 'write specialty assessments')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1237,9 +1346,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: withTimeline(previous.patients, patientId, { type: 'note', title: 'Specialty assessment', detail: summary, author: actor, department: patient.department }, { assessments: [entry, ...(patient.assessments ?? [])] }) }, actor, action: `recorded a specialty assessment for ${patient.name}`, department: patient.department, patientId }
     })
     notify('Assessment saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const recordGrowth = useCallback((patientId: string, entry: { ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }) => {
+    if (denied(['vitals', 'clinical-notes'], 'record growth')) return
     const actor = actorName('Clinical team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -1247,7 +1357,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       return { next: { ...previous, patients: previous.patients.map((item) => item.id === patientId ? { ...item, weightKg: entry.weightKg, growth: [...(item.growth ?? []), { ...entry, at: new Date().toISOString() }] } : item) }, actor, action: `recorded growth measurements for ${patient.name}`, department: patient.department, patientId }
     })
     notify('Growth measurement saved')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, denied])
 
   const recordPayment = useCallback((invoiceId: string, method: NonNullable<Invoice['payments']>[number]['method'], amount: number) => {
     const actor = actorName('Billing office')
@@ -1269,12 +1379,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
       if (!patient) return null
+      const price = (id: string, fallback: number) => previous.services.find((item) => item.id === id && item.active)?.price ?? fallback
       const tariff: Record<string, number> = { Laboratory: 85, Imaging: 420, Medication: 35, Procedure: 650, Physiotherapy: 110, Nutrition: 70, 'Blood bank': 480 }
       const items = [
-        { id: makeId('b'), description: 'Consultation', code: '99284', category: 'Consultation', quantity: 1, unitPrice: 320 },
+        { id: makeId('b'), description: 'Consultation', code: 'SV-01', category: 'Consultation', quantity: 1, unitPrice: price(patient.department === 'emergency' ? 'SV-03' : 'SV-02', 320) },
         ...previous.orders.filter((order) => order.patientId === patientId).map((order) => ({ id: makeId('b'), description: `${order.kind}: ${order.title}${order.externalProviderId ? ' (referred)' : ''}`, code: order.id, category: order.kind, quantity: 1, unitPrice: previous.investigations.find((item) => item.name === order.title.split(' — ')[0])?.price ?? tariff[order.kind] ?? 100 })),
-        ...((['admitted', 'observation'].includes(patient.status) || patient.encounterType === 'inpatient') ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: '99231', category: 'Room & nursing', quantity: 1, unitPrice: 850 }] : []),
-        ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: 4200 })),
+        ...((['admitted', 'observation'].includes(patient.status) || patient.encounterType === 'inpatient') ? [{ id: makeId('b'), description: 'Room and nursing (per day)', code: 'SV-04', category: 'Room & nursing', quantity: 1, unitPrice: price('SV-04', 850) }] : []),
+        ...previous.theatreCases.filter((item) => item.patientId === patientId).map((item) => ({ id: makeId('b'), description: `Procedure: ${item.procedure}`, code: item.id, category: 'Procedure', quantity: 1, unitPrice: price('SV-07', 4200) })),
       ]
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
       const insured = Boolean(patient.insurance && patient.insurance !== 'Self-pay')
@@ -1327,6 +1438,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const member = stateRef.current.staff.find((item) => item.roleId === role)
     if (member?.suspended) return `${member.name}'s account is suspended. Ask the administrator to reactivate it.`
     if (member?.status === 'Pending approval') return `${member.name}'s account is waiting for administrator approval.`
+    const subscription = stateRef.current.settings.subscription ?? 'Active'
+    if (role !== 'provider' && subscription === 'Suspended') return `${stateRef.current.settings.name}'s subscription is suspended. Please contact Northstar Cloud.`
+    if (!['provider', 'administrator'].includes(role) && !['Active', 'Trial'].includes(subscription)) return `${stateRef.current.settings.name} is not live yet (${subscription.toLowerCase()}). The administrator completes set-up and payment first.`
+    const needed = moduleForRole(role)
+    if (needed && !isOn(stateRef.current.settings, needed.id)) return `${stateRef.current.settings.name} has not switched on ${needed.name}. The administrator can add it under Administration → Plan & modules.`
     return null
   }, [])
 
@@ -1335,6 +1451,227 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, ...changes } }, actor, action: `updated facility settings (${Object.keys(changes).join(', ')})`, department: 'emergency' }))
     notify('Settings saved')
   }, [actorName, commit, notify])
+
+  /** The client switches modules on or off. Data is kept; switched-off parts are hidden and not billed. */
+  const setModules = useCallback((offModules: ModuleId[], what: string) => {
+    if (!can('manage') && !can('pricing')) { notify('Only the administrator can change the plan', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, settings: { ...previous.settings, offModules }, tenants: previous.tenants.map((item) => item.live ? { ...item, offModules } : item) }, actor, action: what, department: 'emergency' }))
+    notify(what.charAt(0).toUpperCase() + what.slice(1))
+  }, [actorName, can, commit, notify])
+
+  const syncLive = (previous: HospitalState, status: SubscriptionStatus, extra: Partial<FacilitySettings> = {}) => ({ settings: { ...previous.settings, subscription: status, ...extra }, tenants: previous.tenants.map((item) => item.live ? { ...item, status } : item) })
+  const nextInvoiceId = (previous: HospitalState) => `NC-${new Date().getFullYear()}-${String(Math.max(200, ...previous.platformInvoices.map((item) => Number(item.id.split('-').pop()) || 0)) + 1).padStart(4, '0')}`
+
+  /** First sign-in: the administrator chooses the services the facility is made of and applies. */
+  const submitApplication = useCallback((offModules: ModuleId[]) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, ...syncLive(previous, 'Pending approval', { offModules, applicationNote: undefined }), tenants: previous.tenants.map((item) => item.live ? { ...item, status: 'Pending approval' as SubscriptionStatus, offModules } : item) }, actor, action: `applied to run ${MODULES.length - offModules.length} modules`, department: 'emergency' }))
+    notify('Application sent to Northstar Cloud for approval')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin: approve (and issue the first invoice) or send the application back. */
+  const reviewApplication = useCallback((approve: boolean, note: string) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      if (!approve) return { next: { ...previous, ...syncLive(previous, 'Setup', { applicationNote: note.trim() || 'Please review your selection.' }) }, actor: 'Northstar Cloud', action: `returned the application of ${previous.settings.name}`, department: 'emergency' }
+      const bill = estimateBill(previous, previous.pricing)
+      const invoice: PlatformInvoice = { id: nextInvoiceId(previous), purpose: 'Subscription', description: 'Platform subscription — first month', amount: Math.round(bill.total * 100) / 100, vatRate: previous.pricing.vatRate, status: 'Issued', issuedAt: new Date().toISOString(), ...(note.trim() ? { note: note.trim() } : {}) }
+      return { next: { ...previous, ...syncLive(previous, 'Awaiting payment', { applicationNote: undefined }), platformInvoices: [invoice, ...previous.platformInvoices] }, actor: 'Northstar Cloud', action: `approved ${previous.settings.name} and issued invoice ${invoice.id}`, department: 'emergency' }
+    })
+    notify(approve ? 'Approved — invoice issued' : 'Application returned to the client')
+  }, [can, commit, notify])
+
+  /** Client administrator reports a payment for a platform invoice. */
+  const payPlatformInvoice = useCallback((id: string, method: PaymentMethod, reference: string) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const invoice = previous.platformInvoices.find((item) => item.id === id)
+      if (!invoice || invoice.status !== 'Issued') return null
+      const paid = { ...invoice, status: 'Payment review' as const, method, reference: reference.trim(), paidAt: new Date().toISOString() }
+      const subscription = invoice.purpose === 'Subscription' && previous.settings.subscription === 'Awaiting payment' ? syncLive(previous, 'Payment review') : {}
+      const services = invoice.serviceId ? previous.services.map((item) => item.id === invoice.serviceId ? { ...item, status: 'Payment review' as const } : item) : previous.services
+      return { next: { ...previous, ...subscription, services, platformInvoices: previous.platformInvoices.map((item) => item.id === id ? paid : item) }, actor, action: `paid platform invoice ${id} by ${method} (${reference.trim()})`, department: 'emergency' }
+    })
+    notify('Payment sent for confirmation')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin confirms (or rejects) a payment. Confirming activates the facility or launches the service. */
+  const confirmPlatformPayment = useCallback((id: string, received: boolean) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      const invoice = previous.platformInvoices.find((item) => item.id === id)
+      if (!invoice) return null
+      const now = new Date().toISOString()
+      const platformInvoices = previous.platformInvoices.map((item) => item.id === id ? (received ? { ...item, status: 'Paid' as const, confirmedAt: now } : { ...item, status: 'Issued' as const, note: 'Payment not found — please check the reference and pay again.' }) : item)
+      const subscription = invoice.purpose === 'Subscription' && previous.settings.subscription === 'Payment review' ? syncLive(previous, received ? 'Active' : 'Awaiting payment') : {}
+      const services = invoice.serviceId ? previous.services.map((item) => item.id === invoice.serviceId ? (received ? { ...item, status: 'Live' as const, active: true, featured: true, launchedAt: now } : { ...item, status: 'Awaiting payment' as const }) : item) : previous.services
+      return { next: { ...previous, ...subscription, services, platformInvoices }, actor: 'Northstar Cloud', action: `${received ? 'confirmed' : 'rejected'} payment for ${id}`, department: 'emergency' }
+    })
+    notify(received ? 'Payment confirmed' : 'Payment rejected')
+  }, [can, commit, notify])
+
+  /** Administrator edits the price or availability of a live service. */
+  const saveService = useCallback((service: HospitalService) => {
+    if (!can('manage')) { notify('Only the administrator sets prices', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => ({ next: { ...previous, services: previous.services.map((item) => item.id === service.id ? service : item) }, actor, action: `updated ${service.name} (${service.price} incl. VAT${service.active ? '' : ', off'})`, department: service.department ?? 'emergency' }))
+  }, [actorName, can, commit, notify])
+
+  /** Administrator creates a service the facility doesn't have yet; it goes to the super admin. */
+  const requestService = useCallback((service: Pick<HospitalService, 'name' | 'category' | 'department' | 'price' | 'unit' | 'description'>) => {
+    if (!can('manage')) return
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const created: HospitalService = { ...service, id: nextNumber(previous.services.map((item) => item.id), 'SV', 1), active: false, status: 'Pending approval', custom: true, requestedAt: new Date().toISOString(), requestedBy: actor }
+      return { next: { ...previous, services: [...previous.services, created] }, actor, action: `asked to add the service ${service.name}`, department: service.department ?? 'emergency' }
+    })
+    notify('New service sent to Northstar Cloud for approval')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin approves a new service (setting its set-up and monthly fee) or declines it. */
+  const decideService = useCallback((id: string, approve: boolean, setupFee: number, monthlyFee: number, note: string) => {
+    if (!can('pricing')) return
+    commit((previous) => {
+      const service = previous.services.find((item) => item.id === id)
+      if (!service) return null
+      const now = new Date().toISOString()
+      if (!approve) return { next: { ...previous, services: previous.services.map((item) => item.id === id ? { ...item, status: 'Declined' as const, decisionNote: note.trim() || undefined } : item) }, actor: 'Northstar Cloud', action: `declined the service ${service.name}`, department: 'emergency' }
+      const amount = setupFee + monthlyFee
+      const free = amount <= 0
+      const updated: HospitalService = { ...service, setupFee, monthlyFee, decisionNote: note.trim() || undefined, ...(free ? { status: 'Live', active: true, featured: true, launchedAt: now } : { status: 'Awaiting payment' }) }
+      const invoice: PlatformInvoice | null = free ? null : { id: nextInvoiceId(previous), purpose: 'New service', description: `${service.name} — set-up and first month`, serviceId: id, amount, vatRate: previous.pricing.vatRate, status: 'Issued', issuedAt: now }
+      return { next: { ...previous, services: previous.services.map((item) => item.id === id ? updated : item), platformInvoices: invoice ? [invoice, ...previous.platformInvoices] : previous.platformInvoices }, actor: 'Northstar Cloud', action: `approved the service ${service.name}${invoice ? ` and issued ${invoice.id}` : ''}`, department: 'emergency' }
+    })
+    notify(approve ? 'Service approved' : 'Service declined')
+  }, [can, commit, notify])
+
+  /** The signed-in person as a member of staff, with a doctor's chosen grade applied. */
+  const meAsStaff = useCallback((): StaffMember | undefined => {
+    const member = stateRef.current.staff.find((item) => item.roleId === currentRole)
+    if (!member) return undefined
+    if (myGrade) return { ...member, grade: myGrade.grade, residentYear: myGrade.year }
+    return myLevel ? { ...member, level: myLevel } : member
+  }, [currentRole, myGrade, myLevel])
+
+  /** Workplace-based assessment of a more junior colleague in the same profession. */
+  const addAssessment = useCallback((input: Omit<Assessment, 'id' | 'at' | 'assessor' | 'assessorLevel' | 'profession'>) => {
+    const me = meAsStaff()
+    const trainee = stateRef.current.staff.find((item) => item.id === input.traineeId)
+    if (!isOn(stateRef.current.settings, 'teaching')) { notify('Teaching is not switched on for this facility', 'warning'); return }
+    if (!me || !trainee || !canAssess(levelOf(me), professionOf(me), trainee)) { notify('You can assess only more junior colleagues in your own profession', 'warning'); return }
+    const level = levelOf(me)!
+    commit((previous) => {
+      const assessment: Assessment = { ...input, id: nextNumber(previous.assessments.map((item) => item.id), 'AS', 1), at: new Date().toISOString(), assessor: me.name, assessorLevel: level.id, profession: professionOf(trainee)! }
+      return { next: { ...previous, assessments: [assessment, ...previous.assessments] }, actor: me.name, action: `assessed ${trainee.name} (${input.tool})`, department: trainee.department }
+    })
+    notify(`Assessment of ${trainee.name} saved`)
+  }, [commit, meAsStaff, notify])
+
+  /** The trainee reads and accepts an assessment, with an optional reflection. */
+  const acknowledgeAssessment = useCallback((id: string, comment: string) => {
+    const me = meAsStaff()
+    commit((previous) => {
+      const assessment = previous.assessments.find((item) => item.id === id)
+      if (!assessment || !me || assessment.traineeId !== me.id) return null
+      return { next: { ...previous, assessments: previous.assessments.map((item) => item.id === id ? { ...item, acknowledgedAt: new Date().toISOString(), ...(comment.trim() ? { traineeComment: comment.trim() } : {}) } : item) }, actor: me.name, action: `acknowledged assessment ${id}`, department: me.department }
+    })
+    notify('Assessment acknowledged')
+  }, [commit, meAsStaff, notify])
+
+  /** Super admin: change a client's status, modules or discount. This facility's settings follow its own record. */
+  const updateTenant = useCallback((id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => {
+    if (!can('pricing')) { notify('Only the super admin manages clients', 'warning'); return }
+    commit((previous) => {
+      const tenant = previous.tenants.find((item) => item.id === id)
+      if (!tenant) return null
+      const tenants = previous.tenants.map((item) => item.id === id ? { ...item, ...changes } : item)
+      const settings = tenant.live ? { ...previous.settings, ...(changes.offModules ? { offModules: changes.offModules } : {}), ...(changes.status ? { subscription: changes.status } : {}) } : previous.settings
+      return { next: { ...previous, tenants, settings }, actor: 'Northstar Cloud', action: `${what} for ${tenant.live ? previous.settings.name : tenant.name}`, department: 'emergency' }
+    })
+    notify(what.charAt(0).toUpperCase() + what.slice(1))
+  }, [can, commit, notify])
+
+  /** Client administrator asks to connect to a network member. */
+  const requestConnection = useCallback((facilityId: string, services: NetworkService[], note: string) => {
+    if (!can('manage')) { notify('Only the administrator manages connections', 'warning'); return }
+    const actor = actorName('Administrator')
+    commit((previous) => {
+      const facility = previous.network.find((item) => item.id === facilityId)
+      if (!facility) return null
+      const existing = previous.connections.find((item) => item.facilityId === facilityId)
+      const connection: Connection = { id: existing?.id ?? nextNumber(previous.connections.map((item) => item.id), 'CX', 1), facilityId, services, status: 'Requested', requestedAt: new Date().toISOString(), requestedBy: actor, ...(note.trim() ? { note: note.trim() } : {}) }
+      return { next: { ...previous, connections: existing ? previous.connections.map((item) => item.id === existing.id ? connection : item) : [...previous.connections, connection] }, actor, action: `requested a connection to ${facility.name} (${services.join(', ')})`, department: 'emergency' }
+    })
+    notify('Connection requested. The platform team will approve it.')
+  }, [actorName, can, commit, notify])
+
+  /** Super admin approves or declines; the client administrator can pause, resume or disconnect. */
+  const setConnectionStatus = useCallback((id: string, status: ConnectionStatus | 'Removed') => {
+    const deciding = status === 'Active' || status === 'Declined'
+    const pending = stateRef.current.connections.find((item) => item.id === id)?.status === 'Requested'
+    if (deciding && pending ? !can('pricing') : !(can('manage') || can('pricing'))) { notify(deciding ? 'Connections are approved by the platform team' : 'Only the administrator manages connections', 'warning'); return }
+    const actor = can('pricing') ? 'Northstar Cloud' : actorName('Administrator')
+    commit((previous) => {
+      const connection = previous.connections.find((item) => item.id === id)
+      const facility = previous.network.find((item) => item.id === connection?.facilityId)
+      if (!connection || !facility) return null
+      const connections = status === 'Removed' ? previous.connections.filter((item) => item.id !== id) : previous.connections.map((item) => item.id === id ? { ...item, status, decidedAt: new Date().toISOString(), decidedBy: actor } : item)
+      const verb = { Active: connection.status === 'Paused' ? 'resumed' : 'approved', Declined: 'declined', Paused: 'paused', Requested: 'requested', Removed: 'removed' }[status]
+      return { next: { ...previous, connections }, actor, action: `${verb} the connection to ${facility.name}`, department: 'emergency' }
+    })
+    notify(status === 'Removed' ? 'Connection removed' : `Connection ${status.toLowerCase()}`)
+  }, [actorName, can, commit, notify])
+
+  /** Super admin adds or edits a network member. */
+  const saveNetworkFacility = useCallback((facility: NetworkFacility) => {
+    if (!can('pricing')) { notify('Only the super admin edits the network', 'warning'); return }
+    commit((previous) => {
+      const exists = previous.network.some((item) => item.id === facility.id)
+      return { next: { ...previous, network: exists ? previous.network.map((item) => item.id === facility.id ? facility : item) : [...previous.network, facility] }, actor: 'Northstar Cloud', action: `${exists ? 'updated' : 'added'} ${facility.name} on the care network`, department: 'emergency' }
+    })
+    notify('Network updated')
+  }, [can, commit, notify])
+
+  /** Refer a patient to another hospital on the network. */
+  const referOut = useCallback((patientId: string, facilityId: string, reason: string, urgency: Priority, shared: string[]) => {
+    if (denied(['refer'], 'refer patients to another hospital')) return
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const patient = previous.patients.find((item) => item.id === patientId)
+      const facility = previous.network.find((item) => item.id === facilityId)
+      if (!patient || !facility) return null
+      const referral: ExternalReferral = { id: nextNumber(previous.externalReferrals.map((item) => item.id), 'XR', 100), patientId, facilityId, reason: reason.trim(), urgency, status: 'Sent', at: new Date().toISOString(), by: actor, shared }
+      return {
+        next: { ...previous, externalReferrals: [referral, ...previous.externalReferrals], patients: withTimeline(previous.patients, patientId, { type: 'referral', title: `Referred to ${facility.name}`, detail: `${urgency} · ${reason.trim()} Shared: ${shared.join(', ')}.`, author: actor, department: patient.department }) },
+        actor, action: `referred ${patient.name} to ${facility.name}`, department: patient.department, patientId,
+      }
+    })
+    notify('Referral sent through the network')
+  }, [actorName, commit, denied, notify])
+
+  const updateExternalReferral = useCallback((id: string, status: ExternalReferralStatus, response: string) => {
+    if (denied(['refer'], 'update referrals')) return
+    const actor = actorName('Clinical team')
+    commit((previous) => {
+      const referral = previous.externalReferrals.find((item) => item.id === id)
+      const facility = previous.network.find((item) => item.id === referral?.facilityId)
+      if (!referral || !facility) return null
+      return {
+        next: { ...previous, externalReferrals: previous.externalReferrals.map((item) => item.id === id ? { ...item, status, ...(response.trim() ? { response: response.trim() } : {}) } : item), patients: withTimeline(previous.patients, referral.patientId, { type: 'referral', title: `${facility.name}: referral ${status.toLowerCase()}`, detail: response.trim() || `Marked ${status.toLowerCase()} by ${actor}.`, author: actor, department: 'emergency' }) },
+        actor, action: `marked the referral to ${facility.name} ${status.toLowerCase()}`, department: 'emergency', patientId: referral.patientId,
+      }
+    })
+  }, [actorName, commit, denied, notify])
+
+  /** The SaaS provider's price list. */
+  const savePricing = useCallback((pricing: PriceList) => {
+    if (!can('pricing')) { notify('Only the platform provider sets prices', 'warning'); return }
+    commit((previous) => ({ next: { ...previous, pricing }, actor: 'Northstar Cloud', action: 'updated the price list', department: 'emergency' }))
+    notify('Price list saved')
+  }, [can, commit, notify])
 
   const saveDepartment = useCallback((department: Department) => {
     const actor = actorName('Administrator')
@@ -1359,23 +1696,29 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(inUse ? 'Department has patients, staff or wards, so it was deactivated instead of removed' : 'Department removed', inUse ? 'warning' : 'info')
   }, [actorName, commit, notify])
 
+  /** The administrator, or the laboratory / imaging head for their own catalogue. */
+  const canEditCatalogue = useCallback((kind: InvestigationItem['kind']) => can('manage') || can(kind === 'Imaging' ? 'imaging-catalogue' : 'lab-catalogue'), [can])
+
   const saveInvestigation = useCallback((item: InvestigationItem) => {
+    if (!canEditCatalogue(item.kind)) { notify(`Only the administrator or the ${item.kind === 'Imaging' ? 'head of imaging' : 'laboratory head'} can change this catalogue`, 'warning'); return }
     const actor = actorName('Administrator')
     commit((previous) => {
       const exists = previous.investigations.some((candidate) => candidate.id === item.id)
       return { next: { ...previous, investigations: exists ? previous.investigations.map((candidate) => candidate.id === item.id ? item : candidate) : [...previous.investigations, item] }, actor, action: `${exists ? 'updated' : 'added'} investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
     })
-  }, [actorName, commit])
+  }, [actorName, commit, canEditCatalogue, notify])
 
   const removeInvestigation = useCallback((id: string) => {
     const actor = actorName('Administrator')
+    const target = stateRef.current.investigations.find((candidate) => candidate.id === id)
+    if (target && !canEditCatalogue(target.kind)) { notify('You cannot change this catalogue', 'warning'); return }
     commit((previous) => {
       const item = previous.investigations.find((candidate) => candidate.id === id)
       if (!item) return null
       return { next: { ...previous, investigations: previous.investigations.filter((candidate) => candidate.id !== id) }, actor, action: `removed investigation ${item.name}`, department: item.kind === 'Imaging' ? 'radiology' : 'laboratory' }
     })
     notify('Investigation removed', 'info')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, canEditCatalogue])
 
   const saveProvider = useCallback((provider: ExternalProvider) => {
     const actor = actorName('Administrator')
@@ -1399,11 +1742,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Provider updated', 'info')
   }, [actorName, commit, notify])
 
-  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string }) => {
+  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => {
     commit((previous) => {
       const id = nextNumber(previous.staff.map((item) => item.id), 'ST', 0).replace(/ST-(\d)$/, 'ST-0$1')
-      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: roleProfiles[input.roleId].title, department: input.department, specialty: input.specialty.trim() || roleProfiles[input.roleId].title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
-      return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${roleProfiles[input.roleId].title.toLowerCase()} account`, department: input.department }
+      const title = input.grade ? gradeLabel(input.grade, input.residentYear) : input.level ?? roleProfiles[input.roleId].title
+      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: title, ...(input.grade ? { grade: input.grade, ...(input.residentYear ? { residentYear: input.residentYear } : {}) } : {}), ...(input.level ? { level: input.level } : {}), department: input.department, specialty: input.specialty.trim() || title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
+      return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${title.toLowerCase()} account`, department: input.department }
     })
     notify('Request sent — an administrator will review it', 'info')
   }, [commit, notify])
@@ -1496,7 +1840,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Demo data restored', 'info')
   }, [notify])
 
-  const profile = useMemo<RoleProfile | null>(() => {
+  const deptProfile = useMemo<RoleProfile | null>(() => {
     if (!currentRole) return null
     const base = roleProfiles[currentRole]
     const departmentId = currentDepartment ?? base.department
@@ -1506,9 +1850,20 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const specialtyProfile = { ...base, department: departmentId }
     if (currentRole === 'physician') return { ...specialtyProfile, title: `${department.shortName} Physician`, workspace: `${department.shortName} clinical command`, headline: `Your ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} patients, first.`, description: `Specialty-specific inpatient and outpatient review, diagnostics and referrals for ${department.name}.` }
     if (currentRole === 'nurse') return { ...specialtyProfile, title: `${department.shortName} Nurse`, workspace: `${department.shortName} nursing workspace`, headline: `Safe, coordinated ${/^[A-Z./]+$/.test(department.shortName) ? department.shortName : department.shortName.toLowerCase()} care.`, description: `A focused nursing census with inpatient observations, outpatient flow and shared handoffs across ${department.name}.` }
-    if (currentRole === 'diagnostics') return { ...specialtyProfile, title: `${department.name} Specialist`, workspace: `${department.shortName} worklist`, headline: departmentId === 'laboratory' ? 'Return critical results, faster.' : base.headline, description: departmentId === 'laboratory' ? 'Prioritised specimens, analytical progress and verified results returned directly to the clinical episode.' : base.description }
     return specialtyProfile
   }, [currentRole, currentDepartment, state.departments])
+
+  /** Doctors carry their grade in the title (e.g. "Resident (R2) · Emergency"). */
+  const profile = useMemo<RoleProfile | null>(() => {
+    if (deptProfile && myLevel) {
+      const department = state.departments.find((item) => item.id === deptProfile.department)
+      return { ...deptProfile, title: `${myLevel}${department ? ` · ${department.shortName}` : ''}`, shortTitle: myLevel }
+    }
+    if (!deptProfile || !myGrade) return deptProfile
+    const department = state.departments.find((item) => item.id === deptProfile.department)
+    const label = gradeLabel(myGrade.grade, myGrade.year)
+    return { ...deptProfile, title: `${label}${department ? ` · ${department.shortName}` : ''}`, shortTitle: myGrade.grade === 'Resident' ? `R${myGrade.year ?? 1} Resident` : gradeById(myGrade.grade)!.short }
+  }, [deptProfile, myGrade, myLevel, state.departments])
 
   const viewerDepartment = currentDepartment ?? (currentRole ? roleProfiles[currentRole].department : undefined)
   const scoped = Boolean(currentRole && SCOPED_ROLES.includes(currentRole))
@@ -1584,15 +1939,15 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, commit])
 
   const value = useMemo<HospitalContextValue>(() => ({
-    state: scopedState, currentRole, profile, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
-    login, logout, can, setSelectedPatientId: currentRole === 'administrator' ? noPatientAccess : guardedSelect,
+    state: scopedState, currentRole, profile, grade: myGrade, level: myLevel, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
+    login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, saveDepartment, removeDepartment, saveInvestigation, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

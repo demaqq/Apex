@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Activity, AlertCircle, ArrowRight, BedDouble, Check, ClipboardList, Clock3, Download, FileText, FlaskConical, HeartPulse, MapPin, MessageSquareText, Network, Plus, Send, Stethoscope, UserRound, X } from 'lucide-react'
+import { Hospital, Activity, AlertCircle, ArrowRight, BedDouble, Check, ClipboardList, Clock3, Download, FileText, FlaskConical, HeartPulse, MapPin, MessageSquareText, Network, Plus, Send, Stethoscope, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { CompleteReferralModal, OrderModal, ReferralModal, ResultModal, RetriageModal, TransferModal } from './ClinicalModals'
 import { Avatar, Button, DepartmentIcon, EsiBadge, Modal, NewsChip, OrderStepper, StatusBadge } from './ui'
@@ -11,6 +11,8 @@ import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 import { SPECIALTY } from '../lib/specialty'
 import { stagesFor, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
+import { ExternalReferralList, ReferOutModal } from './ReferOut'
+import { connectedFor } from '../lib/network'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
 import type { ClinicalOrder, Referral } from '../types'
 
@@ -19,6 +21,7 @@ type Tab = 'conversation' | 'overview' | 'assessment' | 'charts' | 'orders' | 'r
 export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
   const patient = state.patients.find((item) => item.id === selectedPatientId)
+  const [referOutOpen, setReferOutOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('conversation')
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState('')
@@ -77,6 +80,7 @@ export default function PatientDrawer() {
           {patient.status !== 'discharged' && <div className="drawer-actions">
             {ownsPatient && patient.department === 'emergency' && can('triage') && <Button size="sm" variant="secondary" icon={Activity} onClick={() => setRetriageOpen(true)}>Reassess</Button>}
             {canReferPatient && <Button size="sm" variant="secondary" icon={Network} onClick={() => setReferralOpen(true)}>Refer</Button>}
+            {canReferPatient && connectedFor('Referrals', state.connections, state.network).length > 0 && <Button size="sm" variant="secondary" icon={Hospital} onClick={() => setReferOutOpen(true)}>Other hospital</Button>}
             {ownsPatient && (profile?.id === 'physician' || profile?.id === 'administrator') && <Button size="sm" variant="secondary" icon={FlaskConical} onClick={() => setOrderOpen(true)}>Order</Button>}
             {can('transfer') && (profile?.id === 'coordinator' || ownsPatient) && <Button size="sm" variant="secondary" icon={BedDouble} onClick={() => setTransferOpen(true)}>Transfer</Button>}
             {can('notes') && <Button size="sm" variant="ghost" icon={MessageSquareText} onClick={() => setTab('conversation')}>Message</Button>}
@@ -126,7 +130,7 @@ export default function PatientDrawer() {
                   {patientOrders.length === 0 ? <div className="drawer-empty"><ClipboardList size={25} /><p>No orders on this episode yet.</p>{ownsPatient && (profile?.id === 'physician' || profile?.id === 'administrator') && <Button size="sm" icon={Plus} onClick={() => setOrderOpen(true)}>Place first order</Button>}</div> : <div className="clinical-card-list">{patientOrders.map((order) => <article key={order.id} className="clinical-list-card"><div className="clinical-card-top"><span className="order-kind">{order.kind}</span><span className={`priority-label priority-${order.priority}`}>{order.priority}</span></div><h3>{order.title}</h3><p><span className="mono">{order.id}</span> · {order.createdBy} · {relativeTime(order.createdAt)}</p><OrderStepper order={order} />{order.specimen && <p className="record-hint">Specimen <span className="mono">{order.specimen.id}</span> · {order.specimen.type} · collected by {order.specimen.collectedBy}</p>}{order.result && <div className="result-box"><b>Result</b><p>{order.result}</p></div>}<ImageStrip order={order} />{canAttachImages(order, currentRole) && <div className="card-action-row"><AttachImagesButton order={order} /></div>}{currentRole && canAdvanceOrder(order, currentRole) && <div className="card-action-row">{needsResult(order) ? <Button size="sm" onClick={() => setResultOrder(order)}>Enter result<FileText size={14} /></Button> : <Button size="sm" variant="secondary" onClick={() => advanceOrder(order.id)}>Mark {stagesFor(order)[orderStage(order) + 1].toLowerCase()}<ArrowRight size={14} /></Button>}</div>}</article>)}</div>}
                 </section>}
 
-                {tab === 'referrals' && <section className="drawer-section"><div className="section-label"><Network size={15} />INTERDEPARTMENTAL REFERRALS</div>
+                {tab === 'referrals' && <section className="drawer-section"><ExternalReferralList patient={patient} /><div className="section-label"><Network size={15} />INTERDEPARTMENTAL REFERRALS</div>
                   {patientReferrals.length === 0 ? <div className="drawer-empty"><Network size={25} /><p>No referrals on this episode yet.</p>{canReferPatient && <Button size="sm" icon={Plus} onClick={() => setReferralOpen(true)}>Request consultation</Button>}</div> : <div className="clinical-card-list">{patientReferrals.map((referral) => {
                     const receiving = state.departments.find((item) => item.id === referral.to)
                     const sending = state.departments.find((item) => item.id === referral.from)
@@ -152,6 +156,7 @@ export default function PatientDrawer() {
     {patient && <>
       <RetriageModal patient={patient} open={retriageOpen} onClose={() => setRetriageOpen(false)} />
       <ReferralModal patient={patient} open={referralOpen} onClose={() => setReferralOpen(false)} />
+      {referOutOpen && <ReferOutModal patient={patient} onClose={() => setReferOutOpen(false)} />}
       <OrderModal patient={patient} open={orderOpen} onClose={() => setOrderOpen(false)} />
       <TransferModal patient={patient} open={transferOpen} onClose={() => setTransferOpen(false)} />
       <Modal open={dischargeOpen} onClose={() => setDischargeOpen(false)} title="Complete this clinical episode?" subtitle={`${patient.name} · ${patient.mrn}`} size="sm"><div className="confirm-copy"><span><Check size={23} /></span><p>This records the patient as discharged, updates department capacity and retains the full episode in the record archive.</p></div><div className="modal-footer"><Button variant="ghost" onClick={() => setDischargeOpen(false)}>Keep episode open</Button><Button onClick={() => { dischargePatient(patient.id); setDischargeOpen(false) }}>Confirm discharge<Check size={16} /></Button></div></Modal>

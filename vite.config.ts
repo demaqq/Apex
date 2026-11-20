@@ -13,6 +13,8 @@ export default defineConfig({
       output: {
         // Keep the React and animation runtime in a long-lived vendor chunk.
         codeSplitting: { groups: [{ name: 'vendor', test: /node_modules[\\/](react|react-dom|react-router|framer-motion|motion-dom|motion-utils|lucide-react)/ }] },
+        // The hosted demo (hash router) keeps stable file names so each update replaces the same files.
+        ...(process.env.VITE_HASH_ROUTER === '1' ? { entryFileNames: 'assets/[name].js', chunkFileNames: 'assets/[name].js', assetFileNames: 'assets/[name][extname]' } : {}),
       },
     },
   },

@@ -1,4 +1,4 @@
-import { DoorOpen, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
+import { Cloud, GraduationCap, DoorOpen, ScanLine, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
 import type { RoleId } from '../types'
 
 export interface NavItem {
@@ -26,8 +26,9 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/front-desk', label: 'Reception', page: 'Reception & billing', icon: UserPlus, roles: ['receptionist', 'billing'], key: 'n' },
     { to: '/opd', label: 'OPD clinics', page: 'Outpatient clinics (OPD)', icon: DoorOpen, roles: ['physician', 'consultant', 'intern', 'nurse', 'receptionist', 'coordinator'], key: 'u' },
     { to: '/triage', label: 'Triage', page: 'Triage & waiting room', icon: Activity, roles: ['physician', 'nurse', 'consultant'], key: 't' },
-    { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'theatre', 'allied'], key: 'p' },
+    { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'radiographer', 'laboratory', 'pharmacist', 'theatre', 'allied'], key: 'p' },
     { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },
+    { to: '/teaching', label: 'Teaching & assessment', page: 'Teaching & assessment', icon: GraduationCap, roles: ['physician', 'consultant', 'intern', 'nurse', 'pharmacist', 'laboratory', 'diagnostics', 'radiographer', 'administrator'], key: 'e' },
     { to: '/telehealth', label: 'Appointments', page: 'Appointments & telehealth', icon: Video, roles: ['physician', 'consultant', 'intern', 'receptionist'], key: 'a' },
   ] },
   { label: 'Wards', items: [
@@ -36,7 +37,8 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/med-round', label: 'Medication round', page: 'Medication round', icon: ClipboardCheck, roles: ['nurse', 'physician'], key: 'm' },
   ] },
   { label: 'Diagnostics & services', items: [
-    { to: '/lab-imaging', label: 'Lab & imaging', page: 'Lab & imaging', icon: FlaskConical, roles: [...CLINICIANS, 'diagnostics'], key: 'l' },
+    { to: '/lab', label: 'Laboratory', page: 'Laboratory', icon: FlaskConical, roles: [...CLINICIANS, 'laboratory'], key: 'l' },
+    { to: '/imaging', label: 'Imaging', page: 'Imaging & radiology', icon: ScanLine, roles: [...CLINICIANS, 'diagnostics', 'radiographer'], key: 'i' },
     { to: '/pharmacy', label: 'Pharmacy', page: 'Pharmacy', icon: Pill, roles: [...CLINICIANS, 'pharmacist'], key: 'r' },
     { to: '/theatres', label: 'Operating theatres', page: 'Operating theatres', icon: Scissors, roles: ['theatre', 'physician', 'consultant', 'nurse', 'coordinator'], key: 'o' },
     { to: '/services', label: 'Therapy & blood bank', page: 'Service worklist', icon: Stethoscope, roles: ['allied', 'nurse', 'physician', 'intern'], key: 's' },
@@ -44,21 +46,23 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
   { label: 'Operations', items: [
     { to: '/ops', label: 'Operations center', page: 'Operations center', icon: MonitorDot, roles: ['physician', 'nurse', 'consultant', 'coordinator', 'administrator', 'receptionist'], key: 'd' },
     { to: '/flow', label: 'Care flow', page: 'Care flow', icon: GitBranch, roles: 'all', key: 'f' },
-    { to: '/departments', label: 'Departments & beds', page: 'Departments & live capacity', icon: Building2, roles: CLINICAL_CLASSIC },
-    { to: '/network', label: 'Care network', page: 'Interdepartmental care network', icon: Network, roles: CLINICAL_CLASSIC },
+    { to: '/departments', label: 'Departments & beds', page: 'Departments & live capacity', icon: Building2, roles: [...CLINICAL_CLASSIC, 'laboratory'] },
+    { to: '/network', label: 'Care network', page: 'Interdepartmental care network', icon: Network, roles: [...CLINICAL_CLASSIC, 'laboratory'] },
     { to: '/staff', label: 'Roster & pagers', page: 'Roster & pagers', icon: CalendarClock, roles: 'all', key: 'k' },
     { to: '/billing', label: 'Billing & claims', page: 'Billing & claims', icon: Receipt, roles: ['billing'] },
     { to: '/audit', label: 'Codes & audit', page: 'Emergency codes & audit', icon: ShieldAlert, roles: 'all' },
     { to: '/admin', label: 'Administration', page: 'Administration', icon: ShieldCheck, roles: ['administrator'], key: 'x' },
+    { to: '/platform', label: 'Super admin console', page: 'Super admin console', icon: Cloud, roles: ['provider'] },
   ] },
 ]
 
 export const ALL_NAV = NAV_SECTIONS.flatMap((section) => section.items)
 
-export const canSee = (item: NavItem, role: RoleId) => item.roles === 'all' || item.roles.includes(role)
+/** The SaaS provider works only in the platform console and never sees hospital pages. */
+export const canSee = (item: NavItem, role: RoleId) => item.roles === 'all' ? role !== 'provider' : item.roles.includes(role)
 
 /** Modules the administrator can never switch off. */
-export const CORE_MODULES = ['/dashboard', '/admin', '/audit', '/staff']
+export const CORE_MODULES = ['/dashboard', '/admin', '/audit', '/staff', '/platform', '/patients', '/flow']
 
 export const moduleEnabled = (path: string, disabled: string[]) => CORE_MODULES.includes(path) || !disabled.includes(path)
 

@@ -3,6 +3,7 @@ import { AlertTriangle, BadgeCheck, ClipboardCheck, ClipboardList, FlaskConical,
 import { EXAM_SYSTEMS, news2, newsTone } from '../lib/clinical'
 import { formatDateTime, relativeTime } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
+import { gradeById } from '../lib/grades'
 import type { Consciousness, NoteReview, Patient, RoundKind, RoundNote, Vitals } from '../types'
 import { Button, Chip } from './ui'
 
@@ -37,7 +38,7 @@ const blankVitals: Record<keyof Vitals, string> = { hr: '', rr: '', spo2: '', bp
 
 
 export function RoundsView({ patient }: { patient: Patient }) {
-  const { state, profile, currentRole, saveRound, reviewRound } = useHospital()
+  const { state, profile, currentRole, grade, level, myRank, saveRound, reviewRound } = useHospital()
   const rounds = patient.rounds ?? []
   const canRound = ['physician', 'consultant', 'intern', 'nurse'].includes(currentRole ?? '') && patient.status !== 'discharged'
   const today = hospitalDay(patient, new Date().toISOString())
@@ -46,7 +47,8 @@ export function RoundsView({ patient }: { patient: Patient }) {
   const pendingCount = rounds.filter((item) => item.cosign === 'Pending review').length
   const [filter, setFilter] = useState<'All' | 'Doctors' | 'Nursing' | 'Awaiting review'>('All')
   const shown = rounds.filter((item) => filter === 'All' || (filter === 'Nursing' ? isNursing(item.kind) : filter === 'Doctors' ? !isNursing(item.kind) : item.cosign === 'Pending review'))
-  const kinds = KINDS_FOR[currentRole ?? ''] ?? ['Ward round']
+  const nurseKind: RoundKind | undefined = currentRole === 'nurse' && level ? ({ 'Student nurse': 'Intern nurse assessment', 'Intern nurse': 'Intern nurse assessment', 'Junior nurse': 'Junior nurse assessment', 'Staff nurse': 'Bedside assessment', 'Senior nurse': 'Bedside assessment', 'Nurse educator': 'Bedside assessment' } as Record<string, RoundKind>)[level] : undefined
+  const kinds = (currentRole !== 'nurse' && grade ? gradeById(grade.grade)?.rounds : undefined) ?? (nurseKind ? [nurseKind, ...NURSE_KINDS.filter((kind) => kind !== nurseKind)] : undefined) ?? KINDS_FOR[currentRole ?? ''] ?? ['Ward round']
 
   return (
     <>
@@ -56,12 +58,12 @@ export function RoundsView({ patient }: { patient: Patient }) {
         {pendingCount > 0 && <span className="due"><BadgeCheck size={14} />{pendingCount} awaiting senior review</span>}
         <span><ClipboardList size={14} />Day {today} of stay</span>
       </div>
-      {canRound && <RoundForm key={`${patient.id}-${currentRole}`} patient={patient} kinds={kinds} onSave={saveRound} onReview={reviewRound} today={today} author={profile?.name ?? ''} orders={state.orders.filter((order) => order.patientId === patient.id)} />}
+      {canRound && <RoundForm key={`${patient.id}-${currentRole}-${grade?.grade ?? ''}-${level ?? ''}`} patient={patient} kinds={kinds} onSave={saveRound} onReview={reviewRound} today={today} author={profile?.name ?? ''} orders={state.orders.filter((order) => order.patientId === patient.id)} />}
       <section className="drawer-section">
         <div className="section-label"><ClipboardList size={15} />Rounds and assessments<span>{rounds.length} entries</span></div>
         {rounds.length > 0 && <div className="segmented small chart-seg">{(['All', 'Doctors', 'Nursing', 'Awaiting review'] as const).map((kind) => <button key={kind} type="button" className={filter === kind ? 'on' : ''} onClick={() => setFilter(kind)}>{kind}{kind === 'Awaiting review' && pendingCount ? <small>{pendingCount}</small> : null}</button>)}</div>}
         {shown.length === 0 ? <div className="drawer-empty"><NotebookPen size={25} /><p>{rounds.length ? 'None of this type yet.' : 'No rounds or bedside assessments documented yet.'}</p></div> : (
-          <ol className="round-list">{shown.map((item) => <RoundCard key={item.id} patient={patient} item={item} me={profile?.name ?? ''} role={currentRole ?? ''} onReview={reviewRound} />)}</ol>
+          <ol className="round-list">{shown.map((item) => <RoundCard key={item.id} patient={patient} item={item} me={profile?.name ?? ''} role={currentRole ?? ''} rank={myRank} onReview={reviewRound} />)}</ol>
         )}
       </section>
     </>
@@ -74,7 +76,7 @@ function canReviewNote(item: RoundNote, role: string, me: string) {
   return role === 'consultant' || (role === 'physician' && item.cosign === 'Pending review')
 }
 
-function RoundCard({ patient, item, me, role, onReview }: { patient: Patient; item: RoundNote; me: string; role: string; onReview: (patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => void }) {
+function RoundCard({ patient, item, me, role, rank, onReview }: { patient: Patient; item: RoundNote; me: string; role: string; rank: number; onReview: (patientId: string, roundId: string, outcome: NoteReview['outcome'], comment: string) => void }) {
   const [reviewing, setReviewing] = useState(false)
   const [outcome, setOutcome] = useState<NoteReview['outcome']>('Agreed')
   const [comment, setComment] = useState('')
@@ -100,7 +102,7 @@ function RoundCard({ patient, item, me, role, onReview }: { patient: Patient; it
         <dt>Plan</dt><dd>{item.plan}</dd>
       </dl>
       {item.reviews?.length ? <ul className="note-reviews">{item.reviews.map((review) => <li key={review.at} className={review.outcome === 'Amended' ? 'amended' : ''}><BadgeCheck size={14} /><div><b>{review.role} · {review.by}</b> <span>{review.outcome}{review.comment ? ` — ${review.comment}` : ''}</span><small>{formatDateTime(review.at)}</small></div></li>)}</ul> : null}
-      {canReviewNote(item, role, me) && !reviewing && <div className="card-action-row"><Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setReviewing(true)}>{item.cosign === 'Pending review' ? (isNursing(item.kind) ? 'Review as senior nurse' : 'Review and co-sign') : 'Add consultant review'}</Button></div>}
+      {canReviewNote(item, role, me) && (isNursing(item.kind) || item.cosign !== 'Pending review' || rank > (item.authorRank ?? 1)) && !reviewing && <div className="card-action-row"><Button size="sm" variant="secondary" icon={BadgeCheck} onClick={() => setReviewing(true)}>{item.cosign === 'Pending review' ? (isNursing(item.kind) ? 'Review as senior nurse' : 'Review and co-sign') : 'Add consultant review'}</Button></div>}
       {reviewing && (
         <div className="review-box">
           <div className="segmented small" role="radiogroup" aria-label="Review outcome">{(['Agreed', 'Amended'] as const).map((o) => <button key={o} type="button" role="radio" aria-checked={outcome === o} className={outcome === o ? 'on' : ''} onClick={() => setOutcome(o)}>{o === 'Agreed' ? 'Agree with plan' : 'Plan amended'}</button>)}</div>

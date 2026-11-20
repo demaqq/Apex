@@ -15,12 +15,19 @@ function HomeRedirect() {
   return <Navigate to={currentRole ? ROLE_HOME[currentRole] : '/login'} replace />
 }
 
+/** The old combined page: send people to the half that matches their role. */
+function LegacyDiagnostics() {
+  const { currentRole } = useHospital()
+  return <Navigate to={currentRole === 'diagnostics' ? '/imaging' : '/lab'} replace />
+}
+
 const TriageBoard = lazy(() => import('./pages/TriageBoard'))
 const Patients = lazy(() => import('./pages/Patients'))
 const Departments = lazy(() => import('./pages/Departments'))
 const Network = lazy(() => import('./pages/Network'))
 const PharmacyView = lazy(() => import('./pages/PharmacyView'))
-const LabImagingView = lazy(() => import('./pages/LabImagingView'))
+const LaboratoryView = lazy(() => import('./pages/DiagnosticsView').then((m) => ({ default: m.LaboratoryView })))
+const ImagingView = lazy(() => import('./pages/DiagnosticsView').then((m) => ({ default: m.ImagingView })))
 const BillingView = lazy(() => import('./pages/BillingView'))
 const TelehealthView = lazy(() => import('./pages/TelehealthView'))
 const StaffView = lazy(() => import('./pages/StaffView'))
@@ -36,6 +43,8 @@ const Theatres = lazy(() => import('./pages/Theatres'))
 const Services = lazy(() => import('./pages/Services'))
 const Review = lazy(() => import('./pages/Review'))
 const Admin = lazy(() => import('./pages/Admin'))
+const Platform = lazy(() => import('./pages/Platform'))
+const Teaching = lazy(() => import('./pages/Teaching'))
 const SpecialtyDashboard = lazy(() => import('./pages/SpecialtyDashboard'))
 
 export default function App() {
@@ -52,7 +61,9 @@ export default function App() {
             <Route path="/departments" element={<Departments />} />
             <Route path="/network" element={<Network />} />
             <Route path="/pharmacy" element={<PharmacyView />} />
-            <Route path="/lab-imaging" element={<LabImagingView />} />
+            <Route path="/lab" element={<LaboratoryView />} />
+            <Route path="/imaging" element={<ImagingView />} />
+            <Route path="/lab-imaging" element={<LegacyDiagnostics />} />
             <Route path="/billing" element={<BillingView />} />
             <Route path="/telehealth" element={<TelehealthView />} />
             <Route path="/staff" element={<StaffView />} />
@@ -68,6 +79,8 @@ export default function App() {
             <Route path="/services" element={<Services />} />
             <Route path="/review" element={<Review />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/platform" element={<Platform />} />
+            <Route path="/teaching" element={<Teaching />} />
             <Route path="/specialty" element={<SpecialtyDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Route>

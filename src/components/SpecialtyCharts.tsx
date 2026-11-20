@@ -31,7 +31,7 @@ export const num = (value: string) => (value.trim() === '' ? undefined : Number(
 export function useChartForm<K extends ChartKey>(patient: Patient, chart: K) {
   const { can, addChartEntry } = useHospital()
   const [error, setError] = useState('')
-  const editable = (can('vitals') || can('notes')) && patient.status !== 'discharged'
+  const editable = (can('vitals') || can('clinical-notes')) && patient.status !== 'discharged'
   const save = (entry: ChartEntryInput<K>, summary: string) => { addChartEntry(patient.id, chart, entry, summary); setError('') }
   return { editable, error, setError, save }
 }
