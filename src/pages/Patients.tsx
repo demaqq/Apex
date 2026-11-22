@@ -8,6 +8,7 @@ import { departmentById } from '../data'
 import { getEncounterType, patientCsv, statusLabels } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import { withUnits } from '../lib/access'
+import { useStepUp } from '../components/SecurityGuard'
 import type { DepartmentId } from '../types'
 
 type RecordView = 'active' | 'critical' | 'inpatient' | 'outpatient' | 'discharged' | 'all'
@@ -94,6 +95,7 @@ export default function Patients() {
 /** Explains the department scope and offers audited emergency access to other patients. */
 function ScopeBanner() {
   const { state, profile, outsidePatients, breakGlass } = useHospital()
+  const stepUp = useStepUp()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [target, setTarget] = useState<string | null>(null)
@@ -118,7 +120,7 @@ function ScopeBanner() {
           </> : <>
             <div className="erx-patient"><b>{chosen.name}</b><span>{chosen.mrn} · {departmentById(state.departments, chosen.department).name}</span></div>
             <label className="form-field"><span>Why do you need this record now? <b>*</b></span><textarea rows={3} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Called to a cardiac arrest on Ward 5S; covering the night shift for medicine" /></label>
-            <div className="modal-footer"><Button variant="ghost" onClick={() => setTarget(null)}>Back</Button><Button variant="danger" icon={KeyRound} disabled={reason.trim().length < 10} onClick={() => { breakGlass(chosen.id, reason.trim()); setOpen(false); setTarget(null); setQuery(''); setReason('') }}>Open record</Button></div>
+            <div className="modal-footer"><Button variant="ghost" onClick={() => setTarget(null)}>Back</Button><Button variant="danger" icon={KeyRound} disabled={reason.trim().length < 10} onClick={async () => { if (!(await stepUp(`Emergency access to ${chosen.name}`, 'break-glass'))) return; breakGlass(chosen.id, reason.trim()); setOpen(false); setTarget(null); setQuery(''); setReason('') }}>Open record</Button></div>
           </>}
         </Modal>
       )}

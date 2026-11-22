@@ -14,6 +14,7 @@ import { activePositions, positionById } from '../lib/positions'
 import { Ambient } from './Ambient'
 import { disabledRoutes } from '../lib/modules'
 import Onboarding from './Onboarding'
+import { useStepUp } from './SecurityGuard'
 import type { DepartmentId, RoleId } from '../types'
 import PatientDrawer from './PatientDrawer'
 import { Avatar, Brand, Button, Modal } from './ui'
@@ -49,6 +50,7 @@ export default function AppShell() {
   const role = currentRole ?? 'physician'
   const disabled = useMemo(() => disabledRoutes(state.settings), [state.settings])
   const isProvider = role === 'provider'
+  const stepUp = useStepUp()
   /** Until the super admin approves and payment is confirmed, the administrator only sees set-up. */
   const settingUp = role === 'administrator' && !['Active', 'Trial', 'Suspended'].includes(state.settings.subscription ?? 'Active')
   /** No live hospital operations for the super admin or before go-live. */
@@ -182,7 +184,9 @@ export default function AppShell() {
     setProfileOpen(false)
     notify(`Switched to ${roleProfiles[targetRole].name} (${roleProfiles[targetRole].shortTitle})`, 'info')
   }
-  const exportCensus = () => {
+  const exportCensus = async () => {
+    setProfileOpen(false)
+    if (!(await stepUp('Export the whole patient census'))) return
     patientCsv(state.patients, Object.fromEntries(state.departments.map((department) => [department.id, department.name])) as Record<DepartmentId, string>)
     notify('Patient census exported', 'info'); setProfileOpen(false)
   }

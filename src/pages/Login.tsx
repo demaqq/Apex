@@ -8,6 +8,7 @@ import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { isOn, moduleForRole } from '../lib/modules'
 import { DEFAULT_GRADE, gradeById, GRADES, gradesFor, RESIDENT_YEARS } from '../lib/grades'
 import { PROFESSION_OPTIONS, ROLE_LEVELS } from '../lib/teaching'
+import { DEFAULT_SECURITY, lockedFor, recordFailure, verifyAccessKey } from '../lib/security'
 import type { DepartmentId, Grade, RoleId } from '../types'
 
 const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
@@ -16,7 +17,7 @@ const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'lab
 const ECG = 'M0 60 H78 L90 60 L98 26 L106 94 L114 42 L122 60 H198 L210 60 L218 26 L226 94 L234 42 L242 60 H318 L330 60 L338 26 L346 94 L354 42 L362 60 H438 L450 60 L458 26 L466 94 L474 42 L482 60 H600'
 
 export default function Login() {
-  const { state, currentRole, login, signInBlock, requestAccess } = useHospital()
+  const { state, currentRole, login, signInBlock, requestAccess, logSecurity } = useHospital()
   const [requesting, setRequesting] = useState(false)
   const navigate = useNavigate()
   const [selected, setSelected] = useState<RoleId>('physician')
@@ -42,7 +43,17 @@ export default function Login() {
   const grades = gradesFor(selected)
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (accessKey.trim().toUpperCase() !== 'NORTHSTAR') { setError('Use the demo access key NORTHSTAR to sign in.'); return }
+    const wait = lockedFor(selected)
+    if (wait) { setError(`This account is locked after repeated failed sign-ins. Try again in ${Math.ceil(wait / 60_000)} min.`); return }
+    if (!verifyAccessKey(accessKey)) {
+      const result = recordFailure(selected, state.settings.security?.maxAttempts ?? DEFAULT_SECURITY.maxAttempts)
+      logSecurity('sign-in-failed', `Wrong access key (${result.fails} failed)`, roleProfiles[selected].name, selected)
+      if (result.lockedMs) {
+        logSecurity('locked-out', `Account locked for ${Math.round(result.lockedMs / 60_000)} min after ${result.fails} failed sign-ins`, roleProfiles[selected].name, selected)
+        setError(`Too many failed attempts. This account is locked for ${Math.round(result.lockedMs / 60_000)} min.`)
+      } else setError(`Wrong access key (demo key: NORTHSTAR). ${result.remaining} ${result.remaining === 1 ? 'try' : 'tries'} left before the account locks.`)
+      return
+    }
     const blocked = signInBlock(selected)
     if (blocked) { setError(blocked); return }
     login(selected, remember, canChooseDepartment ? department : undefined, grade, year, chosenLevel)

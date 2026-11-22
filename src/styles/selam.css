@@ -1024,3 +1024,21 @@ td.unit-row { padding-left: 34px !important; }
 .teaching-switch.on { border-color: color-mix(in srgb, var(--teal, #0f766e) 45%, var(--line-soft)); }
 .wrap-segmented { flex-wrap: wrap; }
 @media (max-width: 700px) { .score-row { grid-template-columns: 1fr; } .competency-bars > div { grid-template-columns: 1fr 1fr 30px; } }
+
+/* ---------- Security ---------- */
+.lock-screen { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--paper, #fff) 55%, transparent); backdrop-filter: blur(22px) saturate(.6); -webkit-backdrop-filter: blur(22px) saturate(.6); }
+.lock-card { display: grid; gap: 12px; width: min(400px, 100%); padding: 26px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--paper); box-shadow: 0 24px 60px rgba(0,0,0,.25); }
+.lock-card h2 { margin: 0; }
+.lock-card p { margin: 0; color: var(--muted); font-size: 13px; }
+.lock-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-text); }
+.lock-actions { display: flex; justify-content: space-between; gap: 8px; }
+.security-checks { display: grid; gap: 4px; margin: 0; padding: 6px 18px 16px; list-style: none; }
+.security-checks li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.security-checks li > div { display: grid; }
+.security-checks li span { color: var(--muted); font-size: 12.5px; }
+.security-checks li.ok svg { color: var(--teal, #0f766e); }
+.security-checks li.warn svg { color: var(--amber, #d97706); }
+select.filter-select { height: 38px; padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--sunken); color: var(--ink); }
+.panel-heading-actions { display: flex; gap: 6px; }
+.production-list { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+tr.security-alert td { background: color-mix(in srgb, var(--danger, #dc2626) 5%, transparent); }

@@ -5,7 +5,9 @@ import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visit
 import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
 import { canAssess, levelOf, professionOf, ROLE_LEVELS } from '../lib/teaching'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
-import { setCurrency } from '../lib/format'
+import { setCurrency, setExportAudit } from '../lib/format'
+import { readSecure, writeSecure } from '../lib/secureStore'
+import { chainEvent, clearFailures, clearSessionStart, DEFAULT_SECURITY, markSessionStart, sessionStartedAt } from '../lib/security'
 import { PRINTOUT } from '../lib/diagnostics'
 import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
 import { setReceptionGate } from '../lib/clinical'
@@ -13,6 +15,8 @@ import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } 
 import type {
   AppointmentStatus,
   Assessment,
+  SecurityEvent,
+  SecuritySettings,
   Grade,
   Connection,
   HospitalService,
@@ -91,7 +95,7 @@ export interface CheckInInput {
 
 export type OpdOutcome = { kind: 'Home' | 'Follow-up' | 'Admit'; note: string; date?: string } | { kind: 'Refer'; department: DepartmentId; note: string }
 
-const DATA_KEY = 'northstar-careos-data-v5'
+export const DATA_KEY = 'northstar-careos-data-v5'
 
 const CHART_TITLES: Record<ChartKey, string> = { sam: 'SAM chart', labour: 'Partograph', anc: 'Antenatal chart', postpartum: 'Postpartum bleeding chart', fluids: 'Fluid balance', glucose: 'Glucose chart', neuro: 'Neuro observations', nihss: 'NIH Stroke Scale', seizures: 'Seizure chart' }
 const SESSION_KEY = 'northstar-careos-session'
@@ -119,6 +123,8 @@ interface HospitalContextValue {
   grade: { grade: Grade; year?: number } | null
   myRank: number
   logout: () => void
+  logSecurity: (type: SecurityEvent['type'], detail: string, actor?: string, role?: string) => void
+  saveSecurity: (settings: SecuritySettings) => void
   can: (permission: Permission) => boolean
   setSelectedPatientId: (id: string | null) => void
   /** True when the signed-in clinician's view is limited to their department's patients. */
@@ -240,7 +246,8 @@ function mergeById<T extends { id: string }>(saved: unknown, seed: T[]): T[] {
 function loadState(): HospitalState {
   const seed = createInitialState()
   try {
-    const saved = localStorage.getItem(DATA_KEY)
+    // Decrypted at start-up (see lib/secureStore).
+    const saved = readSecure(DATA_KEY)
     if (!saved) return seed
     const parsed = JSON.parse(saved) as Partial<HospitalState>
     return {
@@ -276,6 +283,7 @@ function loadState(): HospitalState {
       services: mergeById(parsed.services, seed.services),
       platformInvoices: mergeById(parsed.platformInvoices, seed.platformInvoices),
       assessments: mergeById(parsed.assessments, seed.assessments),
+      securityEvents: Array.isArray(parsed.securityEvents) ? parsed.securityEvents : [],
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -390,15 +398,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [dismissToast])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(DATA_KEY, JSON.stringify(state))
-      storageWarned.current = false
-    } catch {
+    // Saved encrypted (AES-GCM, device key) where the browser supports it.
+    writeSecure(DATA_KEY, JSON.stringify(state), () => {
       if (!storageWarned.current) {
         storageWarned.current = true
         notify('Browser storage is full — recent changes may not persist after reload.', 'warning')
       }
-    }
+    })
   }, [state, notify])
 
   const login = useCallback((role: RoleId, remember: boolean, department?: DepartmentId, grade?: Grade, residentYear?: number, level?: string) => {
@@ -417,17 +423,27 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     setCurrentDepartment(selectedDepartment)
     setCurrentGrade(chosen ? { grade: chosen, ...(year ? { year } : {}) } : null)
     setCurrentLevel(level && ROLE_LEVELS[role]?.levels.includes(level) ? level : null)
+    markSessionStart()
+    clearFailures(role)
+    setState((previous) => ({ ...previous, securityEvents: [chainEvent(previous.securityEvents, { type: 'sign-in', detail: `Signed in${chosen ? ` as ${gradeLabel(chosen, year)}` : level ? ` as ${level}` : ''}${department ? ` · ${department}` : ''}`, actor: roleProfiles[role].name, role }), ...previous.securityEvents].slice(0, 2000) }))
     setSelectedPatientId(null)
   }, [])
 
+  /** Appends to the tamper-evident security log (never through commit, so it can't be undone or merged away). */
+  const logSecurity = useCallback((type: SecurityEvent['type'], detail: string, actor?: string, role?: string) => {
+    setState((previous) => ({ ...previous, securityEvents: [chainEvent(previous.securityEvents, { type, detail, actor: actor ?? (currentRole ? roleProfiles[currentRole].name : 'Unknown'), ...(role ?? currentRole ? { role: role ?? currentRole ?? undefined } : {}) }), ...previous.securityEvents].slice(0, 2000) }))
+  }, [currentRole])
+
   const logout = useCallback(() => {
+    if (currentRole) logSecurity('sign-out', 'Signed out', roleProfiles[currentRole].name, currentRole)
+    clearSessionStart()
     clearSession()
     setCurrentRole(null)
     setCurrentDepartment(null)
     setCurrentGrade(null)
     setCurrentLevel(null)
     setSelectedPatientId(null)
-  }, [])
+  }, [currentRole, logSecurity])
 
   const can = useCallback((permission: Permission) => {
     if (!currentRole) return false
@@ -1581,6 +1597,36 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Assessment acknowledged')
   }, [commit, meAsStaff, notify])
 
+  /** Administrator changes the facility's security policy (logged in the security log). */
+  const saveSecurity = useCallback((settings: SecuritySettings) => {
+    if (!can('manage')) { notify('Only the administrator changes security settings', 'warning'); return }
+    setState((previous) => ({ ...previous, settings: { ...previous.settings, security: settings } }))
+    logSecurity('settings', `Idle lock ${settings.idleMinutes} min · session ${settings.sessionHours} h · lock after ${settings.maxAttempts} failed sign-ins · re-authenticate for exports ${settings.stepUpExports ? 'on' : 'off'}, emergency access ${settings.stepUpBreakGlass ? 'on' : 'off'}`)
+    notify('Security settings saved')
+  }, [can, logSecurity, notify])
+
+  /** Every file exported from the app is recorded in the security log, and exports carry the user's name. */
+  useEffect(() => {
+    setExportAudit(currentRole ? (file) => logSecurity('export', `Exported ${file}`) : null, currentRole ? roleProfiles[currentRole].name : '')
+  }, [currentRole, logSecurity])
+
+  /** Sessions end after the configured number of hours, whatever the activity. */
+  useEffect(() => {
+    if (!currentRole) return
+    const hours = state.settings.security?.sessionHours ?? DEFAULT_SECURITY.sessionHours
+    const check = () => {
+      const started = sessionStartedAt()
+      if (started && Date.now() - started > hours * 3_600_000) {
+        logSecurity('session-expired', `Session ended after ${hours} hours`)
+        logout()
+        notify('Your session has expired. Please sign in again.', 'warning')
+      }
+    }
+    check()
+    const timer = window.setInterval(check, 60_000)
+    return () => window.clearInterval(timer)
+  }, [currentRole, state.settings.security?.sessionHours, logSecurity, logout, notify])
+
   /** Super admin: change a client's status, modules or discount. This facility's settings follow its own record. */
   const updateTenant = useCallback((id: string, changes: Partial<Pick<Tenant, 'status' | 'offModules' | 'discount'>>, what: string) => {
     if (!can('pricing')) { notify('Only the super admin manages clients', 'warning'); return }
@@ -1835,7 +1881,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [actorName, can, commit, notify])
 
   const resetDemo = useCallback(() => {
-    setState(createInitialState())
+    // The security log is never reset: restoring the demo keeps the audit trail.
+    setState((previous) => ({ ...createInitialState(), securityEvents: previous.securityEvents }))
     setSelectedPatientId(null)
     notify('Demo data restored', 'info')
   }, [notify])
@@ -1903,6 +1950,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
 
   const breakGlass = useCallback((patientId: string, reason: string) => {
     if (!currentRole || !viewerDepartment) return
+    logSecurity('break-glass', `Emergency access to ${stateRef.current.patients.find((item) => item.id === patientId)?.mrn ?? patientId}: ${reason}`)
     const actor = actorName('Clinician')
     const at = new Date().toISOString()
     commit((previous) => {
@@ -1916,7 +1964,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     })
     notify(`Emergency access granted for ${BREAK_GLASS_HOURS} hours — recorded in the audit log`, 'warning')
     setTimeout(() => setSelectedPatientId(patientId), 0)
-  }, [actorName, commit, currentRole, notify, viewerDepartment])
+  }, [actorName, commit, currentRole, notify, viewerDepartment, logSecurity])
 
   const linkDepartment = useCallback((patientId: string, department: DepartmentId, reason: 'Comorbidity' | 'Shared care', note: string) => {
     const actor = actorName('Clinician')
@@ -1945,9 +1993,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

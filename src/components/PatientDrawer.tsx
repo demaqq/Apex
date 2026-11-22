@@ -11,6 +11,7 @@ import { AttachImagesButton, canAttachImages, ImageStrip } from './OrderImages'
 import { SPECIALTY } from '../lib/specialty'
 import { stagesFor, canAdvanceOrder, needsResult, orderStage } from '../lib/clinical'
 import { useHospital } from '../store/HospitalStore'
+import { useStepUp } from './SecurityGuard'
 import { ExternalReferralList, ReferOutModal } from './ReferOut'
 import { connectedFor } from '../lib/network'
 import { downloadPatientSummary, formatDate, formatTime, getEncounterType, relativeTime, statusLabels } from '../lib/format'
@@ -22,6 +23,7 @@ export default function PatientDrawer() {
   const { state, profile, currentRole, selectedPatientId, setSelectedPatientId, can, addNote, advanceOrder, updateReferral, dischargePatient, notify } = useHospital()
   const patient = state.patients.find((item) => item.id === selectedPatientId)
   const [referOutOpen, setReferOutOpen] = useState(false)
+  const stepUp = useStepUp()
   const [tab, setTab] = useState<Tab>('conversation')
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState('')
@@ -74,7 +76,7 @@ export default function PatientDrawer() {
           <div className="drawer-topbar"><span><span className="live-dot" />SHARED CLINICAL EPISODE</span><button className="icon-button" onClick={close} aria-label="Close patient record"><X size={20} /></button></div>
           <div className="patient-identity">
             <div className="patient-identity-main"><Avatar name={patient.name} size="xl" /><div><div className="patient-name-row"><h2>{patient.name}</h2><EsiBadge level={patient.esi} compact /><NewsChip patient={patient} /></div><p>{patient.mrn} <span>·</span> {patient.age} years <span>·</span> {patient.sex}</p><div className="patient-location"><MapPin size={14} />{department?.name} <span>/</span> {patient.location}</div></div></div>
-            <div className="patient-identity-meta"><span className={`encounter-label ${getEncounterType(patient)}`}>{getEncounterType(patient)}</span><StatusBadge status={patient.status} /><button className="icon-button" title="Export episode summary" onClick={() => { if (department) downloadPatientSummary(patient, department.name); notify('Episode summary downloaded', 'info') }}><Download size={18} /></button></div>
+            <div className="patient-identity-meta"><span className={`encounter-label ${getEncounterType(patient)}`}>{getEncounterType(patient)}</span><StatusBadge status={patient.status} /><button className="icon-button" title="Export episode summary" onClick={async () => { if (!department || !(await stepUp(`Download the episode summary of ${patient.name}`))) return; downloadPatientSummary(patient, department.name); notify('Episode summary downloaded', 'info') }}><Download size={18} /></button></div>
           </div>
 
           {patient.status !== 'discharged' && <div className="drawer-actions">

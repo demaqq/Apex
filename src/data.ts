@@ -922,6 +922,7 @@ export function createInitialState(): HospitalState {
     services: serviceSeed(),
     platformInvoices: platformInvoiceSeed(),
     assessments: assessmentSeed(),
+    securityEvents: [],
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },

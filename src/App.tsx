@@ -4,6 +4,7 @@ import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router
 // Static hosts without server-side routing (e.g. a shared preview) build with VITE_HASH_ROUTER=1.
 const Router = import.meta.env.VITE_HASH_ROUTER ? HashRouter : BrowserRouter
 import { HospitalProvider } from './store/HospitalStore'
+import { SecurityGuard } from './components/SecurityGuard'
 import AppShell from './components/AppShell'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
@@ -53,7 +54,7 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route element={<AppShell />}>
+          <Route element={<SecurityGuard><AppShell /></SecurityGuard>}>
             <Route index element={<HomeRedirect />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/triage" element={<TriageBoard />} />

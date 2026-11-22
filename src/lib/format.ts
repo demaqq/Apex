@@ -45,7 +45,16 @@ export const statusLabels: Record<PatientStatus, string> = {
   discharged: 'Discharged',
 }
 
+let exportListener: ((filename: string) => void) | null = null
+let exporter = ''
+/** The store registers who is signed in; every export is logged in the security log. */
+export const setExportAudit = (listener: ((filename: string) => void) | null, name: string) => { exportListener = listener; exporter = name }
+/** For downloads made outside this module (e.g. printed request forms). */
+export const noteExport = (filename: string) => exportListener?.(filename)
+const watermark = () => `CONFIDENTIAL — patient information. Exported by ${exporter || 'unknown user'} on ${new Date().toLocaleString('en-GB')}. Do not share outside the care team.`
+
 function downloadFile(filename: string, content: string, type: string) {
+  exportListener?.(filename)
   const url = URL.createObjectURL(new Blob([content], { type }))
   const link = document.createElement('a')
   link.href = url
@@ -81,6 +90,8 @@ export function downloadPatientSummary(patient: Patient, departmentName: string)
     ? patient.timeline.map((event) => `${formatDate(event.at)} ${formatTime(event.at)} — ${event.title}\n${event.detail} (${event.author})`).join('\n\n')
     : 'No clinical events recorded.'
   const content = [
+    watermark(),
+    '',
     'NORTHSTAR CAREOS',
     'Clinical episode summary',
     '',

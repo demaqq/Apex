@@ -1,3 +1,4 @@
+import { noteExport } from './format'
 import type { ClinicalOrder, ExternalProvider, FacilitySettings, InvestigationItem, NetworkFacility, Patient } from '../types'
 
 /** Laboratory sections, in the order they appear on the worklist and catalogue. */
@@ -129,6 +130,7 @@ export function requestFormHtml({ facility, patient, orders, catalogue, clinical
 
 /** Prints the form through a hidden frame; returns false if the browser blocked it. */
 export function printHtml(html: string) {
+  noteExport('printed request form')
   try {
     const frame = document.createElement('iframe')
     frame.setAttribute('aria-hidden', 'true')
@@ -148,6 +150,7 @@ export function printHtml(html: string) {
 }
 
 export function downloadHtml(filename: string, html: string) {
+  noteExport(filename)
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
   const link = document.createElement('a')
   link.href = url; link.download = filename

@@ -11,13 +11,14 @@ import { BillSummary } from '../components/PlanBill'
 import { DEFAULT_GRADE, gradeLabel, gradesFor, RESIDENT_YEARS } from '../lib/grades'
 import { NetworkPanel } from '../components/NetworkPanel'
 import { ServicesEditor } from '../components/ServicesEditor'
+import { SecurityCenter } from '../components/SecurityCenter'
 import { PlatformInvoices } from '../components/Onboarding'
 import { PROFESSIONS } from '../lib/teaching'
 import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
 import type { Grade, ModuleId, Profession, TeachingSettings, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
 
-type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules'
+type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules' | 'security'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
   pricing: 'Set platform prices (provider only)', 'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
@@ -51,12 +52,14 @@ export default function Admin() {
         { value: 'services', label: 'Services & prices', count: state.services.filter((item) => item.status !== 'Live' && item.status !== 'Declined').length || undefined },
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
         { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
+        { value: 'security', label: 'Security', count: state.securityEvents.filter((event) => ['sign-in-failed', 'locked-out', 'unlock-failed', 'step-up-failed'].includes(event.type) && Date.now() - new Date(event.at).getTime() < 86_400_000).length || undefined },
         { value: 'modules', label: 'Plan & modules', count: state.platformInvoices.filter((item) => item.status === 'Issued').length || undefined },
       ]} />
       {view === 'facility' && <><TeachingSetting /><FacilityTab /></>}
       {view === 'users' && <UsersTab />}
       {view === 'departments' && <DepartmentsTab />}
       {view === 'services' && <ServicesEditor />}
+      {view === 'security' && <SecurityCenter />}
       {view === 'investigations' && <InvestigationsTab />}
       {view === 'providers' && <ProvidersTab />}
       {view === 'modules' && <ModulesTab />}

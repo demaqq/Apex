@@ -593,6 +593,7 @@ export interface FacilitySettings {
   vatRate?: number
   /** Teaching institution details (the switch itself is the Teaching module). */
   teaching?: TeachingSettings
+  security?: SecuritySettings
   /** Note from the super admin on the latest application decision. */
   applicationNote?: string
   /** Reception tariff. */
@@ -777,6 +778,8 @@ export interface HospitalState {
   platformInvoices: PlatformInvoice[]
   /** Workplace-based assessments of trainees (teaching institutions). */
   assessments: Assessment[]
+  /** Tamper-evident security log (newest first, hash-chained). */
+  securityEvents: SecurityEvent[]
 }
 
 /* ---------- Subscription ---------- */
@@ -949,4 +952,31 @@ export interface Assessment {
   /** The trainee has read and accepted it. */
   acknowledgedAt?: string
   traineeComment?: string
+}
+
+/* ---------- Security ---------- */
+
+export interface SecuritySettings {
+  /** Lock the screen after this many idle minutes. */
+  idleMinutes: number
+  /** Sign everyone out after this many hours. */
+  sessionHours: number
+  /** Failed sign-ins before the account locks. */
+  maxAttempts: number
+  /** Ask for the access key again before exporting data. */
+  stepUpExports: boolean
+  /** Ask for the access key again before emergency (break-glass) access. */
+  stepUpBreakGlass: boolean
+}
+
+export interface SecurityEvent {
+  id: string
+  at: string
+  type: 'sign-in' | 'sign-in-failed' | 'locked-out' | 'sign-out' | 'auto-lock' | 'unlock' | 'unlock-failed' | 'session-expired' | 'step-up' | 'step-up-failed' | 'export' | 'break-glass' | 'settings'
+  actor: string
+  role?: string
+  detail: string
+  /** Hash of the previous event; together they form a tamper-evident chain. */
+  prev: string
+  hash: string
 }
