@@ -6,7 +6,8 @@ import { SetUnlockModal } from './UnlockSetup'
 import { useHospital } from '../store/HospitalStore'
 
 const LOCK_KEY = 'northstar-careos-locked'
-const ACTIVITY = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'] as const
+/** 'careos-active' is sent by live features (e.g. a video consultation) so the screen does not lock mid-call. */
+const ACTIVITY = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove', 'careos-active'] as const
 
 type StepUp = (reason: string, kind?: 'export' | 'break-glass') => Promise<boolean>
 interface Guard { requireStepUp: StepUp; needsUnlockSetup: boolean; openUnlockSetup: () => void; dismissUnlockSetup: () => void }

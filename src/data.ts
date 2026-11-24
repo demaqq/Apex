@@ -430,10 +430,10 @@ const invoiceSeed = (): Invoice[] => [
 ]
 
 const appointmentSeed = (): Appointment[] => [
-  { id: 'APT-501', patientId: 'p1013', clinician: 'Dr. Hannah Reid', department: 'obgyn', startsAt: ago(6), durationMinutes: 30, mode: 'Video', status: 'In progress', reason: 'Postpartum blood pressure review' },
-  { id: 'APT-502', patientId: 'p1001', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-120), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-ACS follow-up and medication review' },
-  { id: 'APT-503', patientId: 'p1003', clinician: 'Dr. Tomas Reid', department: 'neurology', startsAt: ago(-1440), durationMinutes: 45, mode: 'Video', status: 'Scheduled', reason: 'Stroke follow-up and NIHSS reassessment' },
-  { id: 'APT-504', patientId: 'p1008', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-2880), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-PCI follow-up and echo review' },
+  { id: 'APT-501', joinCode: 'MX7K2Q', patientId: 'p1013', clinician: 'Dr. Hannah Reid', department: 'obgyn', startsAt: ago(6), durationMinutes: 30, mode: 'Video', startedAt: ago(5), consentAt: ago(6), status: 'In progress', reason: 'Postpartum blood pressure review' },
+  { id: 'APT-502', joinCode: 'CR4P9T', patientId: 'p1001', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-120), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-ACS follow-up and medication review' },
+  { id: 'APT-503', joinCode: 'NV8H3W', patientId: 'p1003', clinician: 'Dr. Tomas Reid', department: 'neurology', startsAt: ago(-1440), durationMinutes: 45, mode: 'Video', status: 'Scheduled', reason: 'Stroke follow-up and NIHSS reassessment' },
+  { id: 'APT-504', joinCode: 'HT5B2D', patientId: 'p1008', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-2880), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-PCI follow-up and echo review' },
   { id: 'APT-505', patientId: 'p1005', clinician: 'Ms. Keiko Sato', department: 'surgery', startsAt: ago(150), durationMinutes: 30, mode: 'In person', status: 'Completed', reason: 'Post-operative hip review' },
 ]
 
@@ -800,7 +800,7 @@ const networkSeed = (): NetworkFacility[] => [
   { id: 'net-fasil', name: 'Fasil Regional Hospital', kind: 'Hospital', city: 'Gondar', services: ['Referrals'], link: 'Platform', capabilities: 'Trauma, orthopaedics, burns' },
 ]
 
-const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['teaching', 'reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
+const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['telemedicine', 'teaching', 'reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
 
 /** Clients subscribed to the platform (the first is this facility). */
 const tenantSeed = (): Tenant[] => [
@@ -832,6 +832,7 @@ const serviceSeed = (): HospitalService[] => [
   svc('SV-08', 'Physiotherapy session', 'Therapy', 25),
   svc('SV-09', 'Dietitian consultation', 'Therapy', 20),
   svc('SV-10', 'Antenatal visit', 'Consultation', 15, 'each', { department: 'obgyn' }),
+  svc('SV-14', 'Video consultation', 'Consultation', 25, 'per visit', { description: 'Consultation by secure video with a doctor or specialist.' }),
   svc('SV-11', 'Normal delivery', 'Procedure', 150, 'each', { department: 'obgyn' }),
   svc('SV-12', 'Diabetic foot clinic', 'Consultation', 30, 'per visit', { department: 'endocrinology', custom: true, featured: true, description: 'Weekly foot screening, wound care and footwear advice for people with diabetes.', requestedAt: ago(40 * 1440), requestedBy: 'Elena Rossi', setupFee: 50, monthlyFee: 15, launchedAt: ago(30 * 1440) }),
   svc('SV-13', 'Home dialysis follow-up', 'Therapy', 70, 'per visit', { department: 'internal-medicine', custom: true, status: 'Pending approval', active: false, description: 'Monthly home visit by a renal nurse with blood tests and dialysis review.', requestedAt: ago(1440), requestedBy: 'Elena Rossi' }),

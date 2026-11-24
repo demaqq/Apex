@@ -9,6 +9,7 @@ import { setCurrency, setExportAudit } from '../lib/format'
 import { readSecure, writeSecure } from '../lib/secureStore'
 import { chainEvent, clearFailures, clearSessionStart, DEFAULT_SECURITY, markSessionStart, sessionStartedAt } from '../lib/security'
 import { PRINTOUT } from '../lib/diagnostics'
+import { makeJoinCode } from '../lib/telecall'
 import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
 import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
@@ -151,6 +152,9 @@ interface HospitalContextValue {
   sendErx: (id: string, phone: string) => void
   setInvoiceStatus: (id: string, status: InvoiceStatus) => void
   scheduleAppointment: (input: Omit<Appointment, 'id' | 'status'>) => void
+  startTeleconsult: (id: string) => void
+  recordTeleConsent: (id: string) => void
+  finishTeleconsult: (id: string, summary: string) => void
   setAppointmentStatus: (id: string, status: AppointmentStatus) => void
   setStaffDuty: (id: string, onDuty: boolean) => void
   activateCode: (id: string, location: string) => void
@@ -798,13 +802,46 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(status === 'Paid' ? `Payment recorded for ${id}` : `Claim submitted for ${id}`)
   }, [actorName, commit, notify])
 
+  /** Video consultation lifecycle: start (doctor joins), patient consent, finish (duration on the timeline). */
+  const startTeleconsult = useCallback((id: string) => {
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      if (!apt) return null
+      return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, status: 'In progress' as const, startedAt: item.startedAt ?? new Date().toISOString(), joinCode: item.joinCode ?? makeJoinCode() } : item) }, actor, action: `opened the video consultation room for ${apt.id}`, department: apt.department, patientId: apt.patientId }
+    })
+  }, [actorName, commit])
+
+  const recordTeleConsent = useCallback((id: string) => {
+    setState((previous) => ({ ...previous, appointments: previous.appointments.map((item) => item.id === id && !item.consentAt ? { ...item, consentAt: new Date().toISOString() } : item) }))
+  }, [])
+
+  const finishTeleconsult = useCallback((id: string, summary: string) => {
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      if (!apt) return null
+      const endedAt = new Date().toISOString()
+      const minutes = apt.startedAt ? Math.max(1, Math.round((Date.parse(endedAt) - Date.parse(apt.startedAt)) / 60_000)) : apt.durationMinutes
+      return {
+        next: {
+          ...previous,
+          appointments: previous.appointments.map((item) => item.id === id ? { ...item, status: 'Completed' as const, endedAt } : item),
+          patients: withTimeline(previous.patients, apt.patientId, { type: 'note', title: 'Video consultation', detail: `${minutes} min with ${actor} · ${apt.reason}.${apt.consentAt ? ' Patient consented to a video consultation.' : ' Consent not recorded on the join page.'}${summary ? ` ${summary}` : ''}`, author: actor, department: apt.department }),
+        },
+        actor, action: `completed a ${minutes}-minute video consultation (${apt.id})`, department: apt.department, patientId: apt.patientId,
+      }
+    })
+    notify('Video consultation completed and added to the record')
+  }, [actorName, commit, notify])
+
   const scheduleAppointment = useCallback((input: Omit<Appointment, 'id' | 'status'>) => {
     const actor = actorName('Scheduling team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === input.patientId)
       if (!patient) return null
       const id = nextNumber(previous.appointments.map((item) => item.id), 'APT', 500)
-      return { next: { ...previous, appointments: [...previous.appointments, { ...input, id, status: 'Scheduled' }] }, actor, action: `scheduled a ${input.mode.toLowerCase()} visit for ${patient.name}`, department: input.department, patientId: patient.id }
+      return { next: { ...previous, appointments: [...previous.appointments, { ...input, id, status: 'Scheduled', ...(input.mode === 'Video' && !input.joinCode ? { joinCode: makeJoinCode() } : {}) }] }, actor, action: `scheduled a ${input.mode.toLowerCase()} visit for ${patient.name}`, department: input.department, patientId: patient.id }
     })
     notify('Visit scheduled')
   }, [actorName, commit, notify])
@@ -857,7 +894,8 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
   }, [currentRole, state.staff])
 
   const recordObservations = useCallback((patientId: string, vitals: Vitals, onOxygen: boolean, consciousness: Consciousness, context: ObservationContext = 'Bedside') => {
-    if (denied(['vitals'], 'record vital signs')) return
+    // Readings a patient reports on a video visit can be documented by any clinician who writes notes.
+    if (denied(context === 'Telemedicine' ? ['vitals', 'clinical-notes'] : ['vitals'], 'record vital signs')) return
     const actor = actorName('Nursing team')
     commit((previous) => {
       const patient = previous.patients.find((item) => item.id === patientId)
@@ -2005,12 +2043,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     state: scopedState, currentRole, profile, grade: myGrade, level: myLevel, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
-    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
+    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, logSecurity, saveSecurity, setUnlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

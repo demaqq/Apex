@@ -1047,3 +1047,56 @@ tr.security-alert td { background: color-mix(in srgb, var(--danger, #dc2626) 5%,
 .unlock-fields { display: grid; gap: 10px; }
 .unlock-fields .segmented button { display: inline-flex; align-items: center; gap: 5px; }
 .form-notice { margin: 0; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--amber, #d97706) 12%, transparent); color: var(--text); font-size: 13px; }
+
+/* ---------- Telemedicine ---------- */
+.tele-room { position: fixed; inset: 0; z-index: 1100; display: grid; grid-template-columns: minmax(0, 1fr) 380px; background: #0b1416; color: #e6f2f0; }
+.tele-stage { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; }
+.tele-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.tele-head > div:first-child { display: grid; }
+.tele-head span { color: rgba(230,242,240,.65); font-size: 12.5px; }
+.tele-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tele-videos { position: relative; min-height: 280px; margin: 12px; border-radius: 16px; overflow: hidden; background: radial-gradient(circle at 50% 40%, #16302f, #070d0e); }
+.tele-remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.tele-local { position: absolute; right: 14px; bottom: 14px; width: min(220px, 32%); aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; border: 2px solid rgba(255,255,255,.25); background: #102021; transform: scaleX(-1); }
+.tele-local.off { opacity: .25; }
+.tele-waiting { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 20px; text-align: center; }
+.tele-waiting span { max-width: 440px; color: rgba(230,242,240,.7); font-size: 13px; }
+.tele-code { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+.tele-code .mono { padding: 6px 12px; border-radius: 8px; background: rgba(255,255,255,.08); font-size: 22px; letter-spacing: .2em; }
+.tele-link { color: #7ee0cf; font-size: 13px; }
+.tele-problem { position: absolute; left: 14px; bottom: 14px; margin: 0; padding: 6px 10px; border-radius: 8px; background: rgba(217,119,6,.2); color: #fcd9a6; font-size: 12px; }
+.tele-controls { display: flex; justify-content: center; gap: 12px; padding: 12px 0 18px; }
+.tele-controls button { display: inline-flex; align-items: center; gap: 6px; height: 48px; min-width: 48px; padding: 0 14px; justify-content: center; border: 0; border-radius: 999px; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; }
+.tele-controls button.off { background: #fff; color: #0b1416; }
+.tele-controls button.on { background: #0f766e; }
+.tele-controls button.end { background: #dc2626; padding: 0 20px; }
+.tele-side { display: grid; grid-template-rows: auto 1fr; min-height: 0; background: var(--paper); color: var(--text); }
+.tele-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px; border-bottom: 1px solid var(--line-soft); }
+.tele-tabs button { display: inline-flex; align-items: center; gap: 5px; }
+.tele-panel { display: grid; align-content: start; gap: 10px; padding: 14px 16px; overflow-y: auto; font-size: 13px; }
+.tele-panel p { margin: 0; }
+.tele-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tele-list { margin: 0; padding-left: 16px; display: grid; gap: 4px; color: var(--muted); }
+.tele-actions { display: grid; gap: 8px; }
+.tele-chat { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; }
+.tele-chat p { display: grid; max-width: 85%; padding: 7px 10px; border-radius: 10px; background: var(--sunken); font-size: 13px; }
+.tele-chat p.me { justify-self: end; background: var(--accent-soft); }
+.tele-chat b { font-size: 11px; color: var(--muted); }
+.tele-card.here { border-color: color-mix(in srgb, var(--amber, #d97706) 55%, var(--line-soft)); }
+.tele-card > header { display: flex; justify-content: space-between; gap: 8px; }
+.tele-card > header > div { display: grid; }
+.tele-card small { color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) { .tele-room { grid-template-columns: 1fr; grid-template-rows: minmax(360px, 60vh) 1fr; overflow-y: auto; } }
+
+/* Patient join page */
+.join-page { min-height: 100vh; display: grid; align-content: start; justify-items: center; gap: 18px; padding: 18px 16px 40px; background: var(--canvas, var(--sunken)); color: var(--text); }
+.join-head { width: min(760px, 100%); }
+.join-card { display: grid; gap: 14px; width: min(560px, 100%); padding: 22px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--paper); }
+.join-card h1 { margin: 0; font-size: 24px; }
+.join-preview { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: #0b1416; }
+.join-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.join-preview button { position: relative; }
+.consent-row { align-items: flex-start; line-height: 1.45; }
+.join-call { display: grid; gap: 10px; width: min(960px, 100%); }
+.join-call .tele-videos { min-height: min(70vh, 560px); margin: 0; color: #e6f2f0; }
+.join-chat { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper); }

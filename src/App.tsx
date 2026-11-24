@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 // Static hosts without server-side routing (e.g. a shared preview) build with VITE_HASH_ROUTER=1.
@@ -46,6 +46,8 @@ const Review = lazy(() => import('./pages/Review'))
 const Admin = lazy(() => import('./pages/Admin'))
 const Platform = lazy(() => import('./pages/Platform'))
 const Teaching = lazy(() => import('./pages/Teaching'))
+const Telemedicine = lazy(() => import('./pages/Telemedicine'))
+const JoinVisit = lazy(() => import('./pages/JoinVisit'))
 const SpecialtyDashboard = lazy(() => import('./pages/SpecialtyDashboard'))
 
 export default function App() {
@@ -54,6 +56,9 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Patients join video visits without an account. */}
+          <Route path="/join" element={<Suspense fallback={null}><JoinVisit /></Suspense>} />
+          <Route path="/join/:code" element={<Suspense fallback={null}><JoinVisit /></Suspense>} />
           <Route element={<SecurityGuard><AppShell /></SecurityGuard>}>
             <Route index element={<HomeRedirect />} />
             <Route path="/dashboard" element={<Dashboard />} />
@@ -82,6 +87,7 @@ export default function App() {
             <Route path="/admin" element={<Admin />} />
             <Route path="/platform" element={<Platform />} />
             <Route path="/teaching" element={<Teaching />} />
+            <Route path="/telemedicine" element={<Telemedicine />} />
             <Route path="/specialty" element={<SpecialtyDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Route>

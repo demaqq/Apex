@@ -1,4 +1,4 @@
-import { Cloud, GraduationCap, DoorOpen, ScanLine, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
+import { Cloud, MonitorPlay, GraduationCap, DoorOpen, ScanLine, Activity, BedDouble, Building2, CalendarClock, ClipboardCheck, FilePenLine, FlaskConical, GitBranch, HandHeart, LayoutDashboard, MonitorDot, Network, Pill, Receipt, Scissors, ShieldAlert, ShieldCheck, Stethoscope, UserPlus, UsersRound, Video, type LucideIcon } from 'lucide-react'
 import type { RoleId } from '../types'
 
 export interface NavItem {
@@ -29,6 +29,7 @@ export const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
     { to: '/patients', label: 'Patients', page: 'Patient records', icon: UsersRound, roles: [...CLINICIANS, 'coordinator', 'diagnostics', 'radiographer', 'laboratory', 'pharmacist', 'theatre', 'allied'], key: 'p' },
     { to: '/review', label: 'Notes to review', page: 'Notes to review', icon: FilePenLine, roles: ['consultant', 'physician', 'intern'] },
     { to: '/teaching', label: 'Teaching & assessment', page: 'Teaching & assessment', icon: GraduationCap, roles: ['physician', 'consultant', 'intern', 'nurse', 'pharmacist', 'laboratory', 'diagnostics', 'radiographer', 'administrator'], key: 'e' },
+    { to: '/telemedicine', label: 'Telemedicine', page: 'Video consultations', icon: MonitorPlay, roles: ['physician', 'consultant', 'intern', 'nurse'], key: 'v' },
     { to: '/telehealth', label: 'Appointments', page: 'Appointments & telehealth', icon: Video, roles: ['physician', 'consultant', 'intern', 'receptionist'], key: 'a' },
   ] },
   { label: 'Wards', items: [

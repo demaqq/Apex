@@ -30,7 +30,7 @@ export interface Vitals {
 
 export type Consciousness = 'Alert' | 'New confusion' | 'Voice' | 'Pain' | 'Unresponsive'
 
-export type ObservationContext = 'Triage' | 'Ward round' | 'Bedside' | 'Clinic' | 'Recovery'
+export type ObservationContext = 'Triage' | 'Ward round' | 'Bedside' | 'Clinic' | 'Recovery' | 'Telemedicine'
 export const OBSERVATION_CONTEXTS: ObservationContext[] = ['Triage', 'Ward round', 'Bedside', 'Clinic', 'Recovery']
 
 export interface ObservationSet extends Vitals {
@@ -541,6 +541,12 @@ export interface Appointment {
   mode: 'Video' | 'In person'
   status: AppointmentStatus
   reason: string
+  /** Video visits: the code the patient enters to join. */
+  joinCode?: string
+  startedAt?: string
+  endedAt?: string
+  /** When the patient gave consent to a video consultation (from the join page). */
+  consentAt?: string
 }
 
 /* ---------- Staff ---------- */
@@ -786,7 +792,7 @@ export interface HospitalState {
 
 /* ---------- Subscription ---------- */
 
-export type ModuleId = 'teaching' | 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
+export type ModuleId = 'telemedicine' | 'teaching' | 'reception' | 'appointments' | 'billing' | 'triage' | 'opd' | 'wards' | 'specialty' | 'review' | 'network' | 'laboratory' | 'imaging' | 'pharmacy' | 'theatres' | 'services' | 'operations'
 
 export interface PriceList {
   currency: 'USD' | 'ETB' | 'EUR'
@@ -806,12 +812,14 @@ export interface PriceList {
   perImagingStudy: number
   /** Teaching institutions: per trainee assessed in the month. */
   perTrainee: number
+  /** Telemedicine: per completed video consultation. */
+  perTeleconsult: number
 }
 
 /** Setup → Pending approval → Awaiting payment → Payment review → Active. */
 export type SubscriptionStatus = 'Setup' | 'Pending approval' | 'Awaiting payment' | 'Payment review' | 'Active' | 'Trial' | 'Suspended'
 
-export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number; trainees?: number }
+export interface TenantUsage { users: number; beds: number; visits: number; labTests: number; imagingStudies: number; departments: number; trainees?: number; teleconsults?: number }
 
 /** A client facility subscribed to the platform. */
 export interface Tenant {

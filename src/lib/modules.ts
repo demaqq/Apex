@@ -19,6 +19,7 @@ export const MODULES: ModuleDef[] = [
   { id: 'appointments', name: 'Appointments & telehealth', group: 'Front office', description: 'Clinic booking, follow-up visits and video consultations.', routes: ['/telehealth'] },
   { id: 'billing', name: 'Billing & insurance claims', group: 'Front office', description: 'Episode invoices, payments and insurer claims.', routes: ['/billing'], roles: ['billing'] },
   { id: 'triage', name: 'Emergency & triage', group: 'Clinical care', description: 'ESI triage, waiting room and emergency department board.', routes: ['/triage'] },
+  { id: 'telemedicine', name: 'Telemedicine', group: 'Clinical care', description: 'Video consultations with a virtual waiting room, patient join link, consent, e-prescription and remote vitals.', routes: ['/telemedicine'] },
   { id: 'opd', name: 'Outpatient clinics (OPD)', group: 'Clinical care', description: 'Clinic queues for every department, called from reception.', routes: ['/opd'], requires: ['reception'] },
   { id: 'wards', name: 'Inpatient wards', group: 'Clinical care', description: 'Bed board, shift handover and medication rounds.', routes: ['/beds', '/handover', '/med-round'] },
   { id: 'specialty', name: 'Specialty charts & dashboards', group: 'Clinical care', description: 'Partograph, SAM, neuro, ANC, oncology and other department charts.', routes: ['/specialty'] },
@@ -67,7 +68,7 @@ export const DEFAULT_PRICES: PriceList = {
   currency: 'USD',
   vatRate: 15,
   platform: 150,
-  modules: { reception: 60, appointments: 40, billing: 50, triage: 60, opd: 50, wards: 80, specialty: 60, review: 25, network: 30, laboratory: 90, imaging: 110, pharmacy: 80, theatres: 90, services: 40, operations: 30, teaching: 120 },
+  modules: { reception: 60, appointments: 40, billing: 50, triage: 60, opd: 50, wards: 80, specialty: 60, review: 25, network: 30, laboratory: 90, imaging: 110, pharmacy: 80, theatres: 90, services: 40, operations: 30, teaching: 120, telemedicine: 70 },
   perDepartment: 15,
   perUser: 4,
   perBed: 2,
@@ -75,6 +76,7 @@ export const DEFAULT_PRICES: PriceList = {
   perLabTest: 0.1,
   perImagingStudy: 0.3,
   perTrainee: 3,
+  perTeleconsult: 0.5,
   includedDepartments: 3,
   includedUsers: 10,
 }
@@ -91,7 +93,7 @@ const DAY = 86_400_000
 export interface BillLine { label: string; detail: string; amount: number; kind: 'platform' | 'module' | 'departments' | 'usage' }
 
 /** This facility's usage over the last 30 days, counted from its records. */
-export function liveUsage(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments'> & Partial<Pick<HospitalState, 'assessments'>>, now = Date.now()): TenantUsage {
+export function liveUsage(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments'> & Partial<Pick<HospitalState, 'assessments' | 'appointments'>>, now = Date.now()): TenantUsage {
   const since = now - 30 * DAY
   const recent = (at?: string) => Boolean(at) && new Date(at!).getTime() >= since
   return {
@@ -102,6 +104,7 @@ export function liveUsage(state: Pick<HospitalState, 'settings' | 'staff' | 'bed
     imagingStudies: state.orders.filter((order) => order.kind === 'Imaging' && !order.externalProviderId && recent(order.createdAt)).length,
     departments: state.departments.filter((department) => department.active !== false && !['laboratory', 'radiology', 'pharmacy'].includes(department.id)).length,
     trainees: new Set((state.assessments ?? []).filter((item) => recent(item.at)).map((item) => item.traineeId)).size,
+    teleconsults: (state.appointments ?? []).filter((item) => item.mode === 'Video' && item.status === 'Completed' && recent(item.endedAt ?? item.startsAt)).length,
   }
 }
 
@@ -117,6 +120,7 @@ export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: Pric
     ...(has('wards') ? [{ label: 'Beds', detail: `${usage.beds} beds`, amount: usage.beds * prices.perBed, kind: 'usage' as const }] : []),
     { label: 'Patient visits', detail: `${usage.visits} in the last 30 days`, amount: usage.visits * prices.perVisit, kind: 'usage' },
     ...(has('laboratory') ? [{ label: 'Laboratory tests', detail: `${usage.labTests} done here in 30 days`, amount: usage.labTests * prices.perLabTest, kind: 'usage' as const }] : []),
+    ...(has('telemedicine') ? [{ label: 'Video consultations', detail: `${usage.teleconsults ?? 0} completed in 30 days`, amount: (usage.teleconsults ?? 0) * (prices.perTeleconsult ?? 0), kind: 'usage' as const }] : []),
     ...(has('teaching') ? [{ label: 'Trainees assessed', detail: `${usage.trainees ?? 0} in the last 30 days`, amount: (usage.trainees ?? 0) * (prices.perTrainee ?? 0), kind: 'usage' as const }] : []),
     ...(has('imaging') ? [{ label: 'Imaging studies', detail: `${usage.imagingStudies} done here in 30 days`, amount: usage.imagingStudies * prices.perImagingStudy, kind: 'usage' as const }] : []),
   ]
@@ -130,7 +134,7 @@ export function billFor(usage: TenantUsage, offModules: ModuleId[], prices: Pric
 }
 
 /** This facility's monthly bill. */
-export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments' | 'tenants'> & Partial<Pick<HospitalState, 'services' | 'assessments'>>, prices: PriceList, now = Date.now()) {
+export function estimateBill(state: Pick<HospitalState, 'settings' | 'staff' | 'beds' | 'patients' | 'orders' | 'departments' | 'tenants'> & Partial<Pick<HospitalState, 'services' | 'assessments' | 'appointments'>>, prices: PriceList, now = Date.now()) {
   const tenant = state.tenants?.find((item) => item.live)
   const extras = (state.services ?? []).filter((item) => item.custom && item.status === 'Live' && item.monthlyFee).map((item) => ({ label: item.name, amount: item.monthlyFee! }))
   return billFor(liveUsage(state, now), state.settings.offModules ?? [], prices, tenant?.discount ?? 0, extras)
