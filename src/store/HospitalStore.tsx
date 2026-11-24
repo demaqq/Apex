@@ -6,15 +6,21 @@ import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
 import { canAssess, levelOf, professionOf, ROLE_LEVELS } from '../lib/teaching'
 import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
 import { setCurrency, setExportAudit } from '../lib/format'
-import { readSecure, writeSecure } from '../lib/secureStore'
+import { onExternalChange, readSecure, writeSecure } from '../lib/secureStore'
 import { chainEvent, clearFailures, clearSessionStart, DEFAULT_SECURITY, markSessionStart, sessionStartedAt } from '../lib/security'
 import { PRINTOUT } from '../lib/diagnostics'
 import { makeJoinCode } from '../lib/telecall'
+import { dueReminders, IN_HOUSE, MESSAGE_SERVICE, paymentReference, pharmacyName, priceOf, reminderText, serviceFor, visitInvoice } from '../lib/telehealth'
 import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
 import { setReceptionGate } from '../lib/clinical'
 import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } from '../lib/clinical'
 import type {
   AppointmentStatus,
+  MessageThread,
+  TeleIntake,
+  TeleService,
+  VisitPayer,
+  VisitSummary,
   Assessment,
   UnlockSecret,
   SecurityEvent,
@@ -154,7 +160,19 @@ interface HospitalContextValue {
   scheduleAppointment: (input: Omit<Appointment, 'id' | 'status'>) => void
   startTeleconsult: (id: string) => void
   recordTeleConsent: (id: string) => void
-  finishTeleconsult: (id: string, summary: string) => void
+  finishTeleconsult: (id: string, summary: string, avs?: Pick<VisitSummary, 'diagnosis' | 'plan' | 'advice' | 'followUp'>) => void
+  /* Patient portal: the patient is verified on the portal (MRN + phone digits); actions are logged as the patient portal. */
+  portalRegister: (input: { name: string; age: number; sex: Patient['sex']; phone: string; email?: string }) => { id: string; mrn: string }
+  requestVideoVisit: (input: VideoVisitRequest) => { id: string; joinCode: string; reference: string; amount: number } | null
+  cancelVideoVisit: (id: string, by: 'Patient' | 'Staff') => void
+  updateIntake: (id: string, intake: TeleIntake) => void
+  rateVisit: (id: string, stars: number, comment: string) => void
+  setVisitPharmacy: (id: string, pharmacy: string) => void
+  claimOnDemand: (id: string) => void
+  sendVisitReminder: (id: string, auto?: boolean) => void
+  openThread: (input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean }) => string | null
+  patientMessage: (threadId: string, text: string, photos: string[]) => void
+  replyThread: (threadId: string, text: string, close: boolean) => void
   setAppointmentStatus: (id: string, status: AppointmentStatus) => void
   setStaffDuty: (id: string, onDuty: boolean) => void
   activateCode: (id: string, location: string) => void
@@ -238,6 +256,21 @@ interface HospitalContextValue {
   dismissToast: (id: number) => void
 }
 
+export interface VideoVisitRequest {
+  patientId: string
+  service: TeleService
+  onDemand: boolean
+  department: DepartmentId
+  clinician?: string
+  startsAt?: string
+  reason: string
+  intake: TeleIntake
+  payer: VisitPayer
+  insurer?: string
+  reminders?: { channels: Array<'SMS' | 'Email'>; phone?: string; email?: string }
+  pharmacy: string
+}
+
 const HospitalContext = createContext<HospitalContextValue | null>(null)
 
 /** Administrators manage the facility, not patients, so record access is a no-op for them. */
@@ -251,10 +284,13 @@ function mergeById<T extends { id: string }>(saved: unknown, seed: T[]): T[] {
 }
 
 function loadState(): HospitalState {
+  // Decrypted at start-up (see lib/secureStore).
+  return fromSaved(readSecure(DATA_KEY))
+}
+
+function fromSaved(saved: string | null): HospitalState {
   const seed = createInitialState()
   try {
-    // Decrypted at start-up (see lib/secureStore).
-    const saved = readSecure(DATA_KEY)
     if (!saved) return seed
     const parsed = JSON.parse(saved) as Partial<HospitalState>
     return {
@@ -291,6 +327,7 @@ function loadState(): HospitalState {
       platformInvoices: mergeById(parsed.platformInvoices, seed.platformInvoices),
       assessments: mergeById(parsed.assessments, seed.assessments),
       securityEvents: Array.isArray(parsed.securityEvents) ? parsed.securityEvents : [],
+      messageThreads: mergeById(parsed.messageThreads, seed.messageThreads),
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -404,9 +441,16 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     toastTimers.current.set(toastId, window.setTimeout(() => dismissToast(toastId), 4200))
   }, [dismissToast])
 
+  // Another tab on this device changed the record (e.g. a patient joined the video queue): take its copy.
+  const external = useRef<string | null>(null)
+  useEffect(() => onExternalChange(DATA_KEY, (value) => { external.current = value; setState(fromSaved(value)) }), [])
+
   useEffect(() => {
+    const json = JSON.stringify(state)
+    if (external.current !== null && json === external.current) { external.current = null; return }
+    external.current = null
     // Saved encrypted (AES-GCM, device key) where the browser supports it.
-    writeSecure(DATA_KEY, JSON.stringify(state), () => {
+    writeSecure(DATA_KEY, json, () => {
       if (!storageWarned.current) {
         storageWarned.current = true
         notify('Browser storage is full — recent changes may not persist after reload.', 'warning')
@@ -816,24 +860,206 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     setState((previous) => ({ ...previous, appointments: previous.appointments.map((item) => item.id === id && !item.consentAt ? { ...item, consentAt: new Date().toISOString() } : item) }))
   }, [])
 
-  const finishTeleconsult = useCallback((id: string, summary: string) => {
+  const finishTeleconsult = useCallback((id: string, summary: string, avs?: Pick<VisitSummary, 'diagnosis' | 'plan' | 'advice' | 'followUp'>) => {
     const actor = actorName('Clinician')
     commit((previous) => {
       const apt = previous.appointments.find((item) => item.id === id)
       if (!apt) return null
       const endedAt = new Date().toISOString()
+      const since = apt.startedAt ?? apt.startsAt
       const minutes = apt.startedAt ? Math.max(1, Math.round((Date.parse(endedAt) - Date.parse(apt.startedAt)) / 60_000)) : apt.durationMinutes
+      // Prescriptions and orders made during the call go on the after-visit summary; e-prescriptions go to the patient's chosen pharmacy.
+      const pharmacy = apt.pharmacy ?? IN_HOUSE
+      const rxs = previous.prescriptions.filter((rx) => rx.patientId === apt.patientId && rx.createdAt >= since)
+      const orders = previous.orders.filter((order) => order.patientId === apt.patientId && order.createdAt >= since)
+      const medName = (medicationId: string) => previous.formulary.find((med) => med.id === medicationId)?.name ?? 'Medicine'
+      const visitSummary: VisitSummary | undefined = avs ? {
+        ...avs,
+        prescriptions: rxs.map((rx) => `${rx.items.map((item) => `${medName(item.medicationId)} ${item.dosage} ${item.frequency} for ${item.duration}`).join('; ')}${rx.eRx ? ` — code ${rx.eRx.code}` : ''}`),
+        orders: orders.map((order) => `${order.kind}: ${order.title}`),
+        pharmacy: pharmacyName(pharmacy, previous),
+        sharedAt: endedAt, by: actor,
+      } : undefined
+      const detail = apt.confidential
+        ? `Confidential ${apt.service === 'Mental health' ? 'mental-health ' : ''}video consultation, ${minutes} min with ${actor}. Details are held by the treating clinician.`
+        : `${minutes} min with ${actor} · ${apt.reason}.${apt.consentAt ? ' Patient consented to a video consultation.' : ' Consent not recorded on the join page.'}${summary ? ` ${summary}` : ''}${visitSummary ? ` Diagnosis: ${visitSummary.diagnosis}. Plan: ${visitSummary.plan}` : ''}`
       return {
         next: {
           ...previous,
-          appointments: previous.appointments.map((item) => item.id === id ? { ...item, status: 'Completed' as const, endedAt } : item),
-          patients: withTimeline(previous.patients, apt.patientId, { type: 'note', title: 'Video consultation', detail: `${minutes} min with ${actor} · ${apt.reason}.${apt.consentAt ? ' Patient consented to a video consultation.' : ' Consent not recorded on the join page.'}${summary ? ` ${summary}` : ''}`, author: actor, department: apt.department }),
+          appointments: previous.appointments.map((item) => item.id === id ? { ...item, status: 'Completed' as const, endedAt, ...(visitSummary ? { summary: visitSummary } : {}) } : item),
+          prescriptions: previous.prescriptions.map((rx) => rxs.includes(rx) && rx.eRx ? { ...rx, eRx: { ...rx.eRx, pharmacy } } : rx),
+          patients: withTimeline(previous.patients, apt.patientId, { type: 'note', title: apt.confidential ? 'Confidential video consultation' : 'Video consultation', detail, author: actor, department: apt.department }),
         },
-        actor, action: `completed a ${minutes}-minute video consultation (${apt.id})`, department: apt.department, patientId: apt.patientId,
+        actor, action: `completed a ${minutes}-minute video consultation (${apt.id})${visitSummary ? ' and shared the after-visit summary' : ''}`, department: apt.department, patientId: apt.patientId,
       }
     })
-    notify('Video consultation completed and added to the record')
+    notify(avs ? 'Visit completed — summary shared with the patient' : 'Video consultation completed and added to the record')
   }, [actorName, commit, notify])
+
+  const PORTAL = 'Patient portal'
+
+  const portalRegister = useCallback((input: { name: string; age: number; sex: Patient['sex']; phone: string; email?: string }) => {
+    const id = makeId('p')
+    const used = new Set(stateRef.current.patients.map((item) => item.mrn))
+    let mrn = ''
+    do { mrn = `NS-${String(Math.floor(100000 + Math.random() * 899999))}` } while (used.has(mrn))
+    const now = new Date().toISOString()
+    const patient: Patient = {
+      id, mrn, name: input.name.trim(), age: input.age, sex: input.sex, pronouns: input.sex === 'Female' ? 'she/her' : input.sex === 'Male' ? 'he/him' : 'they/them',
+      complaint: 'Registered for video consultations', history: 'Self-registered on the patient portal.', allergies: ['Not yet recorded'], arrival: now, esi: 5, riskFactors: [], resources: 0,
+      vitals: { hr: 0, rr: 0, spo2: 0, bpSys: 0, bpDia: 0, temp: 0, gcs: 15, pain: 0 }, department: 'internal-medicine', encounterType: 'outpatient', location: 'Home · telemedicine', status: 'discharged', assignedTo: 'Unassigned',
+      phone: input.phone.trim(), email: input.email?.trim() || undefined,
+      timeline: [{ id: makeId('ev'), at: now, type: 'arrival', title: 'Registered on the patient portal', detail: 'New patient record created for video consultations. Identity to be confirmed at the first visit.', author: PORTAL, department: 'internal-medicine' }],
+    }
+    commit((previous) => ({ next: { ...previous, patients: [patient, ...previous.patients] }, actor: PORTAL, action: `registered ${patient.name} for video consultations`, department: 'internal-medicine', patientId: id }))
+    return { id, mrn }
+  }, [commit])
+
+  const requestVideoVisit = useCallback((input: VideoVisitRequest) => {
+    const current = stateRef.current
+    const patient = current.patients.find((item) => item.id === input.patientId)
+    if (!patient || input.reason.trim().length < 3) return null
+    if (!input.onDemand && (!input.clinician || !input.startsAt)) return null
+    const id = nextNumber(current.appointments.map((item) => item.id), 'APT', 500)
+    const invoiceId = nextNumber(current.invoices.map((item) => item.id), 'INV', 24000)
+    const joinCode = makeJoinCode()
+    const reference = paymentReference()
+    const serviceId = serviceFor(input.service, input.onDemand)
+    const { name, price } = priceOf(serviceId, current.services)
+    const now = new Date().toISOString()
+    const confidential = input.service === 'Mental health'
+    const appointment: Appointment = {
+      id, patientId: patient.id, clinician: input.onDemand ? '' : input.clinician!, department: input.department, startsAt: input.onDemand ? now : input.startsAt!, durationMinutes: input.service === 'Mental health' ? 45 : input.onDemand ? 15 : 30,
+      mode: 'Video', status: 'Scheduled', reason: input.reason.trim(), joinCode, service: input.service, bookedBy: 'Patient', intake: input.intake, pharmacy: input.pharmacy, confidential,
+      ...(input.onDemand ? { onDemand: true, queuedAt: now } : {}),
+      payment: { payer: input.payer, amount: price, at: now, invoiceId, reference, ...(input.insurer ? { insurer: input.insurer } : {}) },
+      ...(input.reminders?.channels.length ? { reminders: { ...input.reminders, sent: [] } } : {}),
+    }
+    commit((previous) => ({
+      next: {
+        ...previous,
+        appointments: [...previous.appointments, appointment],
+        invoices: [visitInvoice(invoiceId, patient.id, serviceId, name, price, input.payer, input.insurer, now), ...previous.invoices],
+        patients: withTimeline(previous.patients, patient.id, { type: 'note', title: input.onDemand ? 'Joined the on-demand video queue' : 'Video visit booked', detail: confidential ? 'Confidential mental-health session booked on the patient portal.' : `${input.service}${input.onDemand ? ' · next available clinician' : ` with ${input.clinician} on ${new Date(input.startsAt!).toLocaleString()}`}. Reason: ${input.reason.trim()}. Paid by ${input.payer.toLowerCase()} (${reference}).`, author: PORTAL, department: input.department }),
+      },
+      actor: PORTAL, action: `${input.onDemand ? 'joined the video queue' : 'booked a video visit'} for ${patient.name} (${id})`, department: input.department, patientId: patient.id,
+    }))
+    return { id, joinCode, reference, amount: price }
+  }, [commit])
+
+  const cancelVideoVisit = useCallback((id: string, by: 'Patient' | 'Staff') => {
+    const actor = by === 'Patient' ? PORTAL : actorName('Clinical team')
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      if (!apt || apt.status === 'Completed' || apt.status === 'Cancelled') return null
+      // Full refund when cancelled by the clinic, or by the patient more than 2 hours before (always for the on-demand queue).
+      const refund = Boolean(apt.payment) && (by === 'Staff' || apt.onDemand || Date.parse(apt.startsAt) - Date.now() > 2 * 3_600_000)
+      return {
+        next: {
+          ...previous,
+          appointments: previous.appointments.map((item) => item.id === id ? { ...item, status: 'Cancelled' as const, cancelledBy: by, ...(refund && item.payment ? { payment: { ...item.payment, refundedAt: new Date().toISOString() } } : {}) } : item),
+          invoices: refund ? previous.invoices.map((inv) => inv.id === apt.payment!.invoiceId ? { ...inv, discount: inv.items.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0), status: 'Paid' as const, paidAt: new Date().toISOString() } : inv) : previous.invoices,
+        },
+        actor, action: `cancelled video visit ${id}${refund ? ' with a full refund' : ''}`, department: apt.department, patientId: apt.patientId,
+      }
+    })
+    notify(by === 'Patient' ? 'Visit cancelled' : 'Visit cancelled and refunded', 'info')
+  }, [actorName, commit, notify])
+
+  const updateIntake = useCallback((id: string, intake: TeleIntake) => {
+    setState((previous) => ({ ...previous, appointments: previous.appointments.map((item) => item.id === id && item.status === 'Scheduled' ? { ...item, intake } : item) }))
+  }, [])
+
+  const rateVisit = useCallback((id: string, stars: number, comment: string) => {
+    const value = Math.min(5, Math.max(1, Math.round(stars)))
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      if (!apt || apt.status !== 'Completed') return null
+      return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, rating: { stars: value, ...(comment.trim() ? { comment: comment.trim().slice(0, 400) } : {}), at: new Date().toISOString() } } : item) }, actor: PORTAL, action: `rated video visit ${id} ${value} of 5`, department: apt.department, patientId: apt.patientId }
+    })
+  }, [commit])
+
+  const setVisitPharmacy = useCallback((id: string, pharmacy: string) => {
+    setState((previous) => ({ ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, pharmacy } : item) }))
+  }, [])
+
+  const claimOnDemand = useCallback((id: string) => {
+    if (denied(['clinical-notes', 'notes'], 'see patients from the video queue')) return
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      if (!apt || apt.clinician || apt.status !== 'Scheduled') return null
+      return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, clinician: actor, startsAt: new Date().toISOString() } : item) }, actor, action: `picked up ${id} from the on-demand video queue`, department: apt.department, patientId: apt.patientId }
+    })
+  }, [actorName, commit, denied])
+
+  const sendVisitReminder = useCallback((id: string, auto = false) => {
+    const actor = auto ? 'Reminder service' : actorName('Clinic')
+    commit((previous) => {
+      const apt = previous.appointments.find((item) => item.id === id)
+      const patient = apt && previous.patients.find((item) => item.id === apt.patientId)
+      if (!apt || !patient || apt.status !== 'Scheduled') return null
+      const reminders = apt.reminders ?? { channels: ['SMS' as const], phone: patient.phone, sent: [] }
+      const at = new Date().toISOString()
+      const text = reminderText(apt, previous.settings.name)
+      const sent = [...reminders.sent, ...reminders.channels.map((channel) => ({ at, channel, text }))]
+      return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, reminders: { ...reminders, sent } } : item) }, actor, action: `sent a ${reminders.channels.join(' and ')} reminder for ${id}`, department: apt.department, patientId: apt.patientId }
+    })
+    if (!auto) notify('Reminder sent')
+  }, [actorName, commit, notify])
+
+  // Reminder service: SMS/email 24 hours and 1 hour before each booked video visit.
+  useEffect(() => {
+    const run = () => stateRef.current.appointments.filter((item) => item.reminders && dueReminders(item).length).forEach((item) => sendVisitReminder(item.id, true))
+    run()
+    const timer = window.setInterval(run, 60_000)
+    return () => window.clearInterval(timer)
+  }, [sendVisitReminder])
+
+  const openThread = useCallback((input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean }) => {
+    const current = stateRef.current
+    const patient = current.patients.find((item) => item.id === input.patientId)
+    if (!patient || input.text.trim().length < 5 || input.subject.trim().length < 3) return null
+    const id = nextNumber(current.messageThreads.map((item) => item.id), 'MSG', 300)
+    const invoiceId = nextNumber(current.invoices.map((item) => item.id), 'INV', 24000)
+    const { name, price } = priceOf(MESSAGE_SERVICE, current.services)
+    const now = new Date()
+    // Replies are promised within one working day.
+    const due = new Date(now.getTime() + 24 * 3_600_000); if (due.getDay() === 6) due.setDate(due.getDate() + 2); if (due.getDay() === 0) due.setDate(due.getDate() + 1)
+    const thread: MessageThread = { id, patientId: patient.id, department: input.department, subject: input.subject.trim(), status: 'Awaiting reply', openedAt: now.toISOString(), dueAt: due.toISOString(), fee: price, invoiceId, confidential: input.confidential, messages: [{ id: makeId('m'), at: now.toISOString(), from: 'Patient', name: patient.name, text: input.text.trim(), photos: input.photos }] }
+    commit((previous) => ({ next: { ...previous, messageThreads: [thread, ...previous.messageThreads], invoices: [visitInvoice(invoiceId, patient.id, MESSAGE_SERVICE, name, price, input.payer, input.insurer, now.toISOString()), ...previous.invoices] }, actor: PORTAL, action: `sent a secure message to ${unitName(input.department)} (${id})`, department: input.department, patientId: patient.id }))
+    return id
+  }, [commit])
+
+  const patientMessage = useCallback((threadId: string, text: string, photos: string[]) => {
+    if (!text.trim()) return
+    commit((previous) => {
+      const thread = previous.messageThreads.find((item) => item.id === threadId)
+      const patient = thread && previous.patients.find((item) => item.id === thread.patientId)
+      if (!thread || !patient || thread.status === 'Closed') return null
+      return { next: { ...previous, messageThreads: previous.messageThreads.map((item) => item.id === threadId ? { ...item, status: 'Awaiting reply' as const, messages: [...item.messages, { id: makeId('m'), at: new Date().toISOString(), from: 'Patient' as const, name: patient.name, text: text.trim(), photos }] } : item) }, actor: PORTAL, action: `added to message ${threadId}`, department: thread.department, patientId: patient.id }
+    })
+  }, [commit])
+
+  const replyThread = useCallback((threadId: string, text: string, close: boolean) => {
+    if (denied(['clinical-notes', 'notes'], 'answer patient messages')) return
+    if (!text.trim() && !close) return
+    const actor = actorName('Clinician')
+    commit((previous) => {
+      const thread = previous.messageThreads.find((item) => item.id === threadId)
+      if (!thread) return null
+      const messages = text.trim() ? [...thread.messages, { id: makeId('m'), at: new Date().toISOString(), from: 'Clinician' as const, name: actor, text: text.trim() }] : thread.messages
+      return {
+        next: {
+          ...previous,
+          messageThreads: previous.messageThreads.map((item) => item.id === threadId ? { ...item, messages, clinician: item.clinician ?? actor, status: close ? 'Closed' as const : 'Answered' as const } : item),
+          patients: text.trim() ? withTimeline(previous.patients, thread.patientId, { type: 'note', title: thread.confidential ? 'Confidential message answered' : `Secure message answered: ${thread.subject}`, detail: thread.confidential ? 'Reply held with the treating clinician.' : text.trim(), author: actor, department: thread.department }) : previous.patients,
+        },
+        actor, action: `${text.trim() ? 'answered' : 'closed'} secure message ${threadId}`, department: thread.department, patientId: thread.patientId,
+      }
+    })
+    notify(close ? 'Message answered and closed' : 'Reply sent to the patient')
+  }, [actorName, commit, notify, denied])
 
   const scheduleAppointment = useCallback((input: Omit<Appointment, 'id' | 'status'>) => {
     const actor = actorName('Scheduling team')
@@ -2043,12 +2269,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     state: scopedState, currentRole, profile, grade: myGrade, level: myLevel, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
-    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
+    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, logSecurity, saveSecurity, setUnlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

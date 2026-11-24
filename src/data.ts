@@ -1,5 +1,6 @@
 import { DEFAULT_PRICES } from './lib/modules'
 import { COMPETENCIES } from './lib/teaching'
+import { visitInvoice } from './lib/telehealth'
 import type {
   Assessment,
   Profession,
@@ -42,6 +43,7 @@ import type {
   RoleProfile,
   StaffMember,
   Vitals,
+  MessageThread,
 } from './types'
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
@@ -429,11 +431,20 @@ const invoiceSeed = (): Invoice[] => [
   ] },
 ]
 
+/** Demo mobile numbers: the last four digits match the last four of the MRN (used to verify patients on the portal). */
+export const phoneFor = (mrn: string) => { const d = mrn.replace(/\D/g, '').padStart(6, '0').slice(-6); return `+251 91${d[0]} ${d.slice(1, 3)} ${d.slice(3)}` }
+
+const PHQ_EXAMPLE = [2, 2, 1, 2, 1, 1, 2, 1, 0]
+const GAD_EXAMPLE = [2, 2, 2, 1, 1, 2, 1]
+
 const appointmentSeed = (): Appointment[] => [
   { id: 'APT-501', joinCode: 'MX7K2Q', patientId: 'p1013', clinician: 'Dr. Hannah Reid', department: 'obgyn', startsAt: ago(6), durationMinutes: 30, mode: 'Video', startedAt: ago(5), consentAt: ago(6), status: 'In progress', reason: 'Postpartum blood pressure review' },
-  { id: 'APT-502', joinCode: 'CR4P9T', patientId: 'p1001', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-120), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-ACS follow-up and medication review' },
+  { id: 'APT-502', joinCode: 'CR4P9T', patientId: 'p1001', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-120), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-ACS follow-up and medication review', service: 'Specialist', bookedBy: 'Patient', pharmacy: 'in-house', payment: { payer: 'Insurance', amount: 35, at: ago(2 * 1440), invoiceId: 'INV-24090', reference: 'PAY-CR4P9T', insurer: 'National Health Insurance' }, reminders: { channels: ['SMS'], phone: phoneFor('NS-008421'), sent: [{ at: ago(1320), channel: 'SMS', text: 'Reminder: video visit with Dr. Amir Rahman tomorrow. Code CR4P9T.' }] }, intake: { symptoms: 'Occasional chest tightness climbing stairs, less than before. No pain at rest.', since: '2 weeks', medications: 'Aspirin 75 mg, ticagrelor 90 mg twice daily, atorvastatin 80 mg, bisoprolol 2.5 mg', allergies: 'Penicillin', photos: [], submittedAt: ago(1500) } },
   { id: 'APT-503', joinCode: 'NV8H3W', patientId: 'p1003', clinician: 'Dr. Tomas Reid', department: 'neurology', startsAt: ago(-1440), durationMinutes: 45, mode: 'Video', status: 'Scheduled', reason: 'Stroke follow-up and NIHSS reassessment' },
   { id: 'APT-504', joinCode: 'HT5B2D', patientId: 'p1008', clinician: 'Dr. Amir Rahman', department: 'cardiology', startsAt: ago(-2880), durationMinutes: 30, mode: 'Video', status: 'Scheduled', reason: 'Post-PCI follow-up and echo review' },
+  { id: 'APT-506', joinCode: 'QD7R4M', patientId: 'p1011', clinician: '', department: 'emergency', startsAt: ago(4), durationMinutes: 15, mode: 'Video', status: 'Scheduled', reason: 'Itchy rash on both forearms', onDemand: true, queuedAt: ago(4), service: 'General practice', bookedBy: 'Patient', pharmacy: 'net-bole', payment: { payer: 'Mobile money', amount: 30, at: ago(4), invoiceId: 'INV-24091', reference: 'PAY-QD7R4M' }, intake: { symptoms: 'Red itchy rash on both forearms after gardening. No fever, no swelling of lips or face.', since: '2 days', medications: 'None', allergies: 'None known', photos: [], submittedAt: ago(4) } },
+  { id: 'APT-507', joinCode: 'MH3W8K', patientId: 'p1017', clinician: 'Dr. Rachel Stein', department: 'internal-medicine', startsAt: ago(-26 * 60), durationMinutes: 45, mode: 'Video', status: 'Scheduled', reason: 'Low mood and poor sleep', service: 'Mental health', confidential: true, bookedBy: 'Patient', pharmacy: 'in-house', payment: { payer: 'Card', amount: 40, at: ago(3 * 1440), invoiceId: 'INV-24092', reference: 'PAY-MH3W8K' }, reminders: { channels: ['SMS', 'Email'], phone: phoneFor('NS-008441'), email: 'rhea.k@example.com', sent: [] }, intake: { symptoms: 'Feeling low most days, poor sleep and tired at work.', since: '6 weeks', medications: 'None', allergies: 'None known', photos: [], phq9: PHQ_EXAMPLE, gad7: GAD_EXAMPLE, submittedAt: ago(3 * 1440) } },
+  { id: 'APT-508', joinCode: 'FT2N6P', patientId: 'p1016', clinician: 'Dr. Maya Chen', department: 'emergency', startsAt: ago(3 * 1440), durationMinutes: 20, mode: 'Video', status: 'Completed', startedAt: ago(3 * 1440), endedAt: ago(3 * 1440 - 14), consentAt: ago(3 * 1440 + 1), reason: 'Sore throat and fever', onDemand: true, queuedAt: ago(3 * 1440 + 9), service: 'General practice', bookedBy: 'Patient', pharmacy: 'in-house', payment: { payer: 'Card', amount: 30, at: ago(3 * 1440 + 9), invoiceId: 'INV-24093', reference: 'PAY-FT2N6P' }, summary: { diagnosis: 'Viral pharyngitis', plan: 'Rest, fluids, paracetamol for pain or fever. No antibiotics needed.', advice: 'Come in or call if you cannot swallow fluids, have trouble breathing, or the fever lasts more than 3 days.', prescriptions: [], orders: [], sharedAt: ago(3 * 1440 - 14), by: 'Dr. Maya Chen' }, rating: { stars: 5, comment: 'Quick and very clear.', at: ago(3 * 1440 - 30) } },
   { id: 'APT-505', patientId: 'p1005', clinician: 'Ms. Keiko Sato', department: 'surgery', startsAt: ago(150), durationMinutes: 30, mode: 'In person', status: 'Completed', reason: 'Post-operative hip review' },
 ]
 
@@ -797,7 +808,23 @@ const networkSeed = (): NetworkFacility[] => [
   { id: 'net-meskel', name: 'Meskel Imaging Centre', kind: 'Imaging centre', city: 'Addis Ababa', services: ['Imaging'], link: 'HL7 FHIR', capabilities: 'MRI 3T, PET-CT, nuclear medicine' },
   { id: 'net-sheger', name: 'Sheger Medical Laboratory', kind: 'Laboratory', city: 'Addis Ababa', services: ['Laboratory'], link: 'Partner API', capabilities: 'Histopathology, viral load, hormones, tumour markers' },
   { id: 'net-hawassa', name: 'Hawassa Lakeside Hospital', kind: 'Hospital', city: 'Hawassa', services: ['Referrals', 'Laboratory'], link: 'Platform', capabilities: 'Maternity, NICU, general surgery' },
+  { id: 'net-bole', name: 'Bole Community Pharmacy', kind: 'Pharmacy', city: 'Addis Ababa', services: ['Pharmacy'], link: 'Platform', capabilities: 'Open 24 hours, home delivery in Bole and Kazanchis' },
+  { id: 'net-piassa', name: 'Piassa Family Pharmacy', kind: 'Pharmacy', city: 'Addis Ababa', services: ['Pharmacy'], link: 'Partner API', capabilities: 'Compounding, paediatric formulations' },
   { id: 'net-fasil', name: 'Fasil Regional Hospital', kind: 'Hospital', city: 'Gondar', services: ['Referrals'], link: 'Platform', capabilities: 'Trauma, orthopaedics, burns' },
+]
+
+const teleInvoiceSeed = (): Invoice[] => [
+  visitInvoice('INV-24090', 'p1001', 'SV-02', 'Specialist video consultation', 35, 'Insurance', 'National Health Insurance', ago(2 * 1440)),
+  visitInvoice('INV-24091', 'p1011', 'SV-15', 'On-demand video visit', 30, 'Mobile money', undefined, ago(4)),
+  visitInvoice('INV-24092', 'p1017', 'SV-16', 'Mental health video session', 40, 'Card', undefined, ago(3 * 1440)),
+  visitInvoice('INV-24093', 'p1016', 'SV-15', 'On-demand video visit', 30, 'Card', undefined, ago(3 * 1440 + 9)),
+  visitInvoice('INV-24094', 'p1001', 'SV-17', 'Secure message to a clinician', 8, 'Mobile money', undefined, ago(5 * 60)),
+  visitInvoice('INV-24095', 'p1013', 'SV-17', 'Secure message to a clinician', 8, 'Card', undefined, ago(2 * 1440)),
+]
+
+const threadSeed = (): MessageThread[] => [
+  { id: 'MSG-301', patientId: 'p1001', department: 'cardiology', subject: 'Ankle swelling since new tablets', status: 'Awaiting reply', openedAt: ago(5 * 60), dueAt: ago(-19 * 60), fee: 8, invoiceId: 'INV-24094', messages: [{ id: 'm1', at: ago(5 * 60), from: 'Patient', name: 'Evelyn Parker', text: 'Since starting the new heart tablets my ankles are a little swollen in the evening. Is this normal? No breathlessness.' }] },
+  { id: 'MSG-302', patientId: 'p1013', department: 'obgyn', subject: 'Home blood pressure readings', status: 'Answered', openedAt: ago(2 * 1440), dueAt: ago(1440), fee: 8, invoiceId: 'INV-24095', clinician: 'Dr. Hannah Reid', messages: [{ id: 'm1', at: ago(2 * 1440), from: 'Patient', name: 'Hannah Osei', text: 'My readings this morning were 138/88 and 135/86. Should I keep taking labetalol twice a day?' }, { id: 'm2', at: ago(2 * 1440 - 180), from: 'Clinician', name: 'Dr. Hannah Reid', text: 'Those readings are good. Yes, keep labetalol twice a day and send readings again on Friday. Come in straight away if you get a headache, blurred vision or pain under the ribs.' }] },
 ]
 
 const ALL_OFF_BUT = (on: ModuleId[]): ModuleId[] => (['telemedicine', 'teaching', 'reception', 'appointments', 'billing', 'triage', 'opd', 'wards', 'specialty', 'review', 'network', 'laboratory', 'imaging', 'pharmacy', 'theatres', 'services', 'operations'] as ModuleId[]).filter((id) => !on.includes(id))
@@ -815,6 +842,8 @@ const tenantSeed = (): Tenant[] => [
 const connectionSeed = (): Connection[] => [
   { id: 'CX-01', facilityId: 'net-entoto', services: ['Laboratory', 'Imaging'], status: 'Active', requestedAt: ago(200 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(199 * 1440), decidedBy: 'Northstar Cloud' },
   { id: 'CX-02', facilityId: 'net-abay', services: ['Referrals', 'Imaging'], status: 'Active', requestedAt: ago(320 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(318 * 1440), decidedBy: 'Northstar Cloud' },
+  { id: 'CX-04', facilityId: 'net-bole', services: ['Pharmacy'], status: 'Active', requestedAt: ago(90 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(89 * 1440), decidedBy: 'Northstar Cloud', note: 'e-Prescriptions from video visits.' },
+  { id: 'CX-05', facilityId: 'net-piassa', services: ['Pharmacy'], status: 'Active', requestedAt: ago(60 * 1440), requestedBy: 'Elena Rossi', decidedAt: ago(59 * 1440), decidedBy: 'Northstar Cloud' },
   { id: 'CX-03', facilityId: 'net-meskel', services: ['Imaging'], status: 'Requested', requestedAt: ago(2 * 1440), requestedBy: 'Elena Rossi', note: 'For 3T MRI and PET-CT.' },
 ]
 
@@ -833,6 +862,9 @@ const serviceSeed = (): HospitalService[] => [
   svc('SV-09', 'Dietitian consultation', 'Therapy', 20),
   svc('SV-10', 'Antenatal visit', 'Consultation', 15, 'each', { department: 'obgyn' }),
   svc('SV-14', 'Video consultation', 'Consultation', 25, 'per visit', { description: 'Consultation by secure video with a doctor or specialist.' }),
+  svc('SV-15', 'On-demand video visit', 'Consultation', 30, 'per visit', { description: 'See the next available doctor by video, usually within 15 minutes.' }),
+  svc('SV-16', 'Mental health video session', 'Consultation', 40, 'per session', { description: 'Confidential video session for low mood, anxiety, stress or sleep.' }),
+  svc('SV-17', 'Secure message to a clinician', 'Consultation', 8, 'per question', { description: 'Written question with photos, answered within one working day.' }),
   svc('SV-11', 'Normal delivery', 'Procedure', 150, 'each', { department: 'obgyn' }),
   svc('SV-12', 'Diabetic foot clinic', 'Consultation', 30, 'per visit', { department: 'endocrinology', custom: true, featured: true, description: 'Weekly foot screening, wound care and footwear advice for people with diabetes.', requestedAt: ago(40 * 1440), requestedBy: 'Elena Rossi', setupFee: 50, monthlyFee: 15, launchedAt: ago(30 * 1440) }),
   svc('SV-13', 'Home dialysis follow-up', 'Therapy', 70, 'per visit', { department: 'internal-medicine', custom: true, status: 'Pending approval', active: false, description: 'Monthly home visit by a renal nurse with blood tests and dialysis review.', requestedAt: ago(1440), requestedBy: 'Elena Rossi' }),
@@ -882,7 +914,7 @@ export function createInitialState(): HospitalState {
       // Keep only the eight vital-sign fields on the patient's current vitals.
       const { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain } = patient.vitals
       const visit = visitSeed[patient.id]
-      return { ...patient, vitals: { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain }, ...(visit ? { visit } : {}), ...(patient.id === 'p1016' ? { insurance: 'Private insurance' } : {}) }
+      return { ...patient, phone: patient.phone ?? phoneFor(patient.mrn), vitals: { hr, rr, spo2, bpSys, bpDia, temp, gcs, pain }, ...(visit ? { visit } : {}), ...(patient.id === 'p1016' ? { insurance: 'Private insurance' } : {}) }
     }),
     departments: departmentSeed.map((department) => ({ ...department, services: [...department.services] })),
     referrals: referralSeed(),
@@ -898,7 +930,7 @@ export function createInitialState(): HospitalState {
     ],
     formulary: formularySeed(),
     prescriptions: prescriptionSeed(),
-    invoices: invoiceSeed(),
+    invoices: [...invoiceSeed(), ...teleInvoiceSeed()],
     appointments: appointmentSeed(),
     staff: [...staffSeed(), ...extraStaff()],
     codes: codeSeed(),
@@ -924,6 +956,7 @@ export function createInitialState(): HospitalState {
     platformInvoices: platformInvoiceSeed(),
     assessments: assessmentSeed(),
     securityEvents: [],
+    messageThreads: threadSeed(),
     accessGrants: [],
     cosignNotes: [
       { id: 'CN-01', patientId: 'p1014', author: 'Dr. Leo Park', at: ago(95), text: 'Day 2 CAP. Still febrile 38.7, SpO₂ 91% on 2 L. Capillary glucose 14–17. Plan: continue IV antibiotics, start basal insulin, repeat CRP tomorrow, physiotherapy referral.', status: 'Pending review' },

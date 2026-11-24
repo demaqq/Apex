@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Camera, Mic, MicOff, PhoneOff, Send, ShieldCheck, Video, VideoOff } from 'lucide-react'
 import { Brand, Button } from '../components/ui'
 import { openMedia, TeleCall, type ChatLine } from '../lib/telecall'
@@ -9,9 +9,10 @@ import { useHospital } from '../store/HospitalStore'
 /** Public page for patients: join a video consultation with a visit code. No account, nothing stored on this device. */
 export default function JoinVisit() {
   const { code: fromLink } = useParams()
+  const [search] = useSearchParams()
   const { state } = useHospital()
   const [code, setCode] = useState((fromLink ?? '').toUpperCase())
-  const [name, setName] = useState('')
+  const [name, setName] = useState(search.get('name') ?? '')
   const [consent, setConsent] = useState(false)
   const [error, setError] = useState('')
   const [stage, setStage] = useState<'form' | 'waiting' | 'connecting' | 'connected' | 'ended'>('form')
@@ -73,6 +74,7 @@ export default function JoinVisit() {
           {error && <p className="form-error" role="alert">{error}</p>}
           <Button size="lg" icon={Video} onClick={join}>Join the visit</Button>
           <p className="record-hint"><ShieldCheck size={13} /> No account needed. Nothing about you is stored on this device.</p>
+          <p className="record-hint"><Link to="/care">Patient portal: see a doctor now, book a visit, read your visit summaries</Link></p>
         </section>
       )}
       {(stage === 'waiting' || stage === 'connecting' || stage === 'connected') && (
@@ -95,7 +97,7 @@ export default function JoinVisit() {
           )}
         </section>
       )}
-      {stage === 'ended' && <section className="join-card"><h1>Visit ended</h1><p>Thank you. Any prescription code or follow-up will be shared with you by the clinic. You can close this page.</p></section>}
+      {stage === 'ended' && <section className="join-card"><h1>Visit ended</h1><p>Thank you. Your after-visit summary, prescription codes and follow-up are in the patient portal.</p><Link className="button button-primary button-md" to="/care">Open the patient portal</Link></section>}
     </main>
   )
 }

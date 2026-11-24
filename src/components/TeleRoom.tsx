@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarPlus, Copy, FilePenLine, FlaskConical, HeartPulse, MessageSquareText, Mic, MicOff, MonitorUp, PhoneOff, Pill, Send, ShieldCheck, UserRound, Video, VideoOff } from 'lucide-react'
+import { AlertTriangle, CalendarPlus, ClipboardList, Copy, FilePenLine, FlaskConical, HeartPulse, MessageSquareText, Mic, MicOff, MonitorUp, PhoneOff, Pill, Send, ShieldCheck, UserRound, Video, VideoOff } from 'lucide-react'
 import { Button, Chip } from './ui'
 import { EPrescribeModal } from './EPrescription'
 import { OrderModal } from './ClinicalModals'
 import { openMedia, TeleCall, type ChatLine } from '../lib/telecall'
 import { formatDateTime } from '../lib/format'
+import { gadBand, pharmacies, phqBand, selfHarmFlag, total } from '../lib/telehealth'
 import { useHospital } from '../store/HospitalStore'
 import type { Appointment, Vitals } from '../types'
 
@@ -21,7 +22,7 @@ export const inviteText = (apt: Appointment, facility: string, patientName: stri
 
 /** The clinician's video consultation room: video, controls and clinical tools side by side. */
 export function TeleRoom({ appointment, onClose }: { appointment: Appointment; onClose: () => void }) {
-  const { state, profile, can, addNote, recordObservations, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, notify } = useHospital()
+  const { state, profile, can, addNote, recordObservations, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, setVisitPharmacy, notify } = useHospital()
   const apt = state.appointments.find((item) => item.id === appointment.id) ?? appointment
   const patient = state.patients.find((item) => item.id === apt.patientId)
   const code = apt.joinCode ?? ''
@@ -44,6 +45,10 @@ export function TeleRoom({ appointment, onClose }: { appointment: Appointment; o
   const [prescribing, setPrescribing] = useState(false)
   const [ordering, setOrdering] = useState(false)
   const [seconds, setSeconds] = useState(0)
+  const [wrapUp, setWrapUp] = useState(false)
+  const [avs, setAvs] = useState({ diagnosis: '', plan: '', advice: 'Get help sooner — come in or call — if you get worse, develop new symptoms, or are not improving in 3 days. In an emergency go to the nearest emergency department or call 907.', followUp: '' })
+  const [photo, setPhoto] = useState<string | null>(null)
+  const places = pharmacies(state.network, state.connections, state.settings.name)
 
   useEffect(() => {
     let cancelled = false
@@ -104,11 +109,20 @@ export function TeleRoom({ appointment, onClose }: { appointment: Appointment; o
   const followUp = (days: number) => {
     if (!patient) return
     const at = new Date(Date.now() + days * 86_400_000); at.setHours(10, 0, 0, 0)
-    scheduleAppointment({ patientId: patient.id, department: apt.department, clinician: apt.clinician, startsAt: at.toISOString(), durationMinutes: 20, mode: 'Video', reason: `Video follow-up: ${apt.reason}` })
+    scheduleAppointment({ patientId: patient.id, department: apt.department, clinician: apt.clinician, startsAt: at.toISOString(), durationMinutes: 20, mode: 'Video', reason: `Video follow-up: ${apt.reason}`, service: apt.service, confidential: apt.confidential, pharmacy: apt.pharmacy, bookedBy: 'Staff', reminders: { channels: ['SMS'], phone: patient.phone, sent: [] } })
+    setAvs((value) => ({ ...value, followUp: `Video follow-up ${days === 7 ? 'in 1 week' : 'in 1 month'} (${at.toLocaleDateString()}); you will get a reminder by SMS.` }))
   }
+  const since = apt.startedAt ?? apt.startsAt
+  const visitRx = state.prescriptions.filter((rx) => rx.patientId === apt.patientId && rx.createdAt >= since)
+  const visitOrders = state.orders.filter((order) => order.patientId === apt.patientId && order.createdAt >= since)
+  // Ending opens the after-visit summary; the assessment and plan from the note are carried over.
   const end = () => {
+    setAvs((value) => ({ ...value, diagnosis: value.diagnosis || soap.a.trim(), plan: value.plan || soap.p.trim() }))
+    setWrapUp(true)
+  }
+  const finish = (share: boolean) => {
     if (soap.s || soap.o || soap.a || soap.p) saveNote()
-    finishTeleconsult(apt.id, notes ? `${notes} consultation note${notes === 1 ? '' : 's'} recorded.` : '')
+    finishTeleconsult(apt.id, notes ? `${notes} consultation note${notes === 1 ? '' : 's'} recorded.` : '', share ? { diagnosis: avs.diagnosis.trim(), plan: avs.plan.trim(), advice: avs.advice.trim(), followUp: avs.followUp.trim() || undefined } : undefined)
     call.current?.end(); media.current?.getTracks().forEach((track) => track.stop())
     onClose()
   }
@@ -157,6 +171,14 @@ export function TeleRoom({ appointment, onClose }: { appointment: Appointment; o
             <p><b>{patient.name}</b> · {patient.age} y · {patient.sex} · <span className="mono">{patient.mrn}</span></p>
             <p className="record-hint">{patient.complaint}</p>
             <div className="tele-chips">{patient.allergies.map((item) => <Chip key={item} tone={/no known/i.test(item) ? 'neutral' : 'danger'}>{item}</Chip>)}{patient.riskFactors.map((item) => <Chip key={item} tone="neutral">{item}</Chip>)}</div>
+            {apt.intake && <div className="tele-intake">
+              <span className="detail-heading"><ClipboardList size={12} /> Before the visit · {formatDateTime(apt.intake.submittedAt)}</span>
+              <p><b>Symptoms:</b> {apt.intake.symptoms}{apt.intake.since ? ` (${apt.intake.since})` : ''}</p>
+              <p><b>Medicines:</b> {apt.intake.medications || '—'} · <b>Allergies:</b> {apt.intake.allergies || '—'}</p>
+              {apt.intake.phq9 && <p><b>PHQ-9</b> {total(apt.intake.phq9)} ({phqBand(total(apt.intake.phq9))}) · <b>GAD-7</b> {total(apt.intake.gad7)} ({gadBand(total(apt.intake.gad7))})</p>}
+              {selfHarmFlag(apt.intake.phq9) && <p className="tele-flag"><AlertTriangle size={13} /> Thoughts of self-harm reported — assess safety in this visit.</p>}
+              {apt.intake.photos.length > 0 && <div className="portal-photos">{apt.intake.photos.map((src, index) => <figure key={index}><button type="button" className="chip-button" onClick={() => setPhoto(src)} aria-label={`Open photo ${index + 1}`}><img src={src} alt={`Patient photo ${index + 1}`} /></button></figure>)}</div>}
+            </div>}
             <span className="detail-heading">Last vitals{last ? ` · ${formatDateTime(last.at)}${last.context ? ` · ${last.context}` : ''}` : ''}</span>
             <p>HR {patient.vitals.hr} · BP {patient.vitals.bpSys}/{patient.vitals.bpDia} · SpO₂ {patient.vitals.spo2}% · T {patient.vitals.temp}°C</p>
             <span className="detail-heading">Current medicines</span>
@@ -181,7 +203,9 @@ export function TeleRoom({ appointment, onClose }: { appointment: Appointment; o
               <Button icon={CalendarPlus} variant="secondary" onClick={() => followUp(7)}>Video follow-up in 1 week</Button>
               <Button icon={CalendarPlus} variant="secondary" onClick={() => followUp(30)}>Video follow-up in 1 month</Button>
             </div>
-            <p className="record-hint">The e-prescription code is collected at any branch pharmacy; investigations can be done here, sent electronically to a connected centre, or printed.</p>
+            <label className="form-field"><span>e-Prescriptions go to</span><select value={apt.pharmacy ?? 'in-house'} onChange={(event) => setVisitPharmacy(apt.id, event.target.value)} aria-label="Pharmacy">{places.map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}</select></label>
+            {(visitRx.length > 0 || visitOrders.length > 0) && <ul className="tele-list">{visitRx.map((rx) => <li key={rx.id}>{rx.id}{rx.eRx ? ` · ${rx.eRx.code}` : ''}</li>)}{visitOrders.map((order) => <li key={order.id}>{order.kind}: {order.title}</li>)}</ul>}
+            <p className="record-hint">The patient chose this pharmacy when booking; the code is collected there. Investigations can be done here, sent electronically to a connected centre, or printed.</p>
           </>}
           {tab === 'chat' && <>
             <div className="tele-chat">{chat.length === 0 && <p className="record-hint">Messages appear here — useful if the sound drops. Not saved to the record.</p>}{chat.map((line, index) => <p key={index} className={line.from === 'clinician' ? 'me' : ''}><b>{line.name}</b>{line.text}</p>)}</div>
@@ -189,6 +213,26 @@ export function TeleRoom({ appointment, onClose }: { appointment: Appointment; o
           </>}
         </div>
       </aside>
+      {wrapUp && (
+        <div className="tele-summary" role="dialog" aria-label="After-visit summary">
+          <div>
+            <h2>After-visit summary</h2>
+            <p className="record-hint">Shared with {patient?.name ?? 'the patient'} on the patient portal{apt.confidential ? ' (kept confidential: the wider record shows only that a visit took place)' : ''}.</p>
+            <label className="form-field"><span>Diagnosis or impression</span><input value={avs.diagnosis} onChange={(event) => setAvs({ ...avs, diagnosis: event.target.value })} aria-label="Diagnosis" /></label>
+            <label className="form-field"><span>Plan, in plain words</span><textarea rows={3} value={avs.plan} onChange={(event) => setAvs({ ...avs, plan: event.target.value })} aria-label="Plan" /></label>
+            <label className="form-field"><span>When to get help</span><textarea rows={2} value={avs.advice} onChange={(event) => setAvs({ ...avs, advice: event.target.value })} aria-label="When to get help" /></label>
+            <label className="form-field"><span>Follow-up</span><input value={avs.followUp} onChange={(event) => setAvs({ ...avs, followUp: event.target.value })} placeholder="e.g. Video review in 2 weeks" aria-label="Follow-up" /></label>
+            <span className="detail-heading">Added automatically</span>
+            <ul>{visitRx.length === 0 && visitOrders.length === 0 && <li>No prescriptions or tests this visit</li>}{visitRx.map((rx) => <li key={rx.id}>Prescription {rx.eRx ? `code ${rx.eRx.code}` : rx.id} → {places.find((place) => place.id === (apt.pharmacy ?? 'in-house'))?.name}</li>)}{visitOrders.map((order) => <li key={order.id}>{order.kind}: {order.title}</li>)}</ul>
+            <div className="tele-actions">
+              <Button icon={Send} disabled={avs.diagnosis.trim().length < 3 || avs.plan.trim().length < 3} onClick={() => finish(true)}>Share summary and end</Button>
+              <Button variant="secondary" onClick={() => finish(false)}>End without a summary</Button>
+              <Button variant="ghost" onClick={() => setWrapUp(false)}>Back to the call</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {photo && <div className="tele-summary" role="dialog" aria-label="Patient photo" onClick={() => setPhoto(null)}><div><img src={photo} alt="Patient photo" className="tele-photo-large" /><Button variant="secondary" onClick={() => setPhoto(null)}>Close</Button></div></div>}
       {prescribing && patient && <EPrescribeModal open onClose={() => setPrescribing(false)} patientId={patient.id} takeHomeDefault />}
       {ordering && patient && <OrderModal open onClose={() => setOrdering(false)} patient={patient} />}
     </div>

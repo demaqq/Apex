@@ -208,9 +208,9 @@ function Pricing() {
   )
 }
 
-const KINDS: NetworkFacility['kind'][] = ['Hospital', 'Diagnostic centre', 'Laboratory', 'Imaging centre']
+const KINDS: NetworkFacility['kind'][] = ['Hospital', 'Diagnostic centre', 'Laboratory', 'Imaging centre', 'Pharmacy']
 const LINKS: NetworkFacility['link'][] = ['Platform', 'HL7 FHIR', 'Partner API']
-const SERVICES: NetworkService[] = ['Laboratory', 'Imaging', 'Referrals']
+const SERVICES: NetworkService[] = ['Laboratory', 'Imaging', 'Referrals', 'Pharmacy']
 
 function NetworkAdmin() {
   const { state, setConnectionStatus, saveNetworkFacility } = useHospital()

@@ -289,6 +289,7 @@ export interface Patient {
   escalation?: { at: string; by: string; score: number }
   insurance?: string
   phone?: string
+  email?: string
   weightKg?: number
   growth?: Array<{ at: string; ageYears: number; weightKg: number; heightCm: number; muacCm?: number; headCm?: number }>
   /** Time-series specialty charts (oldest first). */
@@ -460,6 +461,8 @@ export interface ERx {
   instructions?: string
   phone?: string
   sentAt?: string
+  /** Pharmacy the patient chose (in-house or a network pharmacy). */
+  pharmacy?: string
 }
 
 export interface RxCollection {
@@ -547,6 +550,86 @@ export interface Appointment {
   endedAt?: string
   /** When the patient gave consent to a video consultation (from the join page). */
   consentAt?: string
+  /** On-demand ("see a doctor now"): the patient waits in a queue for the next free clinician. */
+  onDemand?: boolean
+  queuedAt?: string
+  service?: TeleService
+  bookedBy?: 'Patient' | 'Staff'
+  intake?: TeleIntake
+  payment?: VisitPayment
+  reminders?: VisitReminders
+  /** Where e-prescriptions from this visit are sent (in-house pharmacy or a network pharmacy id). */
+  pharmacy?: string
+  summary?: VisitSummary
+  rating?: { stars: number; comment?: string; at: string }
+  /** Mental-health visits: details stay with the treating clinician; the shared record shows only that a visit took place. */
+  confidential?: boolean
+  cancelledBy?: 'Patient' | 'Staff'
+}
+
+export type TeleService = 'General practice' | 'Specialist' | 'Mental health'
+
+/** What the patient tells us before the visit. */
+export interface TeleIntake {
+  symptoms: string
+  since: string
+  medications: string
+  allergies: string
+  /** Photos of a rash, wound or eye (data URLs, downscaled). */
+  photos: string[]
+  /** PHQ-9 (depression) and GAD-7 (anxiety) answers, each 0–3. */
+  phq9?: number[]
+  gad7?: number[]
+  submittedAt: string
+}
+
+export type VisitPayer = 'Card' | 'Mobile money' | 'Insurance' | 'Corporate plan'
+
+export interface VisitPayment {
+  payer: VisitPayer
+  amount: number
+  at: string
+  invoiceId: string
+  reference: string
+  insurer?: string
+  refundedAt?: string
+}
+
+export interface VisitReminders {
+  channels: Array<'SMS' | 'Email'>
+  phone?: string
+  email?: string
+  sent: Array<{ at: string; channel: 'SMS' | 'Email'; text: string }>
+}
+
+/** After-visit summary shared with the patient. */
+export interface VisitSummary {
+  diagnosis: string
+  plan: string
+  advice: string
+  prescriptions: string[]
+  orders: string[]
+  followUp?: string
+  pharmacy?: string
+  sharedAt: string
+  by: string
+}
+
+/** Secure messaging between visits. */
+export interface MessageThread {
+  id: string
+  patientId: string
+  department: DepartmentId
+  subject: string
+  status: 'Awaiting reply' | 'Answered' | 'Closed'
+  openedAt: string
+  /** The reply the clinic promises by this time. */
+  dueAt: string
+  fee: number
+  invoiceId?: string
+  clinician?: string
+  confidential?: boolean
+  messages: Array<{ id: string; at: string; from: 'Patient' | 'Clinician'; name: string; text: string; photos?: string[] }>
 }
 
 /* ---------- Staff ---------- */
@@ -788,6 +871,8 @@ export interface HospitalState {
   assessments: Assessment[]
   /** Tamper-evident security log (newest first, hash-chained). */
   securityEvents: SecurityEvent[]
+  /** Secure patient messages between visits. */
+  messageThreads: MessageThread[]
 }
 
 /* ---------- Subscription ---------- */
@@ -841,12 +926,12 @@ export interface Tenant {
   facilityId?: string
 }
 
-export type NetworkService = 'Laboratory' | 'Imaging' | 'Referrals'
+export type NetworkService = 'Laboratory' | 'Imaging' | 'Referrals' | 'Pharmacy'
 
 export interface NetworkFacility {
   id: string
   name: string
-  kind: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre'
+  kind: 'Hospital' | 'Diagnostic centre' | 'Laboratory' | 'Imaging centre' | 'Pharmacy'
   city: string
   services: NetworkService[]
   /** Platform members exchange records natively; others through a standard interface. */

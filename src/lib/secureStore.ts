@@ -93,3 +93,19 @@ export function writeSecure(name: string, value: string, onError?: () => void) {
 }
 
 export const resetSecureCache = () => { cache = {} }
+
+/** Another tab on this device saved new data: decrypts it and hands it over (keeps open tabs in step). */
+export function onExternalChange(name: string, callback: (value: string) => void) {
+  let latest = 0
+  const listener = (event: StorageEvent) => {
+    if (event.key !== name || event.newValue === null) return
+    const mine = ++latest
+    void decrypt(event.newValue).then((plain) => {
+      if (plain === null || mine !== latest) return
+      cache[name] = plain
+      callback(plain)
+    })
+  }
+  window.addEventListener('storage', listener)
+  return () => window.removeEventListener('storage', listener)
+}

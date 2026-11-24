@@ -9,6 +9,7 @@ import { matches, usePatients } from '../lib/hooks'
 import { useHospital } from '../store/HospitalStore'
 import type { FormularyItem, Prescription } from '../types'
 import { CollectionDesk, CollectModal, EPrescribeModal } from '../components/EPrescription'
+import { IN_HOUSE, pharmacyName } from '../lib/telehealth'
 
 type View = 'queue' | 'collection' | 'prescriptions' | 'formulary' | 'inventory' | 'interactions'
 
@@ -88,7 +89,7 @@ export default function PharmacyView() {
             const patient = patients.get(rx.patientId)
             return (
               <article key={rx.id} className={`work-card priority-${rx.priority.toLowerCase()}`}>
-                <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span>{rx.eRx && <span className="erx-tag">e-Rx · patient collects</span>}<StatusBadge status={rx.status} /></header>
+                <header><b>{rx.id}</b><span className={`rx-priority rx-${rx.priority.toLowerCase()}`}>{rx.priority}</span>{rx.eRx && <span className="erx-tag">{rx.eRx.pharmacy && rx.eRx.pharmacy !== IN_HOUSE ? `e-Rx · sent to ${pharmacyName(rx.eRx.pharmacy, state)}` : 'e-Rx · patient collects'}</span>}<StatusBadge status={rx.status} /></header>
                 {patient && <PersonCell name={patient.name} detail={`${patient.mrn} · ${patient.location}`} onClick={() => setSelectedPatientId(patient.id)} />}
                 {!can('controlled-drugs') && rx.items.some((item) => medication.get(item.medicationId)?.controlled) && <p className="allergy-flag"><ShieldCheck size={13} />Controlled medicine — release needs controlled-drugs authority</p>}
                 {patient && patient.allergies[0] !== 'No known allergies' && <p className="allergy-flag"><AlertTriangle size={13} />Allergies: {patient.allergies.join(', ')}</p>}

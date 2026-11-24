@@ -48,6 +48,7 @@ const Platform = lazy(() => import('./pages/Platform'))
 const Teaching = lazy(() => import('./pages/Teaching'))
 const Telemedicine = lazy(() => import('./pages/Telemedicine'))
 const JoinVisit = lazy(() => import('./pages/JoinVisit'))
+const CarePortal = lazy(() => import('./pages/CarePortal'))
 const SpecialtyDashboard = lazy(() => import('./pages/SpecialtyDashboard'))
 
 export default function App() {
@@ -59,6 +60,8 @@ export default function App() {
           {/* Patients join video visits without an account. */}
           <Route path="/join" element={<Suspense fallback={null}><JoinVisit /></Suspense>} />
           <Route path="/join/:code" element={<Suspense fallback={null}><JoinVisit /></Suspense>} />
+          {/* Patient portal: on-demand and booked video visits, payment, summaries, messages. */}
+          <Route path="/care" element={<Suspense fallback={null}><CarePortal /></Suspense>} />
           <Route element={<SecurityGuard><AppShell /></SecurityGuard>}>
             <Route index element={<HomeRedirect />} />
             <Route path="/dashboard" element={<Dashboard />} />

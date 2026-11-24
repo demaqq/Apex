@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import { Building2, FlaskConical, Hospital, Link2, ScanLine, Send } from 'lucide-react'
+import { Building2, FlaskConical, Hospital, Link2, Pill, ScanLine, Send } from 'lucide-react'
 import { Button, Chip, Panel } from './ui'
 import { LINK_NOTE } from '../lib/network'
 import { formatDate } from '../lib/format'
 import { useHospital } from '../store/HospitalStore'
 import type { ConnectionStatus, NetworkFacility, NetworkService } from '../types'
 
-const SERVICE_ICON = { Laboratory: FlaskConical, Imaging: ScanLine, Referrals: Hospital }
+const SERVICE_ICON: Record<NetworkService, typeof Pill> = { Laboratory: FlaskConical, Imaging: ScanLine, Referrals: Hospital, Pharmacy: Pill }
 const TONE: Record<ConnectionStatus, 'success' | 'warning' | 'neutral' | 'danger'> = { Active: 'success', Requested: 'warning', Paused: 'neutral', Declined: 'danger' }
-const SERVICE_TEXT: Record<NetworkService, string> = { Laboratory: 'Laboratory tests', Imaging: 'Imaging studies', Referrals: 'Patient referrals' }
+const SERVICE_TEXT: Record<NetworkService, string> = { Laboratory: 'Laboratory tests', Imaging: 'Imaging studies', Referrals: 'Patient referrals', Pharmacy: 'e-Prescriptions from video visits' }
 
 export function ServiceChips({ services }: { services: NetworkService[] }) {
   return <span className="service-chips">{services.map((service) => { const Icon = SERVICE_ICON[service]; return <Chip key={service} tone="neutral"><Icon size={11} /> {service}</Chip> })}</span>
