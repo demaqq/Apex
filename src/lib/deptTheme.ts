@@ -34,6 +34,7 @@ export const DEPT_THEMES: Partial<Record<DepartmentId, DeptTheme>> = {
   orthopedics: { name: 'Bone', ambient: 'beams', d: ['#d6d3d1', '#a8a29e', '#e7e5e4', '#1c1917'], l: ['#57534e', '#44403c'], tint: '#78716c', second: '#60a5fa' },
   nicu: { name: 'Lullaby', ambient: 'night', d: ['#c084fc', '#a855f7', '#d8b4fe', '#3b0764'], l: ['#7e22ce', '#6b21a8'], tint: '#9333ea', second: '#f9a8d4' },
   or: { name: 'Scrub teal', ambient: 'lamp', d: ['#5eead4', '#14b8a6', '#99f6e4', '#042f2e'], l: ['#0f766e', '#115e59'], tint: '#0f766e', second: '#f87171' },
+  psychiatry: { name: 'Calm blue', ambient: 'ripples', d: ['#93c5fd', '#7aa2d6', '#bfdbfe', '#0f1e36'], l: ['#3b5f8a', '#2c4a70'], tint: '#4a6fa0', second: '#c4b5fd' },
   pharmacy: { name: 'Emerald', ambient: 'molecules', d: ['#34d399', '#10b981', '#6ee7b7', '#022c22'], l: ['#047857', '#065f46'], tint: '#059669', second: '#a3e635' },
 }
 

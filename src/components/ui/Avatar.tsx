@@ -1,5 +1,5 @@
 import type { CSSProperties, HTMLAttributes } from 'react'
-import { Baby, BedDouble, Brain, Building2, Ear, FlaskConical, Hand, Ribbon, Eye, Droplets, Bone, Milk, Hospital, HeartPulse, MonitorDot, Pill, ScanLine, Scissors, Siren, Stethoscope, Venus, type LucideIcon } from 'lucide-react'
+import { Baby, BedDouble, Brain, Building2, Ear, FlaskConical, Hand, Ribbon, Eye, Droplets, Bone, Milk, Hospital, HeartHandshake, HeartPulse, MonitorDot, Pill, ScanLine, Scissors, Siren, Stethoscope, Venus, type LucideIcon } from 'lucide-react'
 import { esiLabels } from '../../data'
 import type { DepartmentId, EsiLevel } from '../../types'
 
@@ -49,6 +49,7 @@ const departmentIcons: Record<DepartmentId, { icon: LucideIcon; color: string }>
   'internal-medicine': { icon: Stethoscope, color: '#55a08e' },
   ent: { icon: Ear, color: '#6f9cc2' },
   dermatology: { icon: Hand, color: '#c08c6c' },
+  psychiatry: { icon: HeartHandshake, color: '#6d8fb3' },
   oncology: { icon: Ribbon, color: '#a487d8' },
   ophthalmology: { icon: Eye, color: '#94a3b8' },
   endocrinology: { icon: Droplets, color: '#d4a20a' },

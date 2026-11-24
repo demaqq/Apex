@@ -324,6 +324,8 @@ export interface Department {
   active?: boolean
   /** Set for a unit inside another department (e.g. NICU in Paediatrics). The parent's staff also see the unit's patients. */
   parent?: DepartmentId
+  /** Offers video visits on the patient portal (set by the administrator; defaults by specialty). */
+  telemedicine?: boolean
 }
 
 export interface Referral {
@@ -593,6 +595,22 @@ export interface VisitPayment {
   reference: string
   insurer?: string
   refundedAt?: string
+  /** Paid through an online gateway (verified with the provider before booking). */
+  provider?: string
+  method?: string
+  currency?: string
+}
+
+/** Every SMS the system tried to send (number masked). */
+export interface SmsRecord {
+  id: string
+  at: string
+  to: string
+  template: string
+  status: 'Sent' | 'Failed' | 'Demo'
+  provider: string
+  ref?: string
+  error?: string
 }
 
 export interface VisitReminders {
@@ -627,6 +645,8 @@ export interface MessageThread {
   dueAt: string
   fee: number
   invoiceId?: string
+  paymentReference?: string
+  paymentProvider?: string
   clinician?: string
   confidential?: boolean
   messages: Array<{ id: string; at: string; from: 'Patient' | 'Clinician'; name: string; text: string; photos?: string[] }>
@@ -873,6 +893,8 @@ export interface HospitalState {
   securityEvents: SecurityEvent[]
   /** Secure patient messages between visits. */
   messageThreads: MessageThread[]
+  /** SMS sent to patients (confirmations, reminders, replies). */
+  smsLog: SmsRecord[]
 }
 
 /* ---------- Subscription ---------- */

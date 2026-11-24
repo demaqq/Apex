@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Plus, Printer, RotateCcw, Save, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { AlertTriangle, Building2, Check, Hospital, KeyRound, LayoutGrid, Plus, Printer, RotateCcw, Save, Send, ShieldAlert, ShieldCheck, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { formatDateTime } from '../lib/format'
 import { Button, Chip, DepartmentIcon, Modal, PageHeader, Panel, PersonCell, Tabs } from '../components/ui'
 import { departmentById, roleProfiles } from '../data'
 import { ROLE_PERMISSIONS, useHospital } from '../store/HospitalStore'
@@ -17,8 +18,11 @@ import { PROFESSIONS } from '../lib/teaching'
 import { isOn, lockedOn, MODULE_GROUPS, moduleById, moduleForRole, MODULES, money, PACKAGES, withRequirements } from '../lib/modules'
 import { activePositions, dutyWarnings, POSITIONS, positionById, positionPrivileges, SENSITIVE } from '../lib/positions'
 import type { Grade, ModuleId, Profession, TeachingSettings, Department, DepartmentId, ExternalProvider, FacilitySettings, ReceptionFees, InvestigationItem, Permission, PositionId, RoleId, StaffMember } from '../types'
+import { NOT_BY_VIDEO, offersVideo, specialtyOf, TELE_CATEGORIES } from '../lib/telehealth'
+import { loadIntegrations, PROVIDER_NAME, type Integrations } from '../lib/integrations'
+import { TELE_PRICES } from '../lib/telePrices'
 
-type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules' | 'security'
+type View = 'facility' | 'users' | 'departments' | 'services' | 'investigations' | 'providers' | 'modules' | 'security' | 'integrations'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
   pricing: 'Set platform prices (provider only)', 'clinical-notes': 'Write history, examination, plans and assessments', triage: 'Triage patients', register: 'Register patients', vitals: 'Record observations', notes: 'Write clinical notes', prescribe: 'Prescribe and order',
@@ -53,6 +57,7 @@ export default function Admin() {
         { value: 'investigations', label: 'Investigations', count: state.investigations.length },
         { value: 'providers', label: 'Network & connections', count: state.providers.filter((item) => item.active).length || undefined },
         { value: 'security', label: 'Security', count: state.securityEvents.filter((event) => ['sign-in-failed', 'locked-out', 'unlock-failed', 'step-up-failed'].includes(event.type) && Date.now() - new Date(event.at).getTime() < 86_400_000).length || undefined },
+        { value: 'integrations', label: 'Payments & SMS', count: (state.smsLog ?? []).filter((item) => item.status === 'Failed' && Date.now() - Date.parse(item.at) < 86_400_000).length || undefined },
         { value: 'modules', label: 'Plan & modules', count: state.platformInvoices.filter((item) => item.status === 'Issued').length || undefined },
       ]} />
       {view === 'facility' && <><TeachingSetting /><FacilityTab /></>}
@@ -62,9 +67,61 @@ export default function Admin() {
       {view === 'security' && <SecurityCenter />}
       {view === 'investigations' && <InvestigationsTab />}
       {view === 'providers' && <ProvidersTab />}
+      {view === 'integrations' && <IntegrationsTab />}
       {view === 'modules' && <ModulesTab />}
     </motion.div>
   )
+}
+
+/* ---------------- Payments & SMS ---------------- */
+
+const ENV_PAYMENTS = `# Chapa (Ethiopia: telebirr, CBE Birr, M-Pesa, cards)
+CHAPA_SECRET_KEY=CHASECK-…        # CHASECK_TEST-… for test mode
+PAYMENT_CURRENCY=ETB
+# or Stripe (international cards)
+# STRIPE_SECRET_KEY=sk_live_…
+# Prices the server charges (VAT inclusive), by service:
+# TELEHEALTH_PRICES={"SV-15":{"name":"On-demand video visit","price":30}}`
+
+const ENV_SMS = `# AfroMessage (Ethiopia)
+AFROMESSAGE_TOKEN=…
+AFROMESSAGE_IDENTIFIER_ID=…
+AFROMESSAGE_SENDER=Northstar
+# or Africa's Talking: AFRICASTALKING_USERNAME / AFRICASTALKING_API_KEY / AFRICASTALKING_SENDER_ID
+# or Twilio: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM
+SMS_ALLOWED_PREFIXES=+251
+ALLOWED_ORIGINS=https://care.your-hospital.et`
+
+/** Live status of the hospital's payment gateway and SMS gateway, a test SMS, price checks and the SMS log. */
+function IntegrationsTab() {
+  const { state, sendTestSms } = useHospital()
+  const [live, setLive] = useState<Integrations | null | undefined>(undefined)
+  const [phone, setPhone] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void loadIntegrations(true).then(setLive) }, [])
+  const local = (id: string) => state.services.find((item) => item.id === id && item.active)?.price ?? TELE_PRICES[id]?.price
+  const mismatches = live ? Object.entries(live.prices).filter(([id, price]) => local(id) !== undefined && Math.abs((local(id) ?? 0) - price) > 0.005) : []
+  const log = state.smsLog ?? []
+  return <>
+    <div className="integration-grid">
+      <Panel title="Online payments" action={live === undefined ? <Chip tone="neutral">Checking…</Chip> : live?.payments ? <Chip tone={live.payments.mode === 'live' ? 'success' : 'warning'}>{PROVIDER_NAME[live.payments.provider]} · {live.payments.mode === 'live' ? 'Live' : 'Test mode'}</Chip> : <Chip tone="neutral">Not connected</Chip>}>
+        <div className="integration-body"><p className="record-hint">{live?.payments ? `Patients pay card and mobile-money fees on ${PROVIDER_NAME[live.payments.provider]}'s secure page in ${live.payments.currency}. A visit is booked only after the server verifies the payment with the provider.` : 'No gateway answers yet, so the patient portal runs in demo mode and charges nothing. Add the keys below to the server (never to the app) and redeploy.'}</p>
+        {mismatches.length > 0 && <div className="inline-error" role="alert"><AlertTriangle size={16} />The server charges different prices from this price list: {mismatches.map(([id, price]) => `${id} ${price} (list ${local(id)})`).join(', ')}. Update TELEHEALTH_PRICES on the server.</div>}
+        <pre className="integration-env">{ENV_PAYMENTS}</pre></div>
+      </Panel>
+      <Panel title="SMS" action={live === undefined ? <Chip tone="neutral">Checking…</Chip> : live?.sms ? <Chip tone="success">{PROVIDER_NAME[live.sms.provider]}</Chip> : <Chip tone="neutral">Not connected</Chip>}>
+        <div className="integration-body"><p className="record-hint">Booking confirmations, queue and “doctor is ready” texts, reminders 24 hours and 1 hour before, replies to messages, cancellations and visit summaries. Only fixed message templates can be sent, to allowed country codes, with rate limits.</p>
+        <div className="referral-reply"><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+251 9…" aria-label="Test phone number" /><Button size="sm" icon={Send} disabled={!live?.sms || phone.replace(/\D/g, '').length < 9 || busy} onClick={async () => { setBusy(true); await sendTestSms(phone); setBusy(false) }}>Send test SMS</Button></div>
+        <pre className="integration-env">{ENV_SMS}</pre></div>
+      </Panel>
+    </div>
+    <Panel title="SMS log" action={<Chip tone="neutral">{log.length} messages</Chip>}>
+      {log.length === 0 ? <p className="table-footnote admin-note">No SMS yet.</p> : <div className="table-wrap"><table className="data-table compact">
+        <thead><tr><th>When</th><th>To</th><th>Message</th><th>Gateway</th><th>Status</th></tr></thead>
+        <tbody>{log.slice(0, 50).map((item) => <tr key={item.id}><td>{formatDateTime(item.at)}</td><td className="mono">{item.to}</td><td>{item.template}{item.ref ? <small> · {item.ref}</small> : null}</td><td>{PROVIDER_NAME[item.provider] ?? item.provider}</td><td>{item.status === 'Sent' ? <Chip tone="success">Sent</Chip> : item.status === 'Failed' ? <Chip tone="danger">Failed</Chip> : <Chip tone="neutral">Demo — not sent</Chip>}{item.error ? <small> {item.error}</small> : null}</td></tr>)}</tbody>
+      </table></div>}
+    </Panel>
+  </>
 }
 
 /* ---------------- Facility ---------------- */
@@ -323,7 +380,7 @@ function DepartmentsTab() {
                 <td className="wrap">{item.services.map((service) => <Chip key={service} tone="neutral">{service}</Chip>)}</td>
                 <td className="num">{item.capacity}</td>
                 <td className="num">{patientsIn(item.id)}</td>
-                <td>{item.active === false ? <Chip tone="neutral">Inactive</Chip> : <Chip tone="success">Active</Chip>}</td>
+                <td>{item.active === false ? <Chip tone="neutral">Inactive</Chip> : <Chip tone="success">Active</Chip>} {offersVideo(item) && <Chip tone="accent">Video visits</Chip>}</td>
                 <td className="row-actions">
                   <Button size="sm" variant="secondary" onClick={() => setEditing(item)}>Edit</Button>
                   {item.active === false ? <Button size="sm" onClick={() => saveDepartment({ ...item, active: true })}>Reactivate</Button> : <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setConfirm(item)}>Remove</Button>}
@@ -367,6 +424,7 @@ function DepartmentModal({ department, onClose, onSave }: { department: Departme
         <label className="form-field"><span>Colour</span><input type="color" value={form.color} onChange={(event) => set('color', event.target.value)} /></label>
         <label className="form-field"><span>Part of <small className="muted-text">for a unit inside a department</small></span><select value={form.parent ?? ''} onChange={(event) => set('parent', (event.target.value || undefined) as DepartmentId | undefined)}><option value="">— A department on its own —</option>{state.departments.filter((item) => item.id !== form.id && !item.parent && item.active !== false && !['laboratory', 'radiology', 'pharmacy'].includes(item.id)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       </div>
+      {!NOT_BY_VIDEO.includes(id) && <label className="remember-row"><input type="checkbox" checked={offersVideo({ ...form, id, active: true })} onChange={(event) => set('telemedicine', event.target.checked)} />Offer video visits on the patient portal <small className="muted-text">({specialtyOf({ ...form, id }).category === 'other' ? 'listed under Other clinics' : `listed under ${TELE_CATEGORIES.find((item) => item.id === specialtyOf({ ...form, id }).category)?.label}`})</small></label>}
       {form.parent && <p className="table-footnote">Staff signed in to {state.departments.find((item) => item.id === form.parent)?.name} will also see this unit’s patients.</p>}
       {clash && <div className="inline-error" role="alert"><AlertTriangle size={16} />A department with this name already exists.</div>}
       <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} disabled={!valid} onClick={() => onSave({ ...form, id, name: form.name.trim(), shortName: form.shortName.trim() || form.name.trim(), description: form.description || form.name.trim(), services: units.split(',').map((unit) => unit.trim()).filter(Boolean) })}>{isNew ? 'Add department' : 'Save'}</Button></div>

@@ -1,4 +1,5 @@
-import type { Appointment, Connection, HospitalService, HospitalState, Invoice, NetworkFacility, StaffMember, TeleService, VisitPayer } from '../types'
+import { TELE_PRICES } from './telePrices'
+import type { Appointment, Connection, Department, HospitalService, HospitalState, Invoice, NetworkFacility, StaffMember, TeleService, VisitPayer } from '../types'
 
 /* ---------- Screening questionnaires (public domain) ---------- */
 
@@ -48,13 +49,7 @@ export function serviceFor(service: TeleService, onDemand: boolean) {
   return service === 'Specialist' ? 'SV-02' : 'SV-14'
 }
 
-const FALLBACK: Record<string, { name: string; price: number }> = {
-  'SV-02': { name: 'Specialist consultation', price: 35 },
-  'SV-14': { name: 'Video consultation', price: 25 },
-  'SV-15': { name: 'On-demand video visit', price: 30 },
-  'SV-16': { name: 'Mental health video session', price: 40 },
-  'SV-17': { name: 'Secure message to a clinician', price: 8 },
-}
+const FALLBACK = TELE_PRICES
 
 export function priceOf(id: string, services: HospitalService[]) {
   const service = services.find((item) => item.id === id && item.active && item.status === 'Live')
@@ -79,12 +74,61 @@ export function visitInvoice(id: string, patientId: string, serviceId: string, d
 
 export const paymentReference = () => `PAY-${Array.from(crypto.getRandomValues(new Uint8Array(5)), (byte) => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[byte % 31]).join('')}`
 
+/* ---------- Specialties offered by video ---------- */
+
+export type TeleCategory = 'primary' | 'women' | 'children' | 'mind' | 'medicine' | 'surgery' | 'senses' | 'other'
+
+export const TELE_CATEGORIES: Array<{ id: TeleCategory; label: string; blurb: string }> = [
+  { id: 'primary', label: 'Everyday care', blurb: 'Common illnesses, check-ups, results and repeat medicines' },
+  { id: 'women', label: "Women's health", blurb: 'Gynaecology, pregnancy and contraception' },
+  { id: 'children', label: 'Children and newborns', blurb: 'Babies, children and teenagers' },
+  { id: 'mind', label: 'Mental health', blurb: 'Confidential care for mood, anxiety, stress and sleep' },
+  { id: 'medicine', label: 'Medical specialties', blurb: 'Heart, hormones, brain and cancer follow-up' },
+  { id: 'surgery', label: 'Surgery and bones', blurb: 'Before and after operations, injuries and joints' },
+  { id: 'senses', label: 'Skin, eyes, ear, nose and throat', blurb: 'Photos help: rashes, red eyes, ear and throat problems' },
+  { id: 'other', label: 'Other clinics', blurb: 'More services from this hospital' },
+]
+
+export interface TeleSpecialty { category: TeleCategory; label: string; examples: string; notFor?: string; service: TeleService }
+
+/** Departments that suit video care, with what patients can be seen for. Emergency, intensive care, theatres, imaging and laboratory are not offered by video. */
+export const TELE_SPECIALTIES: Record<string, TeleSpecialty> = {
+  'internal-medicine': { category: 'primary', service: 'General practice', label: 'General practice and internal medicine', examples: 'Fever, cough and colds, stomach upsets, blood pressure and diabetes check-ins, results, repeat medicines' },
+  obgyn: { category: 'women', service: 'Specialist', label: 'Gynaecology and obstetrics', examples: 'Period problems, contraception, fertility questions, antenatal and postnatal check-ins, menopause', notFor: 'Bleeding in pregnancy, severe tummy pain or fewer baby movements — go to the maternity unit now.' },
+  pediatrics: { category: 'children', service: 'Specialist', label: 'Paediatrics', examples: 'Fever, rashes, feeding and growth, coughs, asthma and allergy follow-up', notFor: 'A child who is floppy, hard to wake, struggling to breathe or has a rash that does not fade when pressed — go to emergency now.' },
+  nicu: { category: 'children', service: 'Specialist', label: 'Newborn follow-up', examples: 'After neonatal care: feeding, weight gain, jaundice and development check-ins' },
+  psychiatry: { category: 'mind', service: 'Mental health', label: 'Psychiatry and counselling', examples: 'Low mood, anxiety, stress, sleep problems, medication reviews, child and adolescent mental health', notFor: 'If you might act on thoughts of harming yourself or someone else, call 907 or go to emergency now.' },
+  cardiology: { category: 'medicine', service: 'Specialist', label: 'Cardiology', examples: 'Palpitations, blood pressure, after a heart attack or stent, heart medicine reviews', notFor: 'Chest pain or tightness now — call 907.' },
+  endocrinology: { category: 'medicine', service: 'Specialist', label: 'Diabetes and thyroid', examples: 'Sugar readings and insulin, thyroid problems, weight and hormone questions' },
+  neurology: { category: 'medicine', service: 'Specialist', label: 'Neurology', examples: 'Headaches and migraine, epilepsy, after a stroke, numbness and tingling', notFor: 'Sudden weakness, a drooping face or slurred speech — call 907 now.' },
+  oncology: { category: 'medicine', service: 'Specialist', label: 'Oncology follow-up', examples: 'Side effects during treatment, results, follow-up after cancer care', notFor: 'Fever during chemotherapy — come to emergency now.' },
+  surgery: { category: 'surgery', service: 'Specialist', label: 'General surgery', examples: 'Wound checks, after an operation, hernia, gallbladder and lump advice' },
+  orthopedics: { category: 'surgery', service: 'Specialist', label: 'Orthopaedics', examples: 'After a fracture or joint operation, back, knee and shoulder pain' },
+  dermatology: { category: 'senses', service: 'Specialist', label: 'Dermatology', examples: 'Rashes, acne, eczema, psoriasis, hair and nail problems, moles (send photos)' },
+  ophthalmology: { category: 'senses', service: 'Specialist', label: 'Eye care', examples: 'Red, itchy or sticky eyes, glasses questions, glaucoma follow-up', notFor: 'Sudden loss of vision or an eye injury — go to emergency now.' },
+  ent: { category: 'senses', service: 'Specialist', label: 'Ear, nose and throat', examples: 'Ear pain, sinus problems, sore throat, snoring, hearing' },
+}
+
+/** Departments never offered by video. */
+export const NOT_BY_VIDEO = ['emergency', 'icu', 'or', 'radiology', 'laboratory', 'pharmacy', 'ward']
+
+export function specialtyOf(department: Department): TeleSpecialty {
+  return TELE_SPECIALTIES[department.id] ?? { category: 'other', service: 'Specialist', label: department.name, examples: department.description }
+}
+
+/** Whether the department offers video visits: the administrator's choice, else whether the specialty suits video. */
+export const offersVideo = (department: Department) => department.active !== false && !NOT_BY_VIDEO.includes(department.id) && (department.telemedicine ?? Boolean(TELE_SPECIALTIES[department.id]))
+
+/** Video departments grouped by category, each with its bookable doctors. */
+export function videoCatalogue(departments: Department[], staff: StaffMember[]) {
+  const entries = departments.filter(offersVideo).map((department) => ({ department, specialty: specialtyOf(department), doctors: staff.filter((member) => member.department === department.id && bookable(member)) }))
+  return TELE_CATEGORIES.map((category) => ({ ...category, items: entries.filter((entry) => entry.specialty.category === category.id) })).filter((group) => group.items.length)
+}
+
 /* ---------- Clinicians, slots, queue ---------- */
 
-const CLINICAL_ROLES = ['physician', 'consultant']
-
-/** Approved, active doctors (not interns) whom patients can book. */
-export const bookable = (member: StaffMember) => CLINICAL_ROLES.includes(member.roleId ?? '') && !member.suspended && member.status !== 'Pending approval' && member.grade !== 'Intern'
+/** Approved, active doctors (any grade above intern) whom patients can book. */
+export const bookable = (member: StaffMember) => Boolean(member.grade) && member.grade !== 'Intern' && !member.suspended && member.status !== 'Pending approval'
 
 export function cliniciansFor(staff: StaffMember[], department?: string) {
   const all = staff.filter(bookable)
@@ -146,7 +190,9 @@ export function reminderText(apt: Appointment, facility: string) {
 export function dueReminders(apt: Appointment, now = Date.now()) {
   if (!apt.reminders || apt.status !== 'Scheduled') return []
   const start = Date.parse(apt.startsAt)
-  const marks = [start - 24 * 3_600_000, start - 3_600_000].filter((mark) => mark <= now && now < start)
+  // A mark that passed before the visit was booked is skipped: the booking confirmation already covered it.
+  const bookedAt = Date.parse(apt.payment?.at ?? '') || 0
+  const marks = [start - 24 * 3_600_000, start - 3_600_000].filter((mark) => mark <= now && now < start && mark > bookedAt)
   const lastSent = Math.max(0, ...apt.reminders.sent.map((item) => Date.parse(item.at)))
   return marks.filter((mark) => lastSent < mark)
 }

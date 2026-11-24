@@ -64,7 +64,7 @@ export default function Telemedicine() {
         <p className="work-card-reason">{hidden(item) ? 'Confidential visit' : item.reason}</p>
         {!hidden(item) && item.intake && item.status !== 'Completed' && <p className="tele-intake-line">{item.intake.symptoms}{item.intake.since ? ` · ${item.intake.since}` : ''}</p>}
         <div className="tele-chips">
-          {item.service && <Chip tone={item.service === 'Mental health' ? 'accent' : 'neutral'}>{item.service}</Chip>}
+          {item.service && <Chip tone={item.service === 'Mental health' ? 'accent' : 'neutral'}>{item.service === 'Specialist' ? state.departments.find((d) => d.id === item.department)?.shortName ?? item.service : item.service}</Chip>}
           {item.joinCode && <Chip tone="neutral"><Link2 size={11} /> Code <span className="mono">{item.joinCode}</span></Chip>}
           {item.intake && <Chip tone="success"><ClipboardCheck size={11} /> Intake</Chip>}
           {!hidden(item) && item.intake?.photos.length ? <button type="button" className="chip-button" onClick={() => setPhoto(item.intake!.photos[0])}><Chip tone="neutral"><Camera size={11} /> {item.intake.photos.length} photo{item.intake.photos.length === 1 ? '' : 's'}</Chip></button> : null}

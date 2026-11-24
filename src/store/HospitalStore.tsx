@@ -4,12 +4,13 @@ import { BREAK_GLASS_HOURS, canSeePatient, SCOPED_ROLES } from '../lib/access'
 import { DEFAULT_FEES, nextQueueNo, orderBilling, payerCover, VISIT_LABEL, visitCharges } from '../lib/reception'
 import { DEFAULT_GRADE, gradeById, gradeLabel, rankOf } from '../lib/grades'
 import { canAssess, levelOf, professionOf, ROLE_LEVELS } from '../lib/teaching'
-import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, roleProfiles, setVatRate } from '../data'
+import { createInitialState, defaultSettings, departmentSeed, invoiceTotals, phoneFor, roleProfiles, setVatRate } from '../data'
 import { setCurrency, setExportAudit } from '../lib/format'
 import { onExternalChange, readSecure, writeSecure } from '../lib/secureStore'
 import { chainEvent, clearFailures, clearSessionStart, DEFAULT_SECURITY, markSessionStart, sessionStartedAt } from '../lib/security'
 import { PRINTOUT } from '../lib/diagnostics'
 import { makeJoinCode } from '../lib/telecall'
+import { appLink, loadIntegrations, sendTemplateSms, type SmsTemplate } from '../lib/integrations'
 import { dueReminders, IN_HOUSE, MESSAGE_SERVICE, paymentReference, pharmacyName, priceOf, reminderText, serviceFor, visitInvoice } from '../lib/telehealth'
 import { DEFAULT_PRICES, estimateBill, isOn, moduleForRole, MODULES } from '../lib/modules'
 import { setReceptionGate } from '../lib/clinical'
@@ -17,6 +18,7 @@ import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } 
 import type {
   AppointmentStatus,
   MessageThread,
+  SmsRecord,
   TeleIntake,
   TeleService,
   VisitPayer,
@@ -170,7 +172,8 @@ interface HospitalContextValue {
   setVisitPharmacy: (id: string, pharmacy: string) => void
   claimOnDemand: (id: string) => void
   sendVisitReminder: (id: string, auto?: boolean) => void
-  openThread: (input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean }) => string | null
+  openThread: (input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean; gateway?: Gateway }) => string | null
+  sendTestSms: (phone: string) => Promise<boolean>
   patientMessage: (threadId: string, text: string, photos: string[]) => void
   replyThread: (threadId: string, text: string, close: boolean) => void
   setAppointmentStatus: (id: string, status: AppointmentStatus) => void
@@ -269,7 +272,11 @@ export interface VideoVisitRequest {
   insurer?: string
   reminders?: { channels: Array<'SMS' | 'Email'>; phone?: string; email?: string }
   pharmacy: string
+  /** Set when the patient paid online: the payment was verified with the provider first. */
+  gateway?: Gateway
 }
+
+export interface Gateway { reference: string; provider: string; amount: number; method?: string; currency?: string }
 
 const HospitalContext = createContext<HospitalContextValue | null>(null)
 
@@ -294,7 +301,8 @@ function fromSaved(saved: string | null): HospitalState {
     if (!saved) return seed
     const parsed = JSON.parse(saved) as Partial<HospitalState>
     return {
-      patients: mergeById(parsed.patients, seed.patients),
+      // Demo phone numbers saved before they had the full 9 digits after +251 get the corrected number.
+      patients: mergeById(parsed.patients, seed.patients).map((item) => item.phone && /^\+251 91\d \d\d \d{3}$/.test(item.phone) ? { ...item, phone: phoneFor(item.mrn) } : item),
       departments: mergeById(parsed.departments, seed.departments),
       referrals: mergeById(parsed.referrals, seed.referrals),
       orders: mergeById(parsed.orders, seed.orders),
@@ -328,6 +336,7 @@ function fromSaved(saved: string | null): HospitalState {
       assessments: mergeById(parsed.assessments, seed.assessments),
       securityEvents: Array.isArray(parsed.securityEvents) ? parsed.securityEvents : [],
       messageThreads: mergeById(parsed.messageThreads, seed.messageThreads),
+      smsLog: Array.isArray(parsed.smsLog) ? parsed.smsLog : [],
       pricing: { ...DEFAULT_PRICES, ...(parsed.pricing ?? {}), modules: { ...DEFAULT_PRICES.modules, ...(parsed.pricing?.modules ?? {}) } },
     }
   } catch {
@@ -846,6 +855,19 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify(status === 'Paid' ? `Payment recorded for ${id}` : `Claim submitted for ${id}`)
   }, [actorName, commit, notify])
 
+  /** Texts the patient through the hospital's SMS gateway; every attempt goes in the SMS log. Demo mode records it without sending. */
+  const smsNotify = useCallback((patientId: string, template: SmsTemplate, params: Record<string, string>, ref?: string) => {
+    const phone = stateRef.current.patients.find((item) => item.id === patientId)?.phone
+    if (!phone) return
+    const log = (entry: Omit<SmsRecord, 'id' | 'at' | 'template' | 'ref'>) => setState((previous) => ({ ...previous, smsLog: [{ id: makeId('sms'), at: new Date().toISOString(), template, ref, ...entry }, ...(previous.smsLog ?? [])].slice(0, 300) }))
+    void loadIntegrations().then(async (live) => {
+      const masked = `${phone.replace(/\s/g, '').slice(0, 5)}•••${phone.replace(/\D/g, '').slice(-3)}`
+      if (!live?.sms) { log({ to: masked, status: 'Demo', provider: 'Not connected' }); return }
+      const result = await sendTemplateSms(phone, template, params)
+      log({ to: result.to ?? masked, status: result.ok ? 'Sent' : 'Failed', provider: result.provider, ...(result.error ? { error: result.error } : {}) })
+    })
+  }, [])
+
   /** Video consultation lifecycle: start (doctor joins), patient consent, finish (duration on the timeline). */
   const startTeleconsult = useCallback((id: string) => {
     const actor = actorName('Clinician')
@@ -893,10 +915,21 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         actor, action: `completed a ${minutes}-minute video consultation (${apt.id})${visitSummary ? ' and shared the after-visit summary' : ''}`, department: apt.department, patientId: apt.patientId,
       }
     })
+    const apt = stateRef.current.appointments.find((item) => item.id === id)
+    if (apt && avs) smsNotify(apt.patientId, 'summary', { doctor: actorName('Your doctor'), link: appLink('/care') }, id)
     notify(avs ? 'Visit completed — summary shared with the patient' : 'Video consultation completed and added to the record')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, smsNotify])
 
   const PORTAL = 'Patient portal'
+
+  const sendTestSms = useCallback(async (phone: string) => {
+    const live = await loadIntegrations(true)
+    if (!live?.sms) { notify('SMS is not connected — add the gateway keys on the server', 'warning'); return false }
+    const result = await sendTemplateSms(phone, 'test')
+    setState((previous) => ({ ...previous, smsLog: [{ id: makeId('sms'), at: new Date().toISOString(), to: result.to ?? phone, template: 'test', status: result.ok ? 'Sent' as const : 'Failed' as const, provider: result.provider, ...(result.error ? { error: result.error } : {}) }, ...(previous.smsLog ?? [])].slice(0, 300) }))
+    notify(result.ok ? `Test SMS sent through ${result.provider}` : `SMS failed: ${result.error ?? 'unknown error'}`, result.ok ? 'success' : 'warning')
+    return result.ok
+  }, [notify])
 
   const portalRegister = useCallback((input: { name: string; age: number; sex: Patient['sex']; phone: string; email?: string }) => {
     const id = makeId('p')
@@ -923,16 +956,18 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     const id = nextNumber(current.appointments.map((item) => item.id), 'APT', 500)
     const invoiceId = nextNumber(current.invoices.map((item) => item.id), 'INV', 24000)
     const joinCode = makeJoinCode()
-    const reference = paymentReference()
+    const reference = input.gateway?.reference ?? paymentReference()
     const serviceId = serviceFor(input.service, input.onDemand)
-    const { name, price } = priceOf(serviceId, current.services)
+    const listed = priceOf(serviceId, current.services)
+    const name = listed.name
+    const price = input.gateway?.amount ?? listed.price
     const now = new Date().toISOString()
     const confidential = input.service === 'Mental health'
     const appointment: Appointment = {
       id, patientId: patient.id, clinician: input.onDemand ? '' : input.clinician!, department: input.department, startsAt: input.onDemand ? now : input.startsAt!, durationMinutes: input.service === 'Mental health' ? 45 : input.onDemand ? 15 : 30,
       mode: 'Video', status: 'Scheduled', reason: input.reason.trim(), joinCode, service: input.service, bookedBy: 'Patient', intake: input.intake, pharmacy: input.pharmacy, confidential,
       ...(input.onDemand ? { onDemand: true, queuedAt: now } : {}),
-      payment: { payer: input.payer, amount: price, at: now, invoiceId, reference, ...(input.insurer ? { insurer: input.insurer } : {}) },
+      payment: { payer: input.payer, amount: price, at: now, invoiceId, reference, ...(input.insurer ? { insurer: input.insurer } : {}), ...(input.gateway ? { provider: input.gateway.provider, method: input.gateway.method, currency: input.gateway.currency } : {}) },
       ...(input.reminders?.channels.length ? { reminders: { ...input.reminders, sent: [] } } : {}),
     }
     commit((previous) => ({
@@ -944,8 +979,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       },
       actor: PORTAL, action: `${input.onDemand ? 'joined the video queue' : 'booked a video visit'} for ${patient.name} (${id})`, department: input.department, patientId: patient.id,
     }))
+    const doctor = input.onDemand ? 'the next available doctor' : input.clinician!
+    smsNotify(patient.id, input.onDemand ? 'queued' : 'booked', { doctor, when: input.onDemand ? 'now' : new Date(input.startsAt!).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), code: joinCode, link: appLink(`/join/${joinCode}`) }, id)
     return { id, joinCode, reference, amount: price }
-  }, [commit])
+  }, [commit, smsNotify])
 
   const cancelVideoVisit = useCallback((id: string, by: 'Patient' | 'Staff') => {
     const actor = by === 'Patient' ? PORTAL : actorName('Clinical team')
@@ -963,8 +1000,13 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         actor, action: `cancelled video visit ${id}${refund ? ' with a full refund' : ''}`, department: apt.department, patientId: apt.patientId,
       }
     })
+    const apt = stateRef.current.appointments.find((item) => item.id === id)
+    if (apt && apt.status !== 'Completed' && apt.status !== 'Cancelled') {
+      const refund = Boolean(apt.payment) && (by === 'Staff' || apt.onDemand || Date.parse(apt.startsAt) - Date.now() > 2 * 3_600_000)
+      smsNotify(apt.patientId, 'cancelled', { code: apt.joinCode ?? id, refund: refund ? `A full refund of ${apt.payment!.amount} is on its way.` : 'This late cancellation is not refundable.' }, id)
+    }
     notify(by === 'Patient' ? 'Visit cancelled' : 'Visit cancelled and refunded', 'info')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, smsNotify])
 
   const updateIntake = useCallback((id: string, intake: TeleIntake) => {
     setState((previous) => ({ ...previous, appointments: previous.appointments.map((item) => item.id === id && item.status === 'Scheduled' ? { ...item, intake } : item) }))
@@ -991,7 +1033,9 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       if (!apt || apt.clinician || apt.status !== 'Scheduled') return null
       return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, clinician: actor, startsAt: new Date().toISOString() } : item) }, actor, action: `picked up ${id} from the on-demand video queue`, department: apt.department, patientId: apt.patientId }
     })
-  }, [actorName, commit, denied])
+    const apt = stateRef.current.appointments.find((item) => item.id === id)
+    if (apt && !apt.clinician) smsNotify(apt.patientId, 'ready', { doctor: actorName('Your doctor'), code: apt.joinCode ?? '', link: appLink(`/join/${apt.joinCode}`) }, id)
+  }, [actorName, commit, denied, smsNotify])
 
   const sendVisitReminder = useCallback((id: string, auto = false) => {
     const actor = auto ? 'Reminder service' : actorName('Clinic')
@@ -1005,28 +1049,33 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
       const sent = [...reminders.sent, ...reminders.channels.map((channel) => ({ at, channel, text }))]
       return { next: { ...previous, appointments: previous.appointments.map((item) => item.id === id ? { ...item, reminders: { ...reminders, sent } } : item) }, actor, action: `sent a ${reminders.channels.join(' and ')} reminder for ${id}`, department: apt.department, patientId: apt.patientId }
     })
+    const apt = stateRef.current.appointments.find((item) => item.id === id)
+    if (apt?.status === 'Scheduled' && (apt.reminders?.channels ?? ['SMS']).includes('SMS')) smsNotify(apt.patientId, 'reminder', { doctor: apt.clinician || 'your doctor', when: new Date(apt.startsAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), code: apt.joinCode ?? '', link: appLink(`/join/${apt.joinCode}`) }, id)
     if (!auto) notify('Reminder sent')
-  }, [actorName, commit, notify])
+  }, [actorName, commit, notify, smsNotify])
 
   // Reminder service: SMS/email 24 hours and 1 hour before each booked video visit.
   useEffect(() => {
-    const run = () => stateRef.current.appointments.filter((item) => item.reminders && dueReminders(item).length).forEach((item) => sendVisitReminder(item.id, true))
+    // Runs in signed-in staff tabs only, so a patient's open portal tab does not send duplicates.
+    const run = () => { if (!currentRole) return; stateRef.current.appointments.filter((item) => item.reminders && dueReminders(item).length).forEach((item) => sendVisitReminder(item.id, true)) }
     run()
     const timer = window.setInterval(run, 60_000)
     return () => window.clearInterval(timer)
-  }, [sendVisitReminder])
+  }, [sendVisitReminder, currentRole])
 
-  const openThread = useCallback((input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean }) => {
+  const openThread = useCallback((input: { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean; gateway?: Gateway }) => {
     const current = stateRef.current
     const patient = current.patients.find((item) => item.id === input.patientId)
     if (!patient || input.text.trim().length < 5 || input.subject.trim().length < 3) return null
     const id = nextNumber(current.messageThreads.map((item) => item.id), 'MSG', 300)
     const invoiceId = nextNumber(current.invoices.map((item) => item.id), 'INV', 24000)
-    const { name, price } = priceOf(MESSAGE_SERVICE, current.services)
+    const listed = priceOf(MESSAGE_SERVICE, current.services)
+    const name = listed.name
+    const price = input.gateway?.amount ?? listed.price
     const now = new Date()
     // Replies are promised within one working day.
     const due = new Date(now.getTime() + 24 * 3_600_000); if (due.getDay() === 6) due.setDate(due.getDate() + 2); if (due.getDay() === 0) due.setDate(due.getDate() + 1)
-    const thread: MessageThread = { id, patientId: patient.id, department: input.department, subject: input.subject.trim(), status: 'Awaiting reply', openedAt: now.toISOString(), dueAt: due.toISOString(), fee: price, invoiceId, confidential: input.confidential, messages: [{ id: makeId('m'), at: now.toISOString(), from: 'Patient', name: patient.name, text: input.text.trim(), photos: input.photos }] }
+    const thread: MessageThread = { id, patientId: patient.id, department: input.department, subject: input.subject.trim(), status: 'Awaiting reply', openedAt: now.toISOString(), dueAt: due.toISOString(), fee: price, invoiceId, confidential: input.confidential, ...(input.gateway ? { paymentReference: input.gateway.reference, paymentProvider: input.gateway.provider } : {}), messages: [{ id: makeId('m'), at: now.toISOString(), from: 'Patient', name: patient.name, text: input.text.trim(), photos: input.photos }] }
     commit((previous) => ({ next: { ...previous, messageThreads: [thread, ...previous.messageThreads], invoices: [visitInvoice(invoiceId, patient.id, MESSAGE_SERVICE, name, price, input.payer, input.insurer, now.toISOString()), ...previous.invoices] }, actor: PORTAL, action: `sent a secure message to ${unitName(input.department)} (${id})`, department: input.department, patientId: patient.id }))
     return id
   }, [commit])
@@ -1058,8 +1107,10 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
         actor, action: `${text.trim() ? 'answered' : 'closed'} secure message ${threadId}`, department: thread.department, patientId: thread.patientId,
       }
     })
+    const thread = stateRef.current.messageThreads.find((item) => item.id === threadId)
+    if (thread && text.trim()) smsNotify(thread.patientId, 'reply', { subject: thread.confidential ? 'your confidential message' : thread.subject, link: appLink('/care') }, threadId)
     notify(close ? 'Message answered and closed' : 'Reply sent to the patient')
-  }, [actorName, commit, notify, denied])
+  }, [actorName, commit, notify, denied, smsNotify])
 
   const scheduleAppointment = useCallback((input: Omit<Appointment, 'id' | 'status'>) => {
     const actor = actorName('Scheduling team')
@@ -2269,12 +2320,12 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     state: scopedState, currentRole, profile, grade: myGrade, level: myLevel, myRank, selectedPatientId, toasts, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment,
     login, logout, can, setSelectedPatientId: currentRole === 'administrator' || currentRole === 'provider' ? noPatientAccess : guardedSelect,
     addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient,
-    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
+    createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, sendTestSms, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
     signInBlock, logSecurity, saveSecurity, setUnlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
-  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
+  }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, startTeleconsult, recordTeleConsent, finishTeleconsult, portalRegister, requestVideoVisit, cancelVideoVisit, updateIntake, rateVisit, setVisitPharmacy, claimOnDemand, sendVisitReminder, openThread, sendTestSms, patientMessage, replyThread, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 
   return <HospitalContext.Provider value={value}>{children}</HospitalContext.Provider>
 }

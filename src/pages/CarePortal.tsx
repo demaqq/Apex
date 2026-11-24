@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, CalendarPlus, Camera, CheckCircle2, ClipboardList, CreditCard, Download, LogOut, MessageSquareText, Pill, Printer, Send, ShieldCheck, Star, Stethoscope, Timer, UserPlus, Video, X, Zap } from 'lucide-react'
-import { Brand, Button, Chip } from '../components/ui'
+import { Brand, Button, Chip, DepartmentIcon } from '../components/ui'
 import { downloadHtml, printHtml } from '../lib/diagnostics'
 import { formatCurrency, formatDateTime, relativeTime } from '../lib/format'
-import { avsHtml, bookable, cliniciansFor, downscalePhoto, estimatedWait, FREQUENCY, freeSlots, GAD7, onDemandQueue, PAYERS, PHQ9, pharmacies, pharmacyName, priceOf, selfHarmFlag, serviceFor } from '../lib/telehealth'
-import { useHospital } from '../store/HospitalStore'
+import { avsHtml, downscalePhoto, estimatedWait, FREQUENCY, freeSlots, GAD7, onDemandQueue, PAYERS, PHQ9, pharmacies, pharmacyName, priceOf, selfHarmFlag, serviceFor, TELE_CATEGORIES, videoCatalogue } from '../lib/telehealth'
+import { useHospital, type VideoVisitRequest } from '../store/HospitalStore'
+import { alreadyProcessed, clearPending, clearReturnParams, markProcessed, PROVIDER_NAME, readPending, returnParams, savePending, startCheckout, useIntegrations, verifyCheckout, type Integrations } from '../lib/integrations'
 import type { Appointment, DepartmentId, Patient, TeleIntake, TeleService, VisitPayer } from '../types'
 
 const SESSION = 'careos-portal-patient'
+
+type ThreadDraft = { patientId: string; department: DepartmentId; subject: string; text: string; photos: string[]; payer: VisitPayer; insurer?: string; confidential?: boolean }
 type View = 'home' | 'now' | 'book' | 'visits' | 'messages'
 const GP_DEPARTMENT: DepartmentId = 'internal-medicine'
 
@@ -20,10 +23,40 @@ export default function CarePortal() {
   const { state } = useHospital()
   const [patientId, setPatientId] = useState<string | null>(readSession)
   const [view, setView] = useState<View>('home')
-  const [preset, setPreset] = useState<{ clinician: string; department: DepartmentId; reason: string } | null>(null)
+  const [preset, setPreset] = useState<Preset | null>(null)
   const patient = state.patients.find((item) => item.id === patientId)
   const signIn = (id: string) => { writeSession(id); setPatientId(id); setView('home') }
   const signOut = () => { writeSession(null); setPatientId(null) }
+  const { requestVideoVisit, openThread } = useHospital()
+  const [returned, setReturned] = useState<{ receipt?: { id: string; reference: string; amount: number }; notice?: { tone: 'ok' | 'warn'; text: string; retry?: boolean } } | null>(null)
+
+  // Back from the payment provider: verify with the server first, then book (once per payment reference).
+  const settle = async () => {
+    const { paid, session, cancelled } = returnParams()
+    if (!paid) return
+    const pending = readPending<VideoVisitRequest | ThreadDraft>()
+    if (cancelled) { clearPending(); clearReturnParams(); setReturned({ notice: { tone: 'warn', text: 'Payment cancelled — nothing was charged. You can try again.' } }); return }
+    if (alreadyProcessed(paid)) { clearReturnParams(); return }
+    if (!pending || pending.reference !== paid) { clearReturnParams(); setReturned({ notice: { tone: 'warn', text: `We could not match payment ${paid} on this device. If you were charged, contact the clinic with this reference.` } }); return }
+    try {
+      const result = await verifyCheckout(paid, session ?? undefined)
+      if (result.status === 'pending') { setReturned({ notice: { tone: 'warn', text: `${PROVIDER_NAME[result.provider] ?? 'The payment provider'} has not confirmed the payment yet.`, retry: true } }); return }
+      if (result.status === 'failed') { clearPending(); clearReturnParams(); setReturned({ notice: { tone: 'warn', text: 'The payment did not go through, so nothing was booked. Please try again.' } }); return }
+      if (result.amount + 0.005 < pending.amount) { clearPending(); clearReturnParams(); setReturned({ notice: { tone: 'warn', text: `The amount paid does not match the price. Contact the clinic with reference ${paid}.` } }); return }
+      const gateway = { reference: paid, provider: result.provider, amount: result.amount, method: result.method, currency: result.currency }
+      markProcessed(paid); clearPending(); clearReturnParams()
+      if (pending.kind === 'visit') {
+        const booked = requestVideoVisit({ ...(pending.payload as VideoVisitRequest), gateway })
+        setReturned(booked ? { receipt: { id: booked.id, reference: paid, amount: result.amount } } : { notice: { tone: 'warn', text: `Paid (reference ${paid}) but the time is no longer free. The clinic will contact you to rebook or refund.` } })
+      } else {
+        openThread({ ...(pending.payload as ThreadDraft), gateway })
+        setView('messages'); setReturned({ notice: { tone: 'ok', text: `Paid ${result.amount.toFixed(2)} ${result.currency} — your message has been sent.` } })
+      }
+    } catch (error) {
+      setReturned({ notice: { tone: 'warn', text: error instanceof Error ? error.message : 'Could not check the payment.', retry: true } })
+    }
+  }
+  useEffect(() => { void settle() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main className="join-page portal-page">
@@ -37,11 +70,14 @@ export default function CarePortal() {
           <nav className="tabs portal-tabs" role="tablist" aria-label="Patient portal">
             {([['home', 'Home'], ['now', 'See a doctor now'], ['book', 'Book a visit'], ['visits', 'My visits'], ['messages', 'Messages']] as Array<[View, string]>).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => { setView(id); if (id !== 'book') setPreset(null) }}>{label}</button>)}
           </nav>
-          {view === 'home' && <PortalHome patient={patient} go={setView} />}
+          {returned?.notice && <p className={`portal-notice ${returned.notice.tone}`} role="status">{returned.notice.text}{returned.notice.retry && <Button size="sm" variant="secondary" onClick={() => { setReturned(null); void settle() }}>Check again</Button>}<button type="button" className="link-button" onClick={() => setReturned(null)}>Dismiss</button></p>}
+          {returned?.receipt ? <Receipt appointmentId={returned.receipt.id} reference={returned.receipt.reference} amount={returned.receipt.amount} onDone={() => { setReturned(null); setView('visits') }} /> : <>
+          {view === 'home' && <PortalHome patient={patient} go={setView} book={(department) => { setPreset(department ? { department } : null); setView('book') }} />}
           {view === 'now' && <VisitWizard key="now" patient={patient} onDemand onDone={() => setView('visits')} />}
-          {view === 'book' && <VisitWizard key={`book-${preset?.clinician ?? ''}`} patient={patient} onDemand={false} preset={preset ?? undefined} onDone={() => setView('visits')} />}
+          {view === 'book' && <VisitWizard key={`book-${preset?.department ?? ''}-${preset?.clinician ?? ''}`} patient={patient} onDemand={false} preset={preset ?? undefined} onDone={() => setView('visits')} />}
           {view === 'visits' && <MyVisits patient={patient} onFollowUp={(apt) => { setPreset({ clinician: apt.clinician, department: apt.department, reason: `Follow-up: ${apt.reason}` }); setView('book') }} />}
           {view === 'messages' && <Messages patient={patient} />}
+          </>}
         </section>
       )}
     </main>
@@ -116,7 +152,7 @@ function PortalSignIn({ onSignIn }: { onSignIn: (id: string) => void }) {
 
 /* ---------- Home ---------- */
 
-function PortalHome({ patient, go }: { patient: Patient; go: (view: View) => void }) {
+function PortalHome({ patient, go, book }: { patient: Patient; go: (view: View) => void; book: (department?: DepartmentId) => void }) {
   const { state } = useHospital()
   const mine = state.appointments.filter((item) => item.patientId === patient.id && item.mode === 'Video')
   const next = mine.filter((item) => item.status === 'Scheduled' || item.status === 'In progress').sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0]
@@ -127,9 +163,13 @@ function PortalHome({ patient, go }: { patient: Patient; go: (view: View) => voi
   return (
     <div className="portal-grid">
       <button type="button" className="portal-tile primary" onClick={() => go('now')}><Zap size={22} /><b>See a doctor now</b><span>Next available doctor · about {wait} min wait · {fee('SV-15')}</span></button>
-      <button type="button" className="portal-tile" onClick={() => go('book')}><CalendarPlus size={22} /><b>Book a visit</b><span>Choose a specialty, a doctor and a time · from {fee('SV-14')}</span></button>
-      <button type="button" className="portal-tile" onClick={() => go('book')}><Stethoscope size={22} /><b>Mental health</b><span>Confidential sessions for mood, anxiety, stress and sleep · {fee('SV-16')}</span></button>
+      <button type="button" className="portal-tile" onClick={() => book()}><CalendarPlus size={22} /><b>Book a visit</b><span>Choose a specialty, a doctor and a time · from {fee('SV-14')}</span></button>
+      <button type="button" className="portal-tile" onClick={() => book('psychiatry')}><Stethoscope size={22} /><b>Mental health</b><span>Confidential sessions for mood, anxiety, stress and sleep · {fee('SV-16')}</span></button>
       <button type="button" className="portal-tile" onClick={() => go('messages')}><MessageSquareText size={22} /><b>Message the clinic{unread ? ` · ${unread} new` : ''}</b><span>Ask a question with photos · answered within 1 working day · {fee('SV-17')}</span></button>
+      <div className="portal-browse">
+        <b>Find care by specialty</b>
+        {videoCatalogue(state.departments, state.staff).map((group) => <div key={group.id}><span>{group.label}</span><div>{group.items.filter((item) => item.doctors.length).map((item) => <button key={item.department.id} type="button" onClick={() => book(item.department.id)}><DepartmentIcon id={item.department.id} size={14} />{item.specialty.label}</button>)}</div></div>)}
+      </div>
       {next && <div className="portal-next"><CalendarClock size={18} /><div><b>{next.onDemand && !next.clinician ? 'You are in the queue' : `Next visit: ${formatDateTime(next.startsAt)}`}</b><span>{next.clinician || 'Next available doctor'} · {next.reason} · code <span className="mono">{next.joinCode}</span></span></div><Button size="sm" icon={Video} onClick={() => go('visits')}>Open</Button></div>}
     </div>
   )
@@ -139,11 +179,18 @@ function PortalHome({ patient, go }: { patient: Patient; go: (view: View) => voi
 
 const STEPS = ['Visit', 'About you', 'Pharmacy & reminders', 'Payment']
 
-function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; onDemand: boolean; preset?: { clinician: string; department: DepartmentId; reason: string }; onDone: () => void }) {
+const ON_DEMAND: DepartmentId[] = ['internal-medicine', 'pediatrics', 'psychiatry']
+const ON_DEMAND_LABEL: Record<string, string> = { 'internal-medicine': 'Adult — general practice', pediatrics: 'Child — paediatrics', psychiatry: 'Mental health support' }
+
+type Preset = { clinician?: string; department: DepartmentId; reason?: string }
+
+function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; onDemand: boolean; preset?: Preset; onDone: () => void }) {
   const { state, requestVideoVisit } = useHospital()
+  const catalogue = useMemo(() => videoCatalogue(state.departments, state.staff), [state.departments, state.staff])
+  const entries = catalogue.flatMap((group) => group.items)
+  const quick = entries.filter((entry) => ON_DEMAND.includes(entry.department.id) && entry.doctors.length)
   const [step, setStep] = useState(0)
-  const [service, setService] = useState<TeleService>(preset ? 'Specialist' : 'General practice')
-  const [department, setDepartment] = useState<DepartmentId>(preset?.department ?? GP_DEPARTMENT)
+  const [department, setDepartment] = useState<DepartmentId>(preset?.department ?? (onDemand ? quick[0]?.department.id ?? GP_DEPARTMENT : ''))
   const [clinician, setClinician] = useState(preset?.clinician ?? '')
   const [slot, setSlot] = useState('')
   const [reason, setReason] = useState(preset?.reason ?? '')
@@ -157,18 +204,27 @@ function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; 
   const [error, setError] = useState('')
   const [done, setDone] = useState<{ id: string; reference: string; amount: number } | null>(null)
 
-  const clinicalDepartments = useMemo(() => state.departments.filter((item) => state.staff.some((member) => member.department === item.id && bookable(member))), [state.departments, state.staff])
-  const team = cliniciansFor(state.staff, service === 'Specialist' ? department : GP_DEPARTMENT)
+  const entry = entries.find((item) => item.department.id === department)
+  const service: TeleService = entry?.specialty.service ?? 'General practice'
+  const team = entry?.doctors ?? []
+  const pick = (id: DepartmentId) => { setDepartment(id); setClinician(''); setSlot(''); setError('') }
   const slots = useMemo(() => clinician ? freeSlots(clinician, state.appointments) : [], [clinician, state.appointments])
   const days = useMemo(() => { const map = new Map<string, Date[]>(); slots.forEach((date) => { const key = date.toDateString(); map.set(key, [...(map.get(key) ?? []), date]) }); return [...map.entries()].slice(0, 5) }, [slots])
   const queue = onDemandQueue(state.appointments)
-  const fee = priceOf(serviceFor(service, onDemand), state.services)
+  const live = useIntegrations()
+  const serviceId = serviceFor(service, onDemand)
+  const fee = priceOf(serviceId, state.services)
+  const online = isOnline(live, payment.payer)
+  const charge = online && live?.prices[serviceId] ? live.prices[serviceId] : fee.price
+  const amountText = online && live?.payments ? `${charge.toFixed(2)} ${live.payments.currency}` : formatCurrency(fee.price)
+  const [redirecting, setRedirecting] = useState(false)
   const places = pharmacies(state.network, state.connections, state.settings.name)
   const screeningNeeded = service === 'Mental health'
 
   const checkStep = (): string => {
     if (step === 0) {
       if (reason.trim().length < 3) return 'Tell us briefly why you want to see a doctor.'
+      if (!entry) return 'Choose the kind of doctor you need.'
       if (!onDemand && (!clinician || !slot)) return 'Choose a doctor and a time.'
     }
     if (step === 1) {
@@ -176,17 +232,28 @@ function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; 
       if (screeningNeeded && ((intake.phq9 ?? []).length < 9 || (intake.gad7 ?? []).length < 7 || [...(intake.phq9 ?? []), ...(intake.gad7 ?? [])].some((value) => value === undefined))) return 'Please answer every question in both short questionnaires.'
     }
     if (step === 2 && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) return 'Check the email address for reminders.'
-    if (step === 3) { const problem = paymentProblem(payment); if (problem) return problem; if (!agree) return 'Please agree to the video consultation terms.' }
+    if (step === 3) { const problem = online ? '' : paymentProblem(payment); if (problem) return problem; if (!agree) return 'Please agree to the video consultation terms.' }
     return ''
   }
   const next = () => { const problem = checkStep(); setError(problem); if (!problem) setStep(step + 1) }
-  const pay = () => {
+  const pay = async () => {
     const problem = checkStep(); setError(problem); if (problem) return
-    const result = requestVideoVisit({
-      patientId: patient.id, service, onDemand, department: service === 'Specialist' ? department : GP_DEPARTMENT, clinician: onDemand ? undefined : clinician, startsAt: onDemand ? undefined : slot, reason,
+    const request: VideoVisitRequest = {
+      patientId: patient.id, service, onDemand, department, clinician: onDemand ? undefined : clinician, startsAt: onDemand ? undefined : slot, reason,
       intake: { ...intake, submittedAt: new Date().toISOString() }, payer: payment.payer, insurer: payment.payer === 'Insurance' ? payment.insurer : payment.payer === 'Corporate plan' ? payment.employer : undefined,
       reminders: onDemand ? undefined : { channels: [...(sms ? ['SMS' as const] : []), ...(email ? ['Email' as const] : [])], phone: patient.phone, email: email ? emailAddress : undefined }, pharmacy,
-    })
+    }
+    if (online) {
+      // Pay on the provider's secure page; the visit is booked only after the payment is verified on return.
+      setRedirecting(true)
+      try {
+        const checkout = await startCheckout(serviceId, { name: patient.name, phone: payment.payer === 'Mobile money' ? payment.walletPhone : patient.phone, email: patient.email })
+        savePending({ kind: 'visit', reference: checkout.reference, provider: checkout.provider, amount: checkout.amount, patientId: patient.id, payload: request, at: new Date().toISOString() })
+        window.location.assign(checkout.checkoutUrl)
+      } catch (failure) { setRedirecting(false); setError(failure instanceof Error ? failure.message : 'Could not start the payment.') }
+      return
+    }
+    const result = requestVideoVisit(request)
     if (!result) { setError('That could not be booked. Please choose another time.'); return }
     setDone(result)
   }
@@ -199,17 +266,25 @@ function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; 
       <ol className="portal-steps">{STEPS.map((label, index) => <li key={label} className={index === step ? 'on' : index < step ? 'done' : ''}>{index < step ? <CheckCircle2 size={13} /> : <span>{index + 1}</span>}{label}</li>)}</ol>
 
       {step === 0 && <>
-        <div className="segmented portal-services" role="radiogroup" aria-label="Type of visit">
-          {(['General practice', 'Specialist', 'Mental health'] as TeleService[]).filter((item) => !onDemand || item !== 'Specialist').map((item) => <button key={item} type="button" role="radio" aria-checked={service === item} className={service === item ? 'on' : ''} onClick={() => { setService(item); setClinician(''); setSlot(''); if (item === 'Specialist' && !clinicalDepartments.some((dep) => dep.id === department)) setDepartment(clinicalDepartments[0]?.id ?? GP_DEPARTMENT) }}>{item}</button>)}
-        </div>
-        {service === 'Mental health' && <p className="record-hint"><ShieldCheck size={13} /> Confidential: details stay with your clinician. Your wider record only shows that a session took place.</p>}
-        {onDemand ? (
+        {onDemand ? <>
+          <div className="portal-options" role="radiogroup" aria-label="Who is the visit for">{quick.map((item) => <label key={item.department.id} className={`portal-option ${department === item.department.id ? 'on' : ''}`}><input type="radio" name="on-demand" checked={department === item.department.id} onChange={() => pick(item.department.id)} /><Stethoscope size={15} /><span><b>{ON_DEMAND_LABEL[item.department.id]}</b><small>{item.specialty.examples}</small></span></label>)}</div>
           <div className="portal-queue-hint"><Timer size={18} /><div><b>About {estimatedWait(queue.length, state.staff)} minutes</b><span>{queue.length ? `${queue.length} ${queue.length === 1 ? 'person' : 'people'} ahead of you` : 'No one is waiting'} · the next available doctor will see you</span></div></div>
+        </> : !entry ? (
+          <div className="portal-catalogue">
+            {catalogue.map((group) => (
+              <section key={group.id}>
+                <h3>{group.label}</h3><p className="record-hint">{group.blurb}</p>
+                <div className="portal-specialties">{group.items.map((item) => <button key={item.department.id} type="button" disabled={!item.doctors.length} onClick={() => pick(item.department.id)}><DepartmentIcon id={item.department.id} size={18} /><b>{item.specialty.label}</b><small>{item.specialty.examples}</small><span>{item.doctors.length ? `${item.doctors.length} doctor${item.doctors.length === 1 ? '' : 's'} · ${formatCurrency(priceOf(serviceFor(item.specialty.service, false), state.services).price)}` : 'No video doctors yet'}</span></button>)}</div>
+              </section>
+            ))}
+          </div>
         ) : <>
-          {service === 'Specialist' && <label className="form-field"><span>Specialty</span><select value={department} onChange={(event) => { setDepartment(event.target.value); setClinician(''); setSlot('') }} aria-label="Specialty">{clinicalDepartments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-          <div className="form-field"><span>Doctor</span><div className="portal-doctors">{team.map((member) => <button key={member.id} type="button" className={clinician === member.name ? 'on' : ''} onClick={() => { setClinician(member.name); setSlot('') }}><b>{member.name}</b><small>{member.specialty}{member.grade ? ` · ${member.grade}` : ''}</small></button>)}</div></div>
+          <div className="portal-picked"><DepartmentIcon id={entry.department.id} size={20} /><div><b>{entry.specialty.label}</b><small>{TELE_CATEGORIES.find((item) => item.id === entry.specialty.category)?.label} · {entry.specialty.examples}</small></div><Button size="sm" variant="ghost" onClick={() => pick('')}>Change</Button></div>
+          {entry.specialty.notFor && <p className="portal-crisis" role="note"><AlertTriangle size={15} /> {entry.specialty.notFor}</p>}
+          <div className="form-field"><span>Doctor</span><div className="portal-doctors">{team.map((member) => <button key={member.id} type="button" className={clinician === member.name ? 'on' : ''} onClick={() => { setClinician(member.name); setSlot('') }}><b>{member.name}</b><small>{member.role} · {member.specialty}{member.grade ? ` · ${member.grade}${member.residentYear ? ` R${member.residentYear}` : ''}` : ''}</small></button>)}</div></div>
           {clinician && <div className="form-field"><span>Time</span>{days.length === 0 ? <p className="record-hint">No free times in the next week. Choose another doctor.</p> : <div className="portal-slots">{days.map(([day, times]) => <div key={day}><b>{new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</b><div>{times.slice(0, 8).map((time) => <button key={time.toISOString()} type="button" className={slot === time.toISOString() ? 'on' : ''} onClick={() => setSlot(time.toISOString())}>{time.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</button>)}</div></div>)}</div>}</div>}
         </>}
+        {service === 'Mental health' && <p className="record-hint"><ShieldCheck size={13} /> Confidential: details stay with your clinician. Your wider record only shows that a session took place.</p>}
         <label className="form-field"><span>Reason for the visit</span><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Rash on my arms, blood pressure review" aria-label="Reason for the visit" /></label>
       </>}
 
@@ -240,15 +315,15 @@ function VisitWizard({ patient, onDemand, preset, onDone }: { patient: Patient; 
       </>}
 
       {step === 3 && <>
-        <div className="portal-fee"><span>{fee.name}</span><b>{formatCurrency(fee.price)}</b><small>VAT included · full refund if the clinic cancels, or if you cancel more than 2 hours before</small></div>
-        <PaymentFields value={payment} onChange={setPayment} />
+        <div className="portal-fee"><span>{fee.name}</span><b>{amountText}</b><small>VAT included · full refund if the clinic cancels, or if you cancel more than 2 hours before</small></div>
+        <PaymentFields value={payment} onChange={setPayment} live={live} />
         <label className="remember-row consent-row"><input type="checkbox" checked={agree} onChange={(event) => { setAgree(event.target.checked); setError('') }} />I agree to a consultation by video. It is private and encrypted and not recorded; the doctor may ask me to come in person.</label>
       </>}
 
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="portal-actions">
         {step > 0 && <Button variant="ghost" onClick={() => { setError(''); setStep(step - 1) }}>Back</Button>}
-        {step < 3 ? <Button onClick={next}>Continue</Button> : <Button icon={CreditCard} onClick={pay}>Pay {formatCurrency(fee.price)} and {onDemand ? 'join the queue' : 'book'}</Button>}
+        {step < 3 ? <Button onClick={next}>Continue</Button> : <Button icon={CreditCard} disabled={redirecting} onClick={() => void pay()}>{redirecting ? 'Opening secure checkout…' : `Pay ${amountText} and ${onDemand ? 'join the queue' : 'book'}`}</Button>}
       </div>
     </section>
   )
@@ -308,16 +383,27 @@ function paymentProblem(value: PaymentDetails) {
   return ''
 }
 
-function PaymentFields({ value, onChange }: { value: PaymentDetails; onChange: (value: PaymentDetails) => void }) {
+/** Card and mobile money go through the online gateway when the hospital's server has one connected. */
+const isOnline = (live: Integrations | null | undefined, payer: VisitPayer) => Boolean(live?.payments) && (payer === 'Card' || payer === 'Mobile money')
+
+function PaymentFields({ value, onChange, live }: { value: PaymentDetails; onChange: (value: PaymentDetails) => void; live: Integrations | null | undefined }) {
   const set = (patch: Partial<PaymentDetails>) => onChange({ ...value, ...patch })
+  const online = isOnline(live, value.payer)
+  const provider = live?.payments ? PROVIDER_NAME[live.payments.provider] : ''
   return <>
     <div className="segmented" role="radiogroup" aria-label="Pay with">{PAYERS.map((payer) => <button key={payer} type="button" role="radio" aria-checked={value.payer === payer} className={value.payer === payer ? 'on' : ''} onClick={() => set({ payer })}>{payer}</button>)}</div>
-    {value.payer === 'Card' && <div className="form-grid form-grid-3">
+    {online ? <div className="portal-gateway">
+      <ShieldCheck size={18} />
+      <div><b>Pay on {provider}’s secure page</b><span>{live?.payments?.provider === 'stripe' ? 'Visa, Mastercard and other cards.' : 'telebirr, CBE Birr, M-Pesa, Amole and bank cards.'} You come back here once paid; your card number or PIN never reaches the hospital.</span></div>
+      {live?.payments?.mode === 'test' && <Chip tone="warning">Test mode</Chip>}
+    </div>
+    : live === null && (value.payer === 'Card' || value.payer === 'Mobile money') ? <p className="portal-demo" role="note">Demo mode: no payment gateway is connected, so nothing is charged.</p> : null}
+    {!online && value.payer === 'Card' && <div className="form-grid form-grid-3">
       <label className="form-field span-3"><span>Card number</span><input value={value.card} inputMode="numeric" autoComplete="cc-number" onChange={(event) => set({ card: event.target.value.replace(/[^\d ]/g, '').slice(0, 23) })} aria-label="Card number" /></label>
       <label className="form-field"><span>Expiry (MM/YY)</span><input value={value.expiry} autoComplete="cc-exp" onChange={(event) => set({ expiry: event.target.value.replace(/[^\d/]/g, '').slice(0, 5) })} aria-label="Expiry" /></label>
       <label className="form-field"><span>Security code</span><input value={value.cvc} inputMode="numeric" autoComplete="cc-csc" type="password" onChange={(event) => set({ cvc: event.target.value.replace(/\D/g, '').slice(0, 4) })} aria-label="Security code" /></label>
     </div>}
-    {value.payer === 'Mobile money' && <div className="form-grid form-grid-2">
+    {value.payer === 'Mobile money' && !online && <div className="form-grid form-grid-2">
       <label className="form-field"><span>Wallet</span><select value={value.wallet} onChange={(event) => set({ wallet: event.target.value })}>{['telebirr', 'M-Pesa', 'CBE Birr'].map((item) => <option key={item}>{item}</option>)}</select></label>
       <label className="form-field"><span>Number to charge</span><input value={value.walletPhone} inputMode="tel" onChange={(event) => set({ walletPhone: event.target.value })} aria-label="Mobile money number" /></label>
     </div>}
@@ -329,7 +415,7 @@ function PaymentFields({ value, onChange }: { value: PaymentDetails; onChange: (
       <label className="form-field"><span>Employer</span><input value={value.employer} onChange={(event) => set({ employer: event.target.value })} aria-label="Employer" /></label>
       <label className="form-field"><span>Employee number</span><input value={value.employee} onChange={(event) => set({ employee: event.target.value })} aria-label="Employee number" /></label>
     </div>}
-    <p className="record-hint"><ShieldCheck size={13} /> {value.payer === 'Card' ? 'Card details go to the payment processor and are never stored by the hospital.' : value.payer === 'Mobile money' ? 'You will get a prompt on your phone to approve the payment.' : 'We send the claim to your payer; you pay nothing now if it is approved.'}</p>
+    {!online && <p className="record-hint"><ShieldCheck size={13} /> {value.payer === 'Card' ? 'Card details go to the payment processor and are never stored by the hospital.' : value.payer === 'Mobile money' ? 'You will get a prompt on your phone to approve the payment.' : 'We send the claim to your payer; you pay nothing now if it is approved.'}</p>}
   </>
 }
 
@@ -345,7 +431,8 @@ function Receipt({ appointmentId, reference, amount, onDone }: { appointmentId: 
       <dl className="portal-receipt">
         <div><dt>Receipt</dt><dd className="mono">{reference}</dd></div>
         <div><dt>Invoice</dt><dd className="mono">{apt.payment?.invoiceId}</dd></div>
-        <div><dt>Amount</dt><dd>{formatCurrency(amount)} <small>VAT included</small></dd></div>
+        <div><dt>Amount</dt><dd>{apt.payment?.currency ? `${amount.toFixed(2)} ${apt.payment.currency}` : formatCurrency(amount)} <small>VAT included</small></dd></div>
+        {apt.payment?.provider && <div><dt>Paid with</dt><dd>{PROVIDER_NAME[apt.payment.provider] ?? apt.payment.provider}{apt.payment.method ? ` · ${apt.payment.method}` : ''}</dd></div>}
         <div><dt>Visit code</dt><dd className="mono portal-mrn">{apt.joinCode}</dd></div>
         <div><dt>When</dt><dd>{apt.onDemand ? 'Now — next available doctor' : `${formatDateTime(apt.startsAt)} with ${apt.clinician}`}</dd></div>
       </dl>
@@ -453,15 +540,29 @@ function Messages({ patient }: { patient: Patient }) {
   const [payment, setPayment] = useState<PaymentDetails>({ payer: 'Mobile money', card: '', expiry: '', cvc: '', wallet: 'telebirr', walletPhone: patient.phone ?? '', insurer: patient.insurance && patient.insurance !== 'Self-pay' ? patient.insurance : '', member: '', employer: '', employee: '' })
   const [reply, setReply] = useState('')
   const [error, setError] = useState('')
+  const live = useIntegrations()
   const fee = priceOf('SV-17', state.services)
+  const online = isOnline(live, payment.payer)
+  const amountText = online && live?.payments ? `${(live.prices['SV-17'] ?? fee.price).toFixed(2)} ${live.payments.currency}` : formatCurrency(fee.price)
+  const [redirecting, setRedirecting] = useState(false)
   const thread = threads.find((item) => item.id === openId)
   useEffect(() => { if (!openId && threads[0]) setOpenId(threads[0].id) }, [openId, threads])
 
-  const send = () => {
+  const send = async () => {
     if (form.subject.trim().length < 3) { setError('Add a short subject.'); return }
     if (form.text.trim().length < 5) { setError('Write your question.'); return }
-    const problem = paymentProblem(payment); if (problem) { setError(problem); return }
-    const id = openThread({ patientId: patient.id, department: form.department, subject: form.subject, text: form.text, photos: form.photos, payer: payment.payer, insurer: payment.payer === 'Insurance' ? payment.insurer : payment.payer === 'Corporate plan' ? payment.employer : undefined, confidential: form.confidential })
+    const problem = online ? '' : paymentProblem(payment); if (problem) { setError(problem); return }
+    const draft: ThreadDraft = { patientId: patient.id, department: form.department, subject: form.subject, text: form.text, photos: form.photos, payer: payment.payer, insurer: payment.payer === 'Insurance' ? payment.insurer : payment.payer === 'Corporate plan' ? payment.employer : undefined, confidential: form.confidential }
+    if (online) {
+      setRedirecting(true)
+      try {
+        const checkout = await startCheckout('SV-17', { name: patient.name, phone: payment.payer === 'Mobile money' ? payment.walletPhone : patient.phone, email: patient.email })
+        savePending({ kind: 'message', reference: checkout.reference, provider: checkout.provider, amount: checkout.amount, patientId: patient.id, payload: draft, at: new Date().toISOString() })
+        window.location.assign(checkout.checkoutUrl)
+      } catch (failure) { setRedirecting(false); setError(failure instanceof Error ? failure.message : 'Could not start the payment.') }
+      return
+    }
+    const id = openThread(draft)
     if (!id) { setError('Your message could not be sent.'); return }
     setError(''); setComposing(false); setOpenId(id); setForm({ department: GP_DEPARTMENT, subject: '', text: '', photos: [], confidential: false })
   }
@@ -477,15 +578,15 @@ function Messages({ patient }: { patient: Patient }) {
           <h1>Message the clinic</h1>
           <p className="record-hint">For questions that can wait a day: results, medicines, a rash or wound. A clinician replies within one working day. {formatCurrency(fee.price)} per question, VAT included.</p>
           <div className="form-grid form-grid-2">
-            <label className="form-field"><span>To</span><select value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })} aria-label="Department">{state.departments.filter((item) => state.staff.some((member) => member.department === item.id && bookable(member))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="form-field"><span>To</span><select value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })} aria-label="Department">{videoCatalogue(state.departments, state.staff).map((group) => <optgroup key={group.id} label={group.label}>{group.items.filter((item) => item.doctors.length).map((item) => <option key={item.department.id} value={item.department.id}>{item.specialty.label}</option>)}</optgroup>)}</select></label>
             <label className="form-field"><span>Subject</span><input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} aria-label="Subject" /></label>
             <label className="form-field span-2"><span>Your question</span><textarea rows={4} value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} aria-label="Your question" /></label>
           </div>
           <PhotoPicker photos={form.photos} onChange={(photos) => setForm({ ...form, photos })} />
           <label className="remember-row"><input type="checkbox" checked={form.confidential} onChange={(event) => setForm({ ...form, confidential: event.target.checked })} />Keep this confidential (mental or sexual health)</label>
-          <PaymentFields value={payment} onChange={setPayment} />
+          <PaymentFields value={payment} onChange={setPayment} live={live} />
           {error && <p className="form-error" role="alert">{error}</p>}
-          <Button icon={Send} onClick={send}>Pay {formatCurrency(fee.price)} and send</Button>
+          <Button icon={Send} disabled={redirecting} onClick={() => void send()}>{redirecting ? 'Opening secure checkout…' : `Pay ${amountText} and send`}</Button>
         </> : thread ? <>
           <h1>{thread.subject}</h1>
           <p className="record-hint">{thread.status === 'Awaiting reply' ? `A clinician will reply by ${formatDateTime(thread.dueAt)}.` : thread.status === 'Answered' ? `Answered by ${thread.clinician}.` : 'This conversation is closed. Start a new message if you need more help.'}</p>
