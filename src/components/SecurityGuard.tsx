@@ -1,20 +1,33 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react'
 import { Button, Modal } from './ui'
-import { clearFailures, DEFAULT_SECURITY, lockedFor, recordFailure, verifyAccessKey } from '../lib/security'
+import { checkSecret, clearFailures, DEFAULT_SECURITY, lockedFor, recordFailure, UNLOCK_ATTEMPTS, UNLOCK_HINT, verifyAccessKey } from '../lib/security'
+import { SetUnlockModal } from './UnlockSetup'
 import { useHospital } from '../store/HospitalStore'
 
 const LOCK_KEY = 'northstar-careos-locked'
 const ACTIVITY = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'] as const
 
 type StepUp = (reason: string, kind?: 'export' | 'break-glass') => Promise<boolean>
-const StepUpContext = createContext<StepUp>(async () => true)
+interface Guard { requireStepUp: StepUp; needsUnlockSetup: boolean; openUnlockSetup: () => void; dismissUnlockSetup: () => void }
+const GuardContext = createContext<Guard>({ requireStepUp: async () => true, needsUnlockSetup: false, openUnlockSetup: () => {}, dismissUnlockSetup: () => {} })
 /** Ask for the access key again before a sensitive action. Resolves false if cancelled or wrong. */
-export const useStepUp = () => useContext(StepUpContext)
+export const useStepUp = () => useContext(GuardContext).requireStepUp
+/** Quick-unlock set-up: whether the signed-in person still needs one, and how to open the set-up. */
+export const useQuickUnlock = () => useContext(GuardContext)
+const PIN_FAILS_KEY = 'northstar-careos-unlock-fails'
+const PROMPT_KEY = 'northstar-careos-unlock-later'
+export const SIGNOUT_REASON_KEY = 'northstar-careos-signout-reason'
 
 /** Idle screen lock and step-up re-authentication for the signed-in session. */
 export function SecurityGuard({ children }: { children: ReactNode }) {
-  const { state, currentRole, profile, logout, logSecurity, notify } = useHospital()
+  const { state, currentRole, profile, logout, logSecurity, notify, meAsStaff } = useHospital()
+  const me = currentRole ? meAsStaff() : undefined
+  const secret = me?.unlock
+  const [pinFails, setPinFails] = useState(() => { try { return Number(sessionStorage.getItem(PIN_FAILS_KEY)) || 0 } catch { return 0 } })
+  const [checking, setChecking] = useState(false)
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [later, setLater] = useState(() => { try { return sessionStorage.getItem(PROMPT_KEY) === '1' } catch { return false } })
   const policy = state.settings.security ?? DEFAULT_SECURITY
   const [locked, setLocked] = useState(() => { try { return sessionStorage.getItem(LOCK_KEY) === '1' } catch { return false } })
   const [key, setKey] = useState('')
@@ -41,8 +54,36 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => { if (!currentRole) { setLocked(false); try { sessionStorage.removeItem(LOCK_KEY) } catch { /* ignore */ } } }, [currentRole])
 
+  const finishUnlock = () => {
+    setLocked(false); setKey(''); setError(''); setPinFails(0)
+    try { sessionStorage.removeItem(LOCK_KEY); sessionStorage.removeItem(PIN_FAILS_KEY) } catch { /* ignore */ }
+  }
+
+  /** Personal secret: three wrong tries end the session. */
+  const unlockWithSecret = async () => {
+    if (!secret || checking || !key) return
+    setChecking(true)
+    const ok = await checkSecret(secret, key)
+    setChecking(false)
+    if (ok) { logSecurity('unlock', `Unlocked with ${secret.method === 'PIN' ? 'PIN' : secret.method === 'Phone digits' ? 'phone digits' : 'passphrase'}`); finishUnlock(); return }
+    const fails = pinFails + 1
+    setPinFails(fails)
+    try { sessionStorage.setItem(PIN_FAILS_KEY, String(fails)) } catch { /* ignore */ }
+    logSecurity('unlock-failed', `Wrong ${secret.method === 'PIN' ? 'PIN' : secret.method === 'Phone digits' ? 'phone digits' : 'passphrase'} on the lock screen (${fails} of ${UNLOCK_ATTEMPTS})`)
+    setKey('')
+    if (fails >= UNLOCK_ATTEMPTS) {
+      logSecurity('unlock-signout', `Signed out after ${UNLOCK_ATTEMPTS} wrong unlock attempts`)
+      try { sessionStorage.setItem(SIGNOUT_REASON_KEY, `You were signed out after ${UNLOCK_ATTEMPTS} wrong unlock attempts. Please sign in again.`) } catch { /* ignore */ }
+      finishUnlock()
+      logout()
+      return
+    }
+    setError(`Wrong ${secret.method === 'PIN' ? 'PIN' : secret.method === 'Phone digits' ? 'digits' : 'passphrase'}. ${UNLOCK_ATTEMPTS - fails} ${UNLOCK_ATTEMPTS - fails === 1 ? 'try' : 'tries'} left before you are signed out.`)
+  }
+
   const unlock = () => {
     if (!currentRole) return
+    if (secret) { void unlockWithSecret(); return }
     const wait = lockedFor(currentRole)
     if (wait) { setError(`Too many failed attempts. Try again in ${Math.ceil(wait / 60_000)} min, or sign out.`); return }
     if (!verifyAccessKey(key)) {
@@ -59,9 +100,8 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
       return
     }
     clearFailures(currentRole)
-    logSecurity('unlock', 'Unlocked the screen')
-    setLocked(false); setKey(''); setError('')
-    try { sessionStorage.removeItem(LOCK_KEY) } catch { /* ignore */ }
+    logSecurity('unlock', 'Unlocked the screen with the access key')
+    finishUnlock()
   }
 
   const requireStepUp = useCallback<StepUp>((reason, kind = 'export') => {
@@ -85,7 +125,7 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
   }
 
   return (
-    <StepUpContext.Provider value={requireStepUp}>
+    <GuardContext.Provider value={{ requireStepUp, needsUnlockSetup: Boolean(currentRole && me && !secret && !later), openUnlockSetup: () => setSetupOpen(true), dismissUnlockSetup: () => { setLater(true); try { sessionStorage.setItem(PROMPT_KEY, '1') } catch { /* ignore */ } } }}>
       {children}
       {currentRole && locked && (
         <div className="lock-screen" role="dialog" aria-modal="true" aria-label="Screen locked">
@@ -93,9 +133,11 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
             <span className="lock-icon"><LockKeyhole size={26} /></span>
             <h2>Screen locked</h2>
             <p>{profile?.name} · locked after {policy.idleMinutes} minutes without activity. Patient information is hidden.</p>
-            <label className="form-field"><span>Access key</span><input type="password" autoFocus value={key} onChange={(event) => { setKey(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') unlock() }} aria-label="Access key" /></label>
+            {secret
+              ? <label className="form-field"><span>{UNLOCK_HINT[secret.method]}</span><input type="password" autoFocus inputMode={secret.method === 'Passphrase' ? 'text' : 'numeric'} autoComplete="off" value={key} onChange={(event) => { setKey(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') unlock() }} aria-label="Unlock secret" />{!error && <small className="muted-text">{UNLOCK_ATTEMPTS - pinFails} {UNLOCK_ATTEMPTS - pinFails === 1 ? 'try' : 'tries'} before you are signed out</small>}</label>
+              : <label className="form-field"><span>Access key</span><input type="password" autoFocus value={key} onChange={(event) => { setKey(event.target.value); setError('') }} onKeyDown={(event) => { if (event.key === 'Enter') unlock() }} aria-label="Access key" /></label>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <div className="lock-actions"><Button variant="ghost" icon={LogOut} onClick={() => { setLocked(false); try { sessionStorage.removeItem(LOCK_KEY) } catch { /* ignore */ } logout() }}>Sign out</Button><Button icon={KeyRound} onClick={unlock}>Unlock</Button></div>
+            <div className="lock-actions"><Button variant="ghost" icon={LogOut} onClick={() => { setLocked(false); try { sessionStorage.removeItem(LOCK_KEY) } catch { /* ignore */ } logout() }}>Sign out</Button><Button icon={KeyRound} disabled={checking} onClick={unlock}>{checking ? 'Checking…' : 'Unlock'}</Button></div>
           </div>
         </div>
       )}
@@ -107,6 +149,7 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
           <div className="modal-footer"><Button variant="ghost" onClick={() => { stepUp.resolve(false); setStepUp(null) }}>Cancel</Button><Button icon={KeyRound} onClick={confirmStepUp}>Confirm</Button></div>
         </Modal>
       )}
-    </StepUpContext.Provider>
+      {setupOpen && <SetUnlockModal first={!secret} onClose={() => setSetupOpen(false)} />}
+    </GuardContext.Provider>
   )
 }

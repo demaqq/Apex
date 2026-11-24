@@ -15,6 +15,7 @@ import { canAdvanceOrder, orderStage, patientNews2, stagesFor, statusForStage } 
 import type {
   AppointmentStatus,
   Assessment,
+  UnlockSecret,
   SecurityEvent,
   SecuritySettings,
   Grade,
@@ -218,7 +219,9 @@ interface HospitalContextValue {
   removeInvestigation: (id: string) => void
   saveProvider: (provider: ExternalProvider) => void
   removeProvider: (id: string) => void
-  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => void
+  requestAccess: (input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string; unlock?: UnlockSecret }) => void
+  /** Set your own quick-unlock secret, or (administrator) clear someone's with null. */
+  setUnlock: (staffId: string, secret: UnlockSecret | null) => void
   approveStaff: (id: string) => void
   assignPosition: (staffId: string, position: PositionId, until?: string, note?: string) => void
   removePosition: (staffId: string, position: PositionId) => void
@@ -1597,6 +1600,18 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Assessment acknowledged')
   }, [commit, meAsStaff, notify])
 
+  /** Quick-unlock secret: people set their own; the administrator can only clear one (the person then sets a new one). */
+  const setUnlock = useCallback((staffId: string, secret: UnlockSecret | null) => {
+    const me = stateRef.current.staff.find((item) => item.roleId === currentRole)
+    const member = stateRef.current.staff.find((item) => item.id === staffId)
+    if (!member) return
+    const self = me?.id === staffId
+    if (!(self && secret) && !(secret === null && (self || can('manage')))) { notify('Only the person can set their own unlock secret', 'warning'); return }
+    setState((previous) => ({ ...previous, staff: previous.staff.map((item) => item.id === staffId ? (secret ? { ...item, unlock: secret } : (({ unlock: _removed, ...rest }) => rest)(item)) : item) }))
+    logSecurity(secret ? 'unlock-set' : 'unlock-reset', secret ? `${member.name} set a ${secret.method === 'PIN' ? 'PIN' : secret.method === 'Phone digits' ? 'phone-digit code' : 'passphrase'} for quick unlock` : `${member.name}'s quick unlock was cleared`)
+    notify(secret ? 'Quick unlock saved' : 'Quick unlock cleared')
+  }, [can, currentRole, logSecurity, notify])
+
   /** Administrator changes the facility's security policy (logged in the security log). */
   const saveSecurity = useCallback((settings: SecuritySettings) => {
     if (!can('manage')) { notify('Only the administrator changes security settings', 'warning'); return }
@@ -1788,11 +1803,11 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     notify('Provider updated', 'info')
   }, [actorName, commit, notify])
 
-  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }) => {
+  const requestAccess = useCallback((input: { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string; unlock?: UnlockSecret }) => {
     commit((previous) => {
       const id = nextNumber(previous.staff.map((item) => item.id), 'ST', 0).replace(/ST-(\d)$/, 'ST-0$1')
       const title = input.grade ? gradeLabel(input.grade, input.residentYear) : input.level ?? roleProfiles[input.roleId].title
-      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: title, ...(input.grade ? { grade: input.grade, ...(input.residentYear ? { residentYear: input.residentYear } : {}) } : {}), ...(input.level ? { level: input.level } : {}), department: input.department, specialty: input.specialty.trim() || title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
+      const member: StaffMember = { id, name: input.name.trim(), roleId: input.roleId, role: title, ...(input.grade ? { grade: input.grade, ...(input.residentYear ? { residentYear: input.residentYear } : {}) } : {}), ...(input.level ? { level: input.level } : {}), ...(input.unlock ? { unlock: input.unlock } : {}), department: input.department, specialty: input.specialty.trim() || title, shift: 'Day · 07:00–15:00', onDuty: false, pager: '—', email: input.email.trim(), phone: '—', license: 'Not yet verified', status: 'Pending approval' }
       return { next: { ...previous, staff: [...previous.staff, member] }, actor: member.name, action: `requested a ${title.toLowerCase()} account`, department: input.department }
     })
     notify('Request sent — an administrator will review it', 'info')
@@ -1993,7 +2008,7 @@ export function HospitalProvider({ children }: { children: ReactNode }) {
     createPrescription, setPrescriptionStatus, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode,
     recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage,
     advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId,
-    signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
+    signInBlock, logSecurity, saveSecurity, setUnlock, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock,
     resetDemo, notify, dismissToast,
   }), [recordObservations, saveRound, reviewRound, addChartEntry, attachImages, removeImage, attachImages, removeImage, saveAssessment, rejectSpecimen, escalatePatient, advanceOrder, setBedState, addHandover, acknowledgeHandover, registerPatient, receptionCheckIn, settleAtReception, opdCall, opdFinish, completeTriage, sendPage, acknowledgePage, advanceTheatreCase, toggleChecklist, saveAnaesthesia, logAnaesthesia, cosignNote, saveEvaluation, dischargeWithSummary, recordGrowth, recordPayment, generateInvoice, restock, createStaff, setStaffSuspended, setDepartmentServices, myStaffId, signInBlock, logSecurity, saveSecurity, updateSettings, setModules, savePricing, meAsStaff, addAssessment, acknowledgeAssessment, submitApplication, reviewApplication, payPlatformInvoice, confirmPlatformPayment, saveService, requestService, decideService, updateTenant, requestConnection, setConnectionStatus, saveNetworkFacility, referOut, updateExternalReferral, saveDepartment, removeDepartment, saveInvestigation, canEditCatalogue, removeInvestigation, saveProvider, removeProvider, requestAccess, approveStaff, assignPosition, removePosition, setStaffPermissions, saveFormularyItem, receiveStock, writeOffStock, scopedState, scoped, outsidePatients, breakGlass, linkDepartment, unlinkDepartment, guardedSelect, currentRole, profile, myGrade, myLevel, myRank, selectedPatientId, toasts, login, logout, can, addTriage, retriage, addReferral, updateReferral, addOrder, updateOrder, transferPatient, addNote, dischargePatient, createPrescription, setPrescriptionStatus, collectPrescription, sendErx, collectPrescription, sendErx, setInvoiceStatus, scheduleAppointment, setAppointmentStatus, setStaffDuty, activateCode, standDownCode, resetDemo, notify, dismissToast])
 

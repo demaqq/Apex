@@ -1042,3 +1042,8 @@ select.filter-select { height: 38px; padding: 0 12px; border: 1px solid var(--li
 .panel-heading-actions { display: flex; gap: 6px; }
 .production-list { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
 tr.security-alert td { background: color-mix(in srgb, var(--danger, #dc2626) 5%, transparent); }
+.unlock-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--teal, #0f766e) 35%, var(--line-soft)); border-radius: 12px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; }
+.unlock-banner > span { flex: 1; min-width: 220px; color: var(--text); }
+.unlock-fields { display: grid; gap: 10px; }
+.unlock-fields .segmented button { display: inline-flex; align-items: center; gap: 5px; }
+.form-notice { margin: 0; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--amber, #d97706) 12%, transparent); color: var(--text); font-size: 13px; }

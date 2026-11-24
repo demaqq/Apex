@@ -22,6 +22,8 @@ export function SecurityCenter() {
   const [type, setType] = useState<'all' | 'alerts' | SecurityEvent['type']>('all')
   const [checked, setChecked] = useState<ReturnType<typeof verifyChain> | null>(null)
   const log = state.securityEvents
+  const accounts = state.staff.filter((member) => member.roleId && member.status !== 'Pending approval' && !member.suspended)
+  const withUnlock = accounts.filter((member) => member.unlock).length
   const chain = useMemo(() => verifyChain(log), [log])
   const recent = log.filter((event) => Date.now() - new Date(event.at).getTime() <= DAY)
   const count = (t: SecurityEvent['type']) => recent.filter((event) => event.type === t).length
@@ -38,6 +40,7 @@ export function SecurityCenter() {
     [true, 'Role-based access', 'Each role sees only its pages; clinicians only their departments’ patients'],
     [true, 'Administrators cannot open patient records', 'Facility management is separated from clinical data'],
     [policy.idleMinutes <= 15, 'Idle screen lock', `After ${policy.idleMinutes} minutes`],
+    [withUnlock >= accounts.length / 2, 'Personal quick unlock', `${withUnlock} of ${accounts.length} accounts have a PIN, phone digits or passphrase (salted PBKDF2 hash); 3 wrong tries sign out`],
     [policy.maxAttempts <= 5, 'Sign-in lockout', `After ${policy.maxAttempts} failed attempts, 1 minute and doubling (max 30)`],
     [policy.stepUpExports && policy.stepUpBreakGlass, 'Re-authentication for sensitive actions', `Exports ${policy.stepUpExports ? 'on' : 'off'} · emergency access ${policy.stepUpBreakGlass ? 'on' : 'off'}`],
   ]

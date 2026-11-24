@@ -570,6 +570,8 @@ export interface StaffMember {
   residentYear?: number
   /** Other professions: level on their training ladder (see lib/teaching). */
   level?: string
+  /** Personal quick-unlock secret for the lock screen, stored only as a salted PBKDF2 hash. */
+  unlock?: UnlockSecret
 }
 
 /* ---------- Administration ---------- */
@@ -972,11 +974,21 @@ export interface SecuritySettings {
 export interface SecurityEvent {
   id: string
   at: string
-  type: 'sign-in' | 'sign-in-failed' | 'locked-out' | 'sign-out' | 'auto-lock' | 'unlock' | 'unlock-failed' | 'session-expired' | 'step-up' | 'step-up-failed' | 'export' | 'break-glass' | 'settings'
+  type: 'sign-in' | 'sign-in-failed' | 'locked-out' | 'sign-out' | 'auto-lock' | 'unlock' | 'unlock-failed' | 'session-expired' | 'step-up' | 'step-up-failed' | 'export' | 'break-glass' | 'settings' | 'unlock-set' | 'unlock-reset' | 'unlock-signout'
   actor: string
   role?: string
   detail: string
   /** Hash of the previous event; together they form a tamper-evident chain. */
   prev: string
   hash: string
+}
+
+export type UnlockMethod = 'PIN' | 'Phone digits' | 'Passphrase'
+
+export interface UnlockSecret {
+  method: UnlockMethod
+  salt: string
+  /** PBKDF2-SHA-256, 150,000 iterations, hex. Never the secret itself. */
+  hash: string
+  setAt: string
 }

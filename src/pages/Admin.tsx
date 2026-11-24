@@ -134,7 +134,7 @@ function FacilityTab() {
 /* ---------------- Users & access ---------------- */
 
 function UsersTab() {
-  const { state, approveStaff, setStaffSuspended, setStaffPermissions, createStaff } = useHospital()
+  const { state, approveStaff, setStaffSuspended, setStaffPermissions, createStaff , setUnlock } = useHospital()
   const [editing, setEditing] = useState<StaffMember | null>(null)
   const [adding, setAdding] = useState(false)
   const pending = state.staff.filter((member) => member.status === 'Pending approval')
@@ -167,7 +167,7 @@ function UsersTab() {
     <Panel title="Accounts and access levels" action={<Button size="sm" icon={UserPlus} onClick={() => setAdding(true)}>Add user</Button>}>
       <div className="table-wrap">
         <table className="data-table">
-          <thead><tr><th>Name</th><th>Workspace</th><th>Department</th><th>Access</th><th aria-label="Actions" /></tr></thead>
+          <thead><tr><th>Name</th><th>Workspace</th><th>Department</th><th>Access</th><th>Quick unlock</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {accounts.map((member) => (
               <tr key={member.id}>
@@ -175,6 +175,7 @@ function UsersTab() {
                 <td>{member.role}{member.roleId && <small>{roleProfiles[member.roleId].shortTitle} workspace</small>}</td>
                 <td><span className="inline-icon"><DepartmentIcon id={member.department} size={14} />{departmentById(state.departments, member.department).shortName}</span></td>
                 <td>{accessLabel(member)}</td>
+                <td>{member.unlock ? <><Chip tone="success">{member.unlock.method === 'Phone digits' ? 'Phone digits' : member.unlock.method}</Chip><button type="button" className="link-button" onClick={() => setUnlock(member.id, null)} aria-label={`Reset quick unlock for ${member.name}`}>Reset</button></> : <Chip tone="neutral">Not set</Chip>}</td>
                 <td className="row-actions">
                   {member.roleId && member.roleId !== 'administrator' && <Button size="sm" variant="secondary" icon={KeyRound} onClick={() => setEditing(member)}>Access</Button>}
                   {member.roleId !== 'administrator' && <Button size="sm" variant={member.suspended ? 'primary' : 'ghost'} onClick={() => setStaffSuspended(member.id, !member.suspended)}>{member.suspended ? 'Reactivate' : 'Suspend'}</Button>}

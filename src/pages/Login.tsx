@@ -8,8 +8,10 @@ import { ROLE_HOME, useHospital } from '../store/HospitalStore'
 import { isOn, moduleForRole } from '../lib/modules'
 import { DEFAULT_GRADE, gradeById, GRADES, gradesFor, RESIDENT_YEARS } from '../lib/grades'
 import { PROFESSION_OPTIONS, ROLE_LEVELS } from '../lib/teaching'
-import { DEFAULT_SECURITY, lockedFor, recordFailure, verifyAccessKey } from '../lib/security'
-import type { DepartmentId, Grade, RoleId } from '../types'
+import { createSecret, DEFAULT_SECURITY, lockedFor, recordFailure, verifyAccessKey } from '../lib/security'
+import { blankUnlock, UnlockFields, unlockProblem } from '../components/UnlockSetup'
+import { SIGNOUT_REASON_KEY } from '../components/SecurityGuard'
+import type { DepartmentId, Grade, RoleId, UnlockSecret } from '../types'
 
 const ROLE_ORDER: RoleId[] = ['physician', 'consultant', 'intern', 'nurse', 'laboratory', 'diagnostics', 'radiographer', 'pharmacist', 'receptionist', 'theatre', 'allied', 'coordinator', 'billing', 'administrator', 'provider']
 
@@ -29,6 +31,7 @@ export default function Login() {
   const [remember, setRemember] = useState(true)
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState('')
+  const [signedOut] = useState(() => { try { const reason = sessionStorage.getItem(SIGNOUT_REASON_KEY); sessionStorage.removeItem(SIGNOUT_REASON_KEY); return reason } catch { return null } })
   const profile = roleProfiles[selected]
   const canChooseDepartment = ['physician', 'nurse', 'consultant', 'intern'].includes(selected)
   const live = state.departments.filter((item) => item.active !== false)
@@ -145,6 +148,7 @@ export default function Login() {
               <button type="button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? 'Hide access key' : 'Show access key'}>{showKey ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
           </label>
+          {signedOut && !error && <p className="form-notice" role="status">{signedOut}</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <label className="remember-row"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />Remember this device</label>
           <Button type="submit" size="lg" className="login-submit">Sign in as {profile.name}<ArrowRight size={18} /></Button>
@@ -156,7 +160,7 @@ export default function Login() {
   )
 }
 
-export interface AccessRequest { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string }
+export interface AccessRequest { name: string; roleId: RoleId; department: DepartmentId; specialty: string; email: string; grade?: Grade; residentYear?: number; level?: string; unlock?: UnlockSecret }
 
 function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: AccessRequest) => void }) {
   const { state } = useHospital()
@@ -168,11 +172,22 @@ function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubm
   const [level, setLevel] = useState('')
   const [department, setDepartment] = useState<DepartmentId>(state.departments[0]?.id ?? 'emergency')
   const [specialty, setSpecialty] = useState('')
+  const [unlock, setUnlock] = useState(blankUnlock())
+  const [tried, setTried] = useState(false)
+  const [sending, setSending] = useState(false)
   const option = PROFESSION_OPTIONS.find((item) => item.id === profession)!
   const levelValue = option.levels?.includes(level) ? level : option.levels?.[0] ?? ''
   const roleId: RoleId = option.doctor ? gradeById(grade)!.role : option.role!
   const valid = name.trim().split(/\s+/).length >= 2 && /.+@.+\..+/.test(email)
-  const submit = () => onSubmit({ name, roleId, department, specialty, email, ...(option.doctor ? { grade, ...(grade === 'Resident' ? { residentYear: year } : {}) } : levelValue ? { level: levelValue } : {}) })
+  const submit = async () => {
+    setTried(true)
+    if (unlockProblem(unlock)) return
+    setSending(true)
+    const secret = await createSecret(unlock.method, unlock.secret)
+    setSending(false)
+    send(secret)
+  }
+  const send = (secret: UnlockSecret) => onSubmit({ name, roleId, department, specialty, email, unlock: secret, ...(option.doctor ? { grade, ...(grade === 'Resident' ? { residentYear: year } : {}) } : levelValue ? { level: levelValue } : {}) })
   return (
     <Modal open onClose={onClose} title="Request access" subtitle={`An administrator at ${state.settings.name} will review your request`} size="md">
       <div className="form-grid form-grid-2">
@@ -187,7 +202,9 @@ function RequestAccessModal({ onClose, onSubmit }: { onClose: () => void; onSubm
         <label className="form-field span-2"><span>Specialty, unit or licence number</span><input value={specialty} onChange={(event) => setSpecialty(event.target.value)} /></label>
       </div>
       {option.doctor && <p className="record-hint">{gradeById(grade)?.description}</p>}
-      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={submit}>Send request</Button></div>
+      <span className="detail-heading">Quick unlock</span>
+      <UnlockFields value={unlock} onChange={setUnlock} showError={tried} />
+      <div className="modal-footer"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!valid || sending} onClick={submit}>{sending ? 'Sending…' : 'Send request'}</Button></div>
     </Modal>
   )
 }

@@ -1,5 +1,5 @@
 import { sha256 } from './sha256'
-import type { SecurityEvent, SecuritySettings } from '../types'
+import type { SecurityEvent, SecuritySettings, UnlockMethod, UnlockSecret } from '../types'
 
 export const DEFAULT_SECURITY: SecuritySettings = { idleMinutes: 10, sessionHours: 12, maxAttempts: 5, stepUpExports: true, stepUpBreakGlass: true }
 
@@ -83,6 +83,9 @@ export const SECURITY_LABEL: Record<SecurityEvent['type'], string> = {
   'export': 'Data exported',
   'break-glass': 'Emergency access',
   'settings': 'Security settings changed',
+  'unlock-set': 'Quick-unlock set',
+  'unlock-reset': 'Quick-unlock reset by administrator',
+  'unlock-signout': 'Signed out: wrong unlock',
 }
 
 /**
@@ -90,3 +93,51 @@ export const SECURITY_LABEL: Record<SecurityEvent['type'], string> = {
  * with per-user passwords or single sign-on and multi-factor authentication, verified on the server.
  */
 export const verifyAccessKey = (input: string) => input.trim().toUpperCase() === 'NORTHSTAR'
+
+/* ---------- Personal quick-unlock secret ---------- */
+
+export const UNLOCK_ATTEMPTS = 3
+export const UNLOCK_HINT: Record<UnlockMethod, string> = {
+  PIN: '4–6 digit PIN',
+  'Phone digits': 'Last 4 digits of your phone number',
+  Passphrase: 'Passphrase (at least 6 characters)',
+}
+
+/** Rejects secrets that are too short or too easy to guess. Returns a message, or null when acceptable. */
+export function validateSecret(method: UnlockMethod, value: string): string | null {
+  const text = value.trim()
+  if (method === 'Passphrase') return text.length >= 6 ? null : 'Use at least 6 characters.'
+  const length = method === 'PIN' ? [4, 6] : [4, 4]
+  if (!/^\d+$/.test(text) || text.length < length[0] || text.length > length[1]) return method === 'PIN' ? 'Use 4 to 6 digits.' : 'Enter exactly the last 4 digits.'
+  if (method === 'PIN') {
+    if (/^(\d)\1+$/.test(text)) return 'Too easy to guess: avoid repeating one digit.'
+    const digits = text.split('').map(Number)
+    const steps = digits.slice(1).map((digit, index) => digit - digits[index])
+    if (steps.every((step) => step === 1) || steps.every((step) => step === -1)) return 'Too easy to guess: avoid sequences like 1234.'
+    if (['1212', '2580', '0852', '1004', '2000', '1122', '6969'].includes(text)) return 'Too common: choose another PIN.'
+  }
+  return null
+}
+
+const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('')
+const normalise = (method: UnlockMethod, value: string) => method === 'Passphrase' ? value.trim().normalize('NFKC') : value.trim()
+
+async function derive(method: UnlockMethod, value: string, salt: string) {
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(normalise(method, value)), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 150_000 }, material, 256)
+  return hex(bits)
+}
+
+/** Hashes a new secret with a fresh random salt. */
+export async function createSecret(method: UnlockMethod, value: string): Promise<UnlockSecret> {
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer as ArrayBuffer)
+  return { method, salt, hash: await derive(method, value, salt), setAt: new Date().toISOString() }
+}
+
+/** Constant-time comparison of the derived hash. */
+export async function checkSecret(secret: UnlockSecret, value: string) {
+  const attempt = await derive(secret.method, value, secret.salt)
+  let diff = attempt.length ^ secret.hash.length
+  for (let i = 0; i < Math.min(attempt.length, secret.hash.length); i++) diff |= attempt.charCodeAt(i) ^ secret.hash.charCodeAt(i)
+  return diff === 0
+}
