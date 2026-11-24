@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Download, Link2, LockKeyhole, Save, ShieldCheck, XCircle } from 'lucide-react'
 import { Button, Chip, Metric, Panel, SearchField } from './ui'
 import { encryptionActive } from '../lib/secureStore'
-import { DEFAULT_SECURITY, SECURITY_LABEL, verifyChain } from '../lib/security'
+import { DEFAULT_SECURITY, IDLE_CHOICES, idleMinutesOf, SECURITY_LABEL, verifyChain } from '../lib/security'
 import { downloadCsv, formatDateTime, today } from '../lib/format'
 import { matches } from '../lib/hooks'
 import { useStepUp } from './SecurityGuard'
@@ -16,7 +16,8 @@ const ALERT: SecurityEvent['type'][] = ['sign-in-failed', 'locked-out', 'unlock-
 export function SecurityCenter() {
   const { state, saveSecurity } = useHospital()
   const stepUp = useStepUp()
-  const policy = state.settings.security ?? DEFAULT_SECURITY
+  const saved = state.settings.security ?? DEFAULT_SECURITY
+  const policy = { ...saved, idleMinutes: idleMinutesOf(saved) }
   const [form, setForm] = useState<SecuritySettings>(policy)
   const [query, setQuery] = useState('')
   const [type, setType] = useState<'all' | 'alerts' | SecurityEvent['type']>('all')
@@ -39,7 +40,7 @@ export function SecurityCenter() {
     [secureContext, 'Secure connection', secureContext ? 'Encrypted (HTTPS) or local' : 'Not secure: use HTTPS'],
     [true, 'Role-based access', 'Each role sees only its pages; clinicians only their departments’ patients'],
     [true, 'Administrators cannot open patient records', 'Facility management is separated from clinical data'],
-    [policy.idleMinutes <= 15, 'Idle screen lock', `After ${policy.idleMinutes} minutes`],
+    [policy.idleMinutes <= 60, 'Idle screen lock', `After ${policy.idleMinutes} minutes without activity; unlock with PIN or sign out`],
     [withUnlock >= accounts.length / 2, 'Personal quick unlock', `${withUnlock} of ${accounts.length} accounts have a PIN, phone digits or passphrase (salted PBKDF2 hash); 3 wrong tries sign out`],
     [policy.maxAttempts <= 5, 'Sign-in lockout', `After ${policy.maxAttempts} failed attempts, 1 minute and doubling (max 30)`],
     [policy.stepUpExports && policy.stepUpBreakGlass, 'Re-authentication for sensitive actions', `Exports ${policy.stepUpExports ? 'on' : 'off'} · emergency access ${policy.stepUpBreakGlass ? 'on' : 'off'}`],
@@ -66,7 +67,7 @@ export function SecurityCenter() {
       <div className="plan-bill">
         <Panel title="Security policy" action={<Button size="sm" icon={Save} disabled={!dirty} onClick={() => saveSecurity(form)}>Save</Button>}>
           <div className="panel-pad form-grid">
-            <label className="form-field"><span>Lock the screen after</span><select value={form.idleMinutes} onChange={(event) => setForm({ ...form, idleMinutes: Number(event.target.value) })}>{[2, 5, 10, 15, 30].map((value) => <option key={value} value={value}>{value} idle minutes</option>)}</select></label>
+            <label className="form-field"><span>Lock the screen after</span><select value={form.idleMinutes} onChange={(event) => setForm({ ...form, idleMinutes: Number(event.target.value) })}>{IDLE_CHOICES.map((value) => <option key={value} value={value}>{value === 60 ? '1 hour' : `${value} minutes`} without activity</option>)}</select></label>
             <label className="form-field"><span>End sessions after</span><select value={form.sessionHours} onChange={(event) => setForm({ ...form, sessionHours: Number(event.target.value) })}>{[4, 8, 12, 24].map((value) => <option key={value} value={value}>{value} hours</option>)}</select></label>
             <label className="form-field"><span>Lock an account after</span><select value={form.maxAttempts} onChange={(event) => setForm({ ...form, maxAttempts: Number(event.target.value) })}>{[3, 5, 10].map((value) => <option key={value} value={value}>{value} failed sign-ins</option>)}</select></label>
             <label className="remember-row"><input type="checkbox" checked={form.stepUpExports} onChange={(event) => setForm({ ...form, stepUpExports: event.target.checked })} />Ask for the access key again before exports</label>

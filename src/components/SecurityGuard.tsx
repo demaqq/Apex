@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react'
 import { Button, Modal } from './ui'
-import { checkSecret, clearFailures, DEFAULT_SECURITY, lockedFor, recordFailure, UNLOCK_ATTEMPTS, UNLOCK_HINT, verifyAccessKey } from '../lib/security'
+import { checkSecret, clearFailures, DEFAULT_SECURITY, idleMinutesOf, lockedFor, recordFailure, UNLOCK_ATTEMPTS, UNLOCK_HINT, verifyAccessKey } from '../lib/security'
 import { SetUnlockModal } from './UnlockSetup'
 import { useHospital } from '../store/HospitalStore'
 
@@ -28,7 +28,8 @@ export function SecurityGuard({ children }: { children: ReactNode }) {
   const [checking, setChecking] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
   const [later, setLater] = useState(() => { try { return sessionStorage.getItem(PROMPT_KEY) === '1' } catch { return false } })
-  const policy = state.settings.security ?? DEFAULT_SECURITY
+  const saved = state.settings.security ?? DEFAULT_SECURITY
+  const policy = { ...saved, idleMinutes: idleMinutesOf(saved) }
   const [locked, setLocked] = useState(() => { try { return sessionStorage.getItem(LOCK_KEY) === '1' } catch { return false } })
   const [key, setKey] = useState('')
   const [error, setError] = useState('')

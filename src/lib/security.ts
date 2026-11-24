@@ -1,7 +1,12 @@
 import { sha256 } from './sha256'
 import type { SecurityEvent, SecuritySettings, UnlockMethod, UnlockSecret } from '../types'
 
-export const DEFAULT_SECURITY: SecuritySettings = { idleMinutes: 10, sessionHours: 12, maxAttempts: 5, stepUpExports: true, stepUpBreakGlass: true }
+/** Idle lock window the administrator chooses from (minutes). */
+export const IDLE_CHOICES = [30, 45, 60]
+/** Older saved settings are brought into the 30–60 minute window. */
+export const idleMinutesOf = (settings?: Pick<SecuritySettings, 'idleMinutes'>) => Math.min(60, Math.max(30, settings?.idleMinutes ?? 30))
+
+export const DEFAULT_SECURITY: SecuritySettings = { idleMinutes: 30, sessionHours: 12, maxAttempts: 5, stepUpExports: true, stepUpBreakGlass: true }
 
 /* ---------- Sign-in throttling (per account, on this device) ---------- */
 

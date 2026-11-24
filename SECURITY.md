@@ -10,7 +10,7 @@ what a production deployment must add.
 |---|---|
 | Encryption at rest | Hospital data saved in the browser is encrypted with AES-GCM (256-bit). The key is generated on the device, marked non-extractable and kept in IndexedDB, so a copy of the saved data cannot be read elsewhere (`src/lib/secureStore.ts`). |
 | Sign-in lockout | After a configurable number of failed attempts (default 5) an account locks for 1 minute, doubling each time up to 30 minutes (`src/lib/security.ts`). |
-| Idle screen lock | After a configurable idle time (default 10 minutes) the screen locks and hides patient information until the access key is entered again. |
+| Idle screen lock | After 30, 45 or 60 minutes without activity (default 30) the screen locks and hides patient information until the person enters their quick-unlock PIN (or the access key if they have none); three wrong tries sign them out. |
 | Session lifetime | Sessions end after a configurable number of hours (default 12), whatever the activity. |
 | Step-up re-authentication | Exports (census, patient summaries, the security log) and emergency (break-glass) access ask for the access key again. |
 | Least privilege | Each role sees only its pages. Clinicians see only patients linked to their department (assignment, OPD, consultation, comorbidity, theatre list) unless they use logged, time-limited emergency access. Administrators and the platform super admin cannot open patient records. Privileges are checked in the data layer as well as the screens. |
